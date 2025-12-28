@@ -1,0 +1,170 @@
+# Polar Repetition Formula
+# SSOT: This is the single source of truth for polar/radial repetition
+# Verified: 2025-11-27
+
+[formula]
+name = "repeat_polar"
+category = "repetition"
+description = "Repeat a shape N times around the Y axis in a radial pattern"
+verified_date = "2025-11-27"
+
+[formula.params]
+p = { type = "vec3", description = "Input point in 3D space" }
+n = { type = "f32", description = "Number of repetitions around the circle" }
+
+[formula.returns]
+type = "vec3"
+description = "Transformed point folded into the primary sector"
+
+# Step-by-step mathematical derivation
+# Each step has a name, the expression, and explanation
+[[formula.steps]]
+name = "angle"
+expr = "PI / n"
+description = "Half sector width - we center each sector around its midpoint"
+
+[[formula.steps]]
+name = "sector"
+expr = "2.0 * angle"
+description = "Full sector width = 2π / n (divides circle into n equal parts)"
+
+[[formula.steps]]
+name = "a"
+expr = "atan2(p.z, p.x)"
+description = "Current angle from +X axis toward +Z axis in the XZ plane"
+
+[[formula.steps]]
+name = "r"
+expr = "length(p.xz)"
+description = "Radial distance from Y axis"
+
+[[formula.steps]]
+name = "a_shifted"
+expr = "a + angle"
+description = "Shift angle so sector boundaries align with 0, sector, 2*sector, etc."
+
+[[formula.steps]]
+name = "a_mod"
+expr = "a_shifted - sector * floor(a_shifted / sector) - angle"
+description = "Proper modulo that handles negative angles, then re-center"
+
+[[formula.steps]]
+name = "result"
+expr = "vec3(r * cos(a_mod), p.y, r * sin(a_mod))"
+description = "Reconstruct point at folded angle with same radius and Y"
+
+# Common mistakes and how to avoid them
+[[formula.pitfalls]]
+name = "negative_modulo"
+wrong = "a % sector"
+right = "a - sector * floor(a / sector)"
+explanation = """
+The % operator in WGSL/Rust gives remainder, not modulo.
+For negative dividends, remainder has the wrong sign.
+Example: -0.5 % 1.0 = -0.5 (wrong), but we want 0.5.
+Using floor division gives correct wrapping behavior.
+"""
+
+[[formula.pitfalls]]
+name = "atan2_argument_order"
+wrong = "atan2(p.x, p.z)"
+right = "atan2(p.z, p.x)"
+explanation = """
+atan2(y, x) returns angle from +X toward +Y.
+For XZ plane rotation around Y axis, we want angle from +X toward +Z.
+So we use atan2(z, x), NOT atan2(x, z).
+Then cos gives X component, sin gives Z component.
+"""
+
+# Test vectors to verify implementations match
+[[formula.tests]]
+name = "origin_sector"
+input = { p = [0.6, 0.5, 0.0], n = 8.0 }
+expected = [0.6, 0.5, 0.0]
+tolerance = 0.0001
+description = "Point on +X axis stays in place (sector 0 center)"
+
+[[formula.tests]]
+name = "rotated_90"
+input = { p = [0.0, 0.5, 0.6], n = 8.0 }
+expected = [0.6, 0.5, 0.0]
+tolerance = 0.0001
+description = "Point on +Z axis (90°) folds back to sector 0"
+
+[[formula.tests]]
+name = "negative_x"
+input = { p = [-0.6, 0.5, 0.0], n = 8.0 }
+expected = [0.6, 0.5, 0.0]
+tolerance = 0.0001
+description = "Point on -X axis (180°) folds back to sector 0"
+
+[[formula.tests]]
+name = "negative_z"
+input = { p = [0.0, 0.5, -0.6], n = 8.0 }
+expected = [0.6, 0.5, 0.0]
+tolerance = 0.0001
+description = "Point on -Z axis (-90°) folds back to sector 0"
+
+[[formula.tests]]
+name = "diagonal"
+input = { p = [0.424, 0.5, 0.424], n = 8.0 }
+expected = [0.6, 0.5, 0.0]
+tolerance = 0.001
+description = "Point at 45° (sector boundary) folds to sector 0"
+
+# Rust code template - uses {step_name} placeholders
+[codegen.rust]
+template = """
+/// {description}
+///
+/// # Formula Steps
+{step_docs}
+///
+/// # Verified
+/// Date: {verified_date}
+///
+/// # Pitfalls
+{pitfall_docs}
+#[inline]
+pub fn {name}(p: Vec3, n: f32) -> Vec3 {{
+    let angle = std::f32::consts::PI / n;
+    let sector = 2.0 * angle;
+    let a = p.z.atan2(p.x);
+    let r = glam::Vec2::new(p.x, p.z).length();
+    let a_shifted = a + angle;
+    let a_mod = a_shifted - sector * (a_shifted / sector).floor() - angle;
+    Vec3::new(r * a_mod.cos(), p.y, r * a_mod.sin())
+}}
+"""
+
+# WGSL code template
+[codegen.wgsl]
+template = """
+// {description}
+// Verified: {verified_date}
+// WARNING: Do not modify - generated from formulas/repeat_polar.toml
+fn op_{name}(p: vec3<f32>, n: f32) -> vec3<f32> {{
+    let angle = 3.14159265 / n;
+    let sector = 2.0 * angle;
+    let a = atan2(p.z, p.x);
+    let r = length(p.xz);
+    let a_shifted = a + angle;
+    let a_mod = a_shifted - sector * floor(a_shifted / sector) - angle;
+    return vec3<f32>(r * cos(a_mod), p.y, r * sin(a_mod));
+}}
+"""
+
+# Test code template
+[codegen.test]
+template = """
+#[test]
+fn test_{name}_{test_name}() {{
+    let p = Vec3::new({input_p});
+    let result = {name}(p, {input_n});
+    let expected = Vec3::new({expected});
+    let tol = {tolerance};
+    assert!((result.x - expected.x).abs() < tol, "x mismatch");
+    assert!((result.y - expected.y).abs() < tol, "y mismatch");
+    assert!((result.z - expected.z).abs() < tol, "z mismatch");
+}}
+"""

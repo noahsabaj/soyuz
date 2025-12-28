@@ -1,0 +1,33 @@
+[package]
+name = "soyuz-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core library for procedural asset generation"
+
+[dependencies]
+# Math
+glam = { workspace = true }
+soyuz-math = { path = "../soyuz-math" }
+
+# Noise generation
+noise = { workspace = true }
+fastnoise-lite = { workspace = true }
+
+# Image export
+image = { workspace = true }
+
+# 3D export
+gltf = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Parallelism
+rayon = { workspace = true }
+
+# Utilities
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }

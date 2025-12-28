@@ -1,0 +1,25 @@
+[package]
+name = "soyuz-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command-line interface for Soyuz"
+
+[[bin]]
+name = "soyuz"
+path = "src/main.rs"
+
+[dependencies]
+soyuz-core = { path = "../soyuz-core" }
+soyuz-render = { path = "../soyuz-render" }
+soyuz-script = { path = "../soyuz-script" }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+pollster = { workspace = true }
+image = { workspace = true }
+rustyline = { workspace = true }
+notify = { workspace = true }
+rhai = { workspace = true }
+dirs = "5.0"

@@ -1,0 +1,35 @@
+[package]
+name = "soyuz-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WGPU-based raymarching renderer for Soyuz"
+
+[dependencies]
+soyuz-core = { path = "../soyuz-core" }
+soyuz-math = { path = "../soyuz-math" }
+
+# GPU
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+glyphon = { workspace = true }
+
+# Math
+glam = { workspace = true }
+
+# Windowing
+winit = { version = "0.30", features = ["x11", "wayland"] }
+raw-window-handle = "0.6"
+
+# Async
+pollster = { workspace = true }
+
+# Image output
+image = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }

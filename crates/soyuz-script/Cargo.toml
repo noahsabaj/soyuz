@@ -1,0 +1,18 @@
+[package]
+name = "soyuz-script"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rhai scripting integration for Soyuz"
+
+[dependencies]
+soyuz-core = { path = "../soyuz-core" }
+soyuz-math = { path = "../soyuz-math" }
+soyuz-render = { path = "../soyuz-render" }
+rhai = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }

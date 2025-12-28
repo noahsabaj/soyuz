@@ -1,0 +1,16 @@
+[package]
+name = "soyuz-math"
+version = "0.1.0"
+edition = "2024"
+description = "SSOT mathematical formulas for SDF operations - generates Rust and WGSL"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+glam = { workspace = true }
+
+[build-dependencies]
+toml = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+approx = "0.5"

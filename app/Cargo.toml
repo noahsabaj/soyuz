@@ -1,0 +1,32 @@
+[package]
+name = "soyuz-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Soyuz Desktop Application"
+
+[[bin]]
+name = "soyuz-studio"
+path = "src/main.rs"
+
+[dependencies]
+soyuz-core = { path = "../crates/soyuz-core" }
+soyuz-render = { path = "../crates/soyuz-render" }
+soyuz-script = { path = "../crates/soyuz-script" }
+
+dioxus = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# For file dialogs - use xdg-portal backend (works better with Dioxus)
+rfd = { version = "0.15", default-features = false, features = ["tokio", "xdg-portal"] }
+
+# For shared state between UI and preview
+parking_lot = { workspace = true }
+
+# For session persistence
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dirs = "5.0"
