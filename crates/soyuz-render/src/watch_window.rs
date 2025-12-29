@@ -5,7 +5,7 @@
 
 use crate::camera::Camera;
 use crate::raymarcher::{Raymarcher, init_with_surface};
-use crate::shader_gen::SdfOp;
+use soyuz_sdf::SdfOp;
 use glam::Vec3;
 use std::path::PathBuf;
 use std::sync::Arc;

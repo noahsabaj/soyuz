@@ -1,0 +1,12 @@
+[package]
+name = "soyuz-sdf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-agnostic SDF types and WGSL shader generation for Soyuz"
+
+[dependencies]
+soyuz-math = { path = "../soyuz-math" }
+
+# GPU types (no actual GPU code, just bytemuck for Pod/Zeroable)
+bytemuck = { workspace = true }

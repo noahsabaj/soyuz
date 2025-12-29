@@ -724,6 +724,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-random"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2234,9 +2244,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -5558,6 +5570,7 @@ dependencies = [
  "raw-window-handle 0.6.2",
  "soyuz-core",
  "soyuz-math",
+ "soyuz-sdf",
  "thiserror 2.0.17",
  "tracing",
  "wgpu",
@@ -5576,8 +5589,28 @@ dependencies = [
  "soyuz-core",
  "soyuz-math",
  "soyuz-render",
+ "soyuz-sdf",
  "thiserror 2.0.17",
  "tracing",
+]
+
+[[package]]
+name = "soyuz-sdf"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "soyuz-math",
+]
+
+[[package]]
+name = "soyuz-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "getrandom 0.3.4",
+ "soyuz-script",
+ "soyuz-sdf",
+ "wasm-bindgen",
 ]
 
 [[package]]

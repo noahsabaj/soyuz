@@ -3,7 +3,7 @@
 //! This module provides all SDF functions accessible from Rhai scripts.
 
 use rhai::{Engine, Module};
-use soyuz_render::SdfOp;
+use soyuz_sdf::SdfOp;
 
 /// SDF node representation for Rhai
 /// This is a wrapper that can be passed around in Rhai and converted to SdfOp
@@ -12,7 +12,7 @@ pub struct RhaiSdf {
     pub op: SdfOperation,
 }
 
-/// All possible SDF operations (mirrors soyuz_render::SdfOp)
+/// All possible SDF operations (mirrors soyuz_sdf::SdfOp)
 #[derive(Debug, Clone)]
 pub enum SdfOperation {
     // Primitives
@@ -574,7 +574,7 @@ pub fn create_sdf_module() -> Module {
 }
 
 // ============================================================================
-// Conversion from SdfOperation to soyuz_render::SdfOp
+// Conversion from SdfOperation to soyuz_sdf::SdfOp
 // ============================================================================
 
 impl RhaiSdf {

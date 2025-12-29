@@ -41,16 +41,20 @@ pub mod cpu_eval;
 pub mod engine;
 pub mod env_api;
 pub mod sdf_api;
+
+#[cfg(feature = "file-watcher")]
 pub mod watcher;
 
 pub use cpu_eval::CpuSdf;
 pub use engine::{SceneResult, ScriptEngine};
 pub use env_api::{get_current_environment, register_env_api, reset_environment};
 pub use sdf_api::{RhaiSdf, SdfOperation, register_sdf_api};
+
+#[cfg(feature = "file-watcher")]
 pub use watcher::{ScriptWatcher, WatchEvent};
 
 // Re-export for convenience
-pub use soyuz_render::{Environment, SdfOp};
+pub use soyuz_sdf::{Environment, SdfOp};
 
 // Re-export soyuz_core Sdf trait for users who need CPU evaluation
 pub use soyuz_core::sdf::Sdf;

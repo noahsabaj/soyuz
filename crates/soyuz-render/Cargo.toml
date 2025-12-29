@@ -8,6 +8,7 @@ description = "WGPU-based raymarching renderer for Soyuz"
 [dependencies]
 soyuz-core = { path = "../soyuz-core" }
 soyuz-math = { path = "../soyuz-math" }
+soyuz-sdf = { path = "../soyuz-sdf" }
 
 # GPU
 wgpu = { workspace = true }

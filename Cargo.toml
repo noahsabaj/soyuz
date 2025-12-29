@@ -4,8 +4,10 @@ resolver = "2"
 members = [
     "crates/soyuz-math",
     "crates/soyuz-core",
+    "crates/soyuz-sdf",
     "crates/soyuz-render",
     "crates/soyuz-script",
+    "crates/soyuz-wasm",
     "crates/soyuz-cli",
     "app",
 ]

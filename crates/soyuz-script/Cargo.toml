@@ -8,11 +8,19 @@ description = "Rhai scripting integration for Soyuz"
 [dependencies]
 soyuz-core = { path = "../soyuz-core" }
 soyuz-math = { path = "../soyuz-math" }
-soyuz-render = { path = "../soyuz-render" }
+soyuz-sdf = { path = "../soyuz-sdf" }
+
 rhai = { workspace = true }
-notify = { workspace = true }
-notify-debouncer-mini = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
+
+# Optional: only needed for desktop features (file watching, rendering)
+soyuz-render = { path = "../soyuz-render", optional = true }
+notify = { workspace = true, optional = true }
+notify-debouncer-mini = { workspace = true, optional = true }
+
+[features]
+default = ["file-watcher"]
+file-watcher = ["dep:notify", "dep:notify-debouncer-mini"]

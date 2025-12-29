@@ -45,28 +45,6 @@ pub async fn set_editor_content(pane_id: PaneId, content: &str, cursor_pos: usiz
     let _ = document::eval(&js).await;
 }
 
-/// Sync scroll position between editor textarea, line numbers, and syntax highlight
-pub async fn sync_scroll(pane_id: PaneId) {
-    let js = format!(
-        r#"
-        (function() {{
-            var editor = document.getElementById('editor-{}');
-            var lineNumbers = document.getElementById('line-numbers-{}');
-            var syntax = document.getElementById('syntax-{}');
-            if (editor && lineNumbers) {{
-                lineNumbers.scrollTop = editor.scrollTop;
-            }}
-            if (editor && syntax) {{
-                syntax.style.transform = 'translateY(-' + editor.scrollTop + 'px)';
-            }}
-        }})();
-        "#,
-        pane_id, pane_id, pane_id
-    );
-
-    let _ = document::eval(&js).await;
-}
-
 /// Insert indentation or indent selected lines
 pub async fn insert_indent(pane_id: PaneId) {
     let js = format!(

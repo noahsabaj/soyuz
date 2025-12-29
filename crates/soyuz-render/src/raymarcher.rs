@@ -1,8 +1,7 @@
 //! GPU-based raymarching renderer for SDFs
 
 use crate::camera::Camera;
-use crate::environment::{Environment, EnvironmentUniforms};
-use crate::shader_gen::{self, SdfOp};
+use soyuz_sdf::{Environment, EnvironmentUniforms, SdfOp, build_shader, get_base_shader};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use std::sync::Arc;
@@ -74,7 +73,7 @@ impl Raymarcher {
         queue: Arc<wgpu::Queue>,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
-        let shader_source = shader_gen::get_base_shader();
+        let shader_source = get_base_shader();
         Self::with_shader(device, queue, surface_format, shader_source)
     }
 
@@ -85,7 +84,7 @@ impl Raymarcher {
         surface_format: wgpu::TextureFormat,
         sdf: &SdfOp,
     ) -> Self {
-        let shader_source = shader_gen::build_shader(sdf);
+        let shader_source = build_shader(sdf);
         Self::with_shader(device, queue, surface_format, &shader_source)
     }
 
@@ -256,7 +255,7 @@ impl Raymarcher {
         sdf: &SdfOp,
         environment: Environment,
     ) -> Self {
-        let shader_source = shader_gen::build_shader(sdf);
+        let shader_source = build_shader(sdf);
         Self::with_shader_and_env(device, queue, surface_format, &shader_source, environment)
     }
 
@@ -433,7 +432,7 @@ impl Raymarcher {
     /// Recreate the pipeline with a new SDF (preserves current environment)
     pub fn set_sdf(&mut self, sdf: &SdfOp) {
         let env = std::mem::take(&mut self.current_environment);
-        let shader_source = shader_gen::build_shader(sdf);
+        let shader_source = build_shader(sdf);
         *self = Self::with_shader_and_env(
             self.device.clone(),
             self.queue.clone(),
@@ -445,7 +444,7 @@ impl Raymarcher {
 
     /// Recreate the pipeline with a new SDF and environment
     pub fn set_sdf_and_env(&mut self, sdf: &SdfOp, environment: Environment) {
-        let shader_source = shader_gen::build_shader(sdf);
+        let shader_source = build_shader(sdf);
         *self = Self::with_shader_and_env(
             self.device.clone(),
             self.queue.clone(),

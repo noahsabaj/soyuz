@@ -1,0 +1,22 @@
+[package]
+name = "soyuz-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WebAssembly bindings for Soyuz - browser-based SDF scripting and WGSL generation"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soyuz-sdf = { path = "../soyuz-sdf" }
+soyuz-script = { path = "../soyuz-script", default-features = false }
+
+# WASM bindings
+wasm-bindgen = "0.2"
+
+# Error handling for better panic messages
+console_error_panic_hook = "0.1"
+
+# Required for WASM: enable js backend for getrandom used by rhai's ahash
+getrandom = { version = "0.3", features = ["wasm_js"] }

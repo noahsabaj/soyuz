@@ -3,7 +3,7 @@
 //! This module provides functions to configure lighting, material, and background settings.
 
 use rhai::Engine;
-use soyuz_render::Environment;
+use soyuz_sdf::Environment;
 use std::cell::RefCell;
 
 // Thread-local environment that accumulates settings during script execution

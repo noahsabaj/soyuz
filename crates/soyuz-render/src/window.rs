@@ -2,7 +2,7 @@
 
 use crate::camera::Camera;
 use crate::raymarcher::{Raymarcher, init_with_surface};
-use crate::shader_gen::SdfOp;
+use soyuz_sdf::SdfOp;
 use crate::text_overlay::FpsOverlay;
 use glam::Vec3;
 use std::sync::Arc;

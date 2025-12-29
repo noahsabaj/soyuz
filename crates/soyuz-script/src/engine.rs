@@ -4,7 +4,7 @@ use crate::env_api::{get_current_environment, register_env_api, reset_environmen
 use crate::sdf_api::{RhaiSdf, register_sdf_api};
 use anyhow::{Result, anyhow};
 use rhai::{Dynamic, Engine, Scope};
-use soyuz_render::{Environment, SdfOp};
+use soyuz_sdf::{Environment, SdfOp};
 use std::path::Path;
 
 /// Result of evaluating a script - contains both the SDF and environment settings
