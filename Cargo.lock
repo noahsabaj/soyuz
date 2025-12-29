@@ -5500,6 +5500,7 @@ dependencies = [
  "anyhow",
  "dioxus",
  "dirs 5.0.1",
+ "image",
  "parking_lot",
  "rfd",
  "serde",

@@ -12,22 +12,34 @@ mod toolbar;
 mod viewport;
 
 use dioxus::desktop::{Config, WindowBuilder};
+use dioxus::desktop::tao::window::Icon;
 use dioxus::prelude::*;
 use state::AppState;
 
 fn main() {
     tracing_subscriber::fmt::init();
 
+    // Load window icon
+    let icon = load_window_icon();
+
     // Remove native window decorations - we'll create our own title bar
     let window = WindowBuilder::new()
         .with_title("Soyuz Studio")
-        .with_decorations(false);
+        .with_decorations(false)
+        .with_window_icon(icon);
 
     let config = Config::new().with_window(window);
 
     dioxus::LaunchBuilder::desktop()
         .with_cfg(config)
         .launch(App);
+}
+
+fn load_window_icon() -> Option<Icon> {
+    let icon_bytes = include_bytes!("../../assets/icons/icon-256.png");
+    let icon_image = image::load_from_memory(icon_bytes).ok()?.to_rgba8();
+    let (width, height) = icon_image.dimensions();
+    Icon::from_rgba(icon_image.into_raw(), width, height).ok()
 }
 
 #[component]
