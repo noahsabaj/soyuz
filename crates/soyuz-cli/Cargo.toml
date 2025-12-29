@@ -23,3 +23,17 @@ rustyline = { workspace = true }
 notify = { workspace = true }
 rhai = { workspace = true }
 dirs = "5.0"
+
+[package.metadata.deb]
+name = "soyuz"
+maintainer = "Noah Sabaj"
+copyright = "2024, Noah Sabaj"
+extended-description = """
+Soyuz CLI provides command-line tools for procedural 3D asset generation.
+Preview scripts, export to mesh formats, and batch process multiple files.
+"""
+section = "graphics"
+priority = "optional"
+assets = [
+    ["target/release/soyuz", "usr/bin/", "755"],
+]

@@ -1,0 +1,206 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libspeechd-dev libxkbcommon-dev libssl-dev libgtk-3-dev libatk1.0-dev \
+            libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libcairo2-dev \
+            libsoup-3.0-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build release
+        run: cargo build --release -p soyuz-app -p soyuz-cli
+
+      - name: Create archive
+        run: |
+          mkdir -p soyuz-linux
+          cp target/release/soyuz-studio soyuz-linux/
+          cp target/release/soyuz soyuz-linux/
+          cp assets/icons/icon-256.png soyuz-linux/soyuz.png
+          cp README.md LICENSE-MIT LICENSE-APACHE soyuz-linux/
+          tar -czvf soyuz-${{ github.ref_name }}-linux-x86_64.tar.gz soyuz-linux
+
+      - name: Create .deb package
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb -p soyuz-app --no-build
+          cargo deb -p soyuz-cli --no-build
+          mv target/debian/*.deb .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: |
+            soyuz-${{ github.ref_name }}-linux-x86_64.tar.gz
+            *.deb
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build release
+        run: cargo build --release -p soyuz-app -p soyuz-cli
+
+      - name: Create .icns icon
+        run: |
+          mkdir -p soyuz.iconset
+          sips -z 16 16 assets/icons/icon-1024.png --out soyuz.iconset/icon_16x16.png
+          sips -z 32 32 assets/icons/icon-1024.png --out soyuz.iconset/icon_16x16@2x.png
+          sips -z 32 32 assets/icons/icon-1024.png --out soyuz.iconset/icon_32x32.png
+          sips -z 64 64 assets/icons/icon-1024.png --out soyuz.iconset/icon_32x32@2x.png
+          sips -z 128 128 assets/icons/icon-1024.png --out soyuz.iconset/icon_128x128.png
+          sips -z 256 256 assets/icons/icon-1024.png --out soyuz.iconset/icon_128x128@2x.png
+          sips -z 256 256 assets/icons/icon-1024.png --out soyuz.iconset/icon_256x256.png
+          sips -z 512 512 assets/icons/icon-1024.png --out soyuz.iconset/icon_256x256@2x.png
+          sips -z 512 512 assets/icons/icon-1024.png --out soyuz.iconset/icon_512x512.png
+          sips -z 1024 1024 assets/icons/icon-1024.png --out soyuz.iconset/icon_512x512@2x.png
+          iconutil -c icns soyuz.iconset -o soyuz.icns
+
+      - name: Create .app bundle
+        run: |
+          mkdir -p "Soyuz Studio.app/Contents/MacOS"
+          mkdir -p "Soyuz Studio.app/Contents/Resources"
+          cp target/release/soyuz-studio "Soyuz Studio.app/Contents/MacOS/"
+          cp soyuz.icns "Soyuz Studio.app/Contents/Resources/"
+          cat > "Soyuz Studio.app/Contents/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Soyuz Studio</string>
+            <key>CFBundleDisplayName</key>
+            <string>Soyuz Studio</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.soyuz.studio</string>
+            <key>CFBundleVersion</key>
+            <string>${{ github.ref_name }}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${{ github.ref_name }}</string>
+            <key>CFBundleExecutable</key>
+            <string>soyuz-studio</string>
+            <key>CFBundleIconFile</key>
+            <string>soyuz</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleSignature</key>
+            <string>????</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>CFBundleDocumentTypes</key>
+            <array>
+              <dict>
+                <key>CFBundleTypeName</key>
+                <string>Rhai Script</string>
+                <key>CFBundleTypeExtensions</key>
+                <array>
+                  <string>rhai</string>
+                </array>
+                <key>CFBundleTypeRole</key>
+                <string>Editor</string>
+              </dict>
+            </array>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg-contents
+          cp -r "Soyuz Studio.app" dmg-contents/
+          cp target/release/soyuz dmg-contents/
+          ln -s /Applications dmg-contents/Applications
+          hdiutil create -volname "Soyuz" -srcfolder dmg-contents -ov -format UDZO soyuz-${{ github.ref_name }}-macos-universal.dmg
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: soyuz-${{ github.ref_name }}-macos-universal.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build release
+        run: cargo build --release -p soyuz-app -p soyuz-cli
+
+      - name: Create archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path soyuz-windows
+          Copy-Item target/release/soyuz-studio.exe soyuz-windows/
+          Copy-Item target/release/soyuz.exe soyuz-windows/
+          Copy-Item assets/icons/icon.ico soyuz-windows/soyuz.ico
+          Copy-Item README.md soyuz-windows/
+          Copy-Item LICENSE-MIT soyuz-windows/
+          Copy-Item LICENSE-APACHE soyuz-windows/
+          Compress-Archive -Path soyuz-windows -DestinationPath soyuz-${{ github.ref_name }}-windows-x86_64.zip
+
+      - name: Create MSI installer
+        shell: pwsh
+        run: |
+          cargo install cargo-wix --locked
+          cargo wix -p soyuz-app --no-build --nocapture
+          Move-Item target/wix/*.msi soyuz-${{ github.ref_name }}-windows-x86_64.msi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: |
+            soyuz-${{ github.ref_name }}-windows-x86_64.zip
+            soyuz-${{ github.ref_name }}-windows-x86_64.msi
+
+  release:
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/linux-artifacts/*
+            artifacts/macos-artifacts/*
+            artifacts/windows-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

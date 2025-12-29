@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Soyuz Studio
+Comment=Procedural 3D asset generation IDE
+Exec=soyuz-studio %F
+Icon=soyuz-studio
+Terminal=false
+Type=Application
+Categories=Graphics;3DGraphics;Development;
+MimeType=text/x-rhai;
+Keywords=3D;modeling;procedural;sdf;gamedev;
+StartupWMClass=soyuz-studio

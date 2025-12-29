@@ -30,3 +30,29 @@ parking_lot = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 dirs = "5.0"
+
+[package.metadata.deb]
+name = "soyuz-studio"
+maintainer = "Noah Sabaj"
+copyright = "2024, Noah Sabaj"
+extended-description = """
+Soyuz Studio is a desktop IDE for procedural 3D asset generation.
+Write scripts to define shapes using Signed Distance Fields (SDFs),
+preview them in real-time, and export to common 3D formats.
+"""
+section = "graphics"
+priority = "optional"
+assets = [
+    ["target/release/soyuz-studio", "usr/bin/", "755"],
+    ["../assets/icons/icon-256.png", "usr/share/icons/hicolor/256x256/apps/soyuz-studio.png", "644"],
+    ["../assets/icons/icon-128.png", "usr/share/icons/hicolor/128x128/apps/soyuz-studio.png", "644"],
+    ["../assets/icons/icon-64.png", "usr/share/icons/hicolor/64x64/apps/soyuz-studio.png", "644"],
+    ["../assets/icons/icon-48.png", "usr/share/icons/hicolor/48x48/apps/soyuz-studio.png", "644"],
+    ["../assets/soyuz-studio.desktop", "usr/share/applications/soyuz-studio.desktop", "644"],
+]
+
+[package.metadata.wix]
+upgrade-guid = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+path-guid = "B2C3D4E5-F6A7-8901-BCDE-F23456789012"
+license = false
+eula = false
