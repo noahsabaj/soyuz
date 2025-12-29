@@ -20,7 +20,8 @@ jobs:
           sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libspeechd-dev libxkbcommon-dev libssl-dev libgtk-3-dev libatk1.0-dev \
             libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libcairo2-dev \
-            libsoup-3.0-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev
+            libsoup-3.0-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libxdo-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -201,6 +202,7 @@ jobs:
         shell: pwsh
         run: |
           cargo install cargo-wix --locked
+          cargo wix init -p soyuz-app --force
           cargo wix -p soyuz-app --no-build --nocapture
           Move-Item target/wix/*.msi soyuz-${{ github.ref_name }}-windows-x86_64.msi
 
