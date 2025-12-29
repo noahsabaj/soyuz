@@ -44,12 +44,44 @@ jobs:
           cargo deb -p soyuz-cli --no-build
           mv target/debian/*.deb .
 
+      - name: Create AppImage
+        run: |
+          # Download linuxdeploy
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+
+          # Copy binaries
+          cp target/release/soyuz-studio AppDir/usr/bin/
+          cp target/release/soyuz AppDir/usr/bin/
+
+          # Copy icon
+          cp assets/icons/icon-256.png AppDir/usr/share/icons/hicolor/256x256/apps/soyuz-studio.png
+
+          # Copy desktop file
+          cp assets/soyuz-studio.desktop AppDir/usr/share/applications/
+
+          # Create AppImage
+          ARCH=x86_64 ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/soyuz-studio \
+            --desktop-file AppDir/usr/share/applications/soyuz-studio.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/soyuz-studio.png \
+            --output appimage
+
+          mv Soyuz_Studio*.AppImage soyuz-studio-${{ github.ref_name }}-linux-x86_64.AppImage
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-artifacts
           path: |
             soyuz-${{ github.ref_name }}-linux-x86_64.tar.gz
+            soyuz-studio-${{ github.ref_name }}-linux-x86_64.AppImage
             *.deb
 
   build-macos:
