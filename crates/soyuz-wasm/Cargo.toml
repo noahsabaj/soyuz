@@ -20,3 +20,14 @@ console_error_panic_hook = "0.1"
 
 # Required for WASM: enable js backend for getrandom used by rhai's ahash
 getrandom = { version = "0.3", features = ["wasm_js"] }
+
+# WASM optimization settings for wasm-pack
+# Uses wasm-opt for binary size reduction
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O4"]
+
+[package.metadata.wasm-pack.profile.dev]
+wasm-opt = false
+
+[lints]
+workspace = true

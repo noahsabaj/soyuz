@@ -36,6 +36,13 @@
 //! // Your shape
 //! sphere(0.5)
 //! ```
+//!
+//! ## Precision Notes
+//!
+//! Rhai scripts use `f64` for numeric literals, but all values are
+//! converted to `f32` when constructing SDF operations. This is
+//! required for GPU shader compatibility. For most use cases,
+//! the precision loss is negligible.
 
 pub mod cpu_eval;
 pub mod engine;
@@ -48,7 +55,7 @@ pub mod watcher;
 pub use cpu_eval::CpuSdf;
 pub use engine::{SceneResult, ScriptEngine};
 pub use env_api::{get_current_environment, register_env_api, reset_environment};
-pub use sdf_api::{RhaiSdf, SdfOperation, register_sdf_api};
+pub use sdf_api::{RhaiSdf, register_sdf_api};
 
 #[cfg(feature = "file-watcher")]
 pub use watcher::{ScriptWatcher, WatchEvent};

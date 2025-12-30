@@ -20,9 +20,12 @@
 //! mesh.export_obj("barrel.obj")?;
 //! ```
 //!
-//! ## Units
+//! ## Units and Conventions
 //!
-//! Soyuz uses meters as the base unit. `1.0` = 1 meter.
+//! - **Distances**: Arbitrary units (typically interpreted as meters). `1.0` = 1 meter.
+//! - **Angles**: All rotation functions use **radians**
+//! - **Precision**: All SDF operations use `f32` for GPU compatibility
+//! - **Coordinate system**: Right-handed, Y-up
 
 pub mod export;
 pub mod material;
