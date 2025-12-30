@@ -204,30 +204,6 @@ body.union(teeth).subtract(hole).subtract(spokes)
 
 ---
 
-## Studio Interface
-
-```
-+------------------------------------------------------------------+
-|  [New] [Open] [Save]              Soyuz Studio            [_][x] |
-+------------------------------------------------------------------+
-|          |                                    |                  |
-|  Files   |         Code Editor                |    Reference     |
-|          |                                    |                  |
-|  gear    |  let body = cylinder(0.5, 0.2);    |    Primitives    |
-|  barrel  |  let hole = cylinder(0.2, 0.3);    |    sphere(r)     |
-|  donut   |  body.subtract(hole)               |    cube(s)       |
-|          |                                    |    ...           |
-|          |                                    |                  |
-|          |                                    +------------------+
-|          |                                    |                  |
-|          |                                    |    Export        |
-|          |                                    |    [GLB] [GLTF]  |
-|          |                                    |    Resolution: 64|
-+----------+------------------------------------+------------------+
-|  Line 3, Col 12  |  No errors                                    |
-+------------------------------------------------------------------+
-```
-
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
