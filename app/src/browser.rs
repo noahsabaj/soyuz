@@ -1,5 +1,14 @@
 //! Explorer panel - VSCode-style expandable file tree
 
+// Icon matching uses separate arms for semantic clarity even if bodies match
+#![allow(clippy::match_same_arms)]
+// Nested or-patterns reduce readability for file extension matching
+#![allow(clippy::unnested_or_patterns)]
+// map_or_else is less readable for file path operations
+#![allow(clippy::map_unwrap_or)]
+// PathBuf is more convenient than Path for file operations
+#![allow(clippy::ptr_arg)]
+
 use crate::state::AppState;
 use dioxus::prelude::*;
 use std::collections::HashSet;
@@ -112,7 +121,9 @@ pub fn AssetBrowser() -> Element {
         });
     };
 
-    let root_name = state.read().working_dir
+    let root_name = state
+        .read()
+        .working_dir
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| state.read().working_dir.display().to_string());
@@ -243,7 +254,7 @@ async fn load_directory(path: &PathBuf, depth: usize) -> anyhow::Result<Vec<Tree
 /// Get icon for file/folder based on type
 fn get_icon(path: &PathBuf, is_dir: bool) -> &'static str {
     if is_dir {
-        ""  // Folder icon handled by CSS
+        "" // Folder icon handled by CSS
     } else {
         match path.extension().and_then(|e| e.to_str()) {
             Some("rhai") => "*",

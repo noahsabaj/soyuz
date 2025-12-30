@@ -1,5 +1,8 @@
 //! Session persistence - save and restore open tabs across sessions
 
+// Separate if statements are clearer for path validation
+#![allow(clippy::collapsible_if)]
+
 use crate::state::{AppState, EditorPane, EditorTab, UndoHistory};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

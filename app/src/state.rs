@@ -1,5 +1,18 @@
 //! Application state management
 
+// Separate if statements are clearer for pane traversal logic
+#![allow(clippy::collapsible_if)]
+// Collapsible match patterns are less readable for pane operations
+#![allow(clippy::collapsible_match)]
+// clone_from() adds noise for simple string assignments
+#![allow(clippy::assigning_clones)]
+// Matching over () is explicit but not more readable here
+#![allow(clippy::ignored_unit_patterns)]
+// map_or is less readable for optional values
+#![allow(clippy::map_unwrap_or)]
+// Owned PathBuf is intentional for storage
+#![allow(clippy::needless_pass_by_value)]
+
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

@@ -1,10 +1,18 @@
 //! Soyuz CLI - Command-line interface for procedural asset generation
 
+// CLI functions are simpler with owned PathBuf from clap
+#![allow(clippy::ptr_arg)]
+// Default then reassign pattern is clearer for camera setup
+#![allow(clippy::field_reassign_with_default)]
+// Separate if statements are clearer for event handling
+#![allow(clippy::collapsible_if)]
+
 mod repl;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "soyuz")]
@@ -305,7 +313,8 @@ fn run_render(
     };
 
     // Initialize headless WGPU
-    let (device, queue) = pollster::block_on(init_headless());
+    let (device, queue) = pollster::block_on(init_headless())
+        .map_err(|e| anyhow::anyhow!("Failed to initialize GPU: {}", e))?;
 
     // Create raymarcher with SDF
     let raymarcher = Raymarcher::with_sdf(
@@ -320,7 +329,9 @@ fn run_render(
     camera.aspect = width as f32 / height as f32;
 
     // Render
-    let img = raymarcher.render_to_image(width, height, &camera, 0.0);
+    let img = raymarcher
+        .render_to_image(width, height, &camera, 0.0)
+        .map_err(|e| anyhow::anyhow!("Render failed: {}", e))?;
 
     // Save
     img.save(output)?;
@@ -465,7 +476,7 @@ fn create_demo_sdf() -> soyuz_render::SdfOp {
     };
 
     let band_top = SdfOp::Translate {
-        inner: Box::new(SdfOp::Torus {
+        inner: Arc::new(SdfOp::Torus {
             major_radius: 0.5,
             minor_radius: 0.08,
         }),
@@ -473,7 +484,7 @@ fn create_demo_sdf() -> soyuz_render::SdfOp {
     };
 
     let band_bottom = SdfOp::Translate {
-        inner: Box::new(SdfOp::Torus {
+        inner: Arc::new(SdfOp::Torus {
             major_radius: 0.5,
             minor_radius: 0.08,
         }),
@@ -482,20 +493,20 @@ fn create_demo_sdf() -> soyuz_render::SdfOp {
 
     // Combine with smooth union
     let body_with_top = SdfOp::SmoothUnion {
-        a: Box::new(cylinder),
-        b: Box::new(band_top),
+        a: Arc::new(cylinder),
+        b: Arc::new(band_top),
         k: 0.05,
     };
 
     let body_with_bands = SdfOp::SmoothUnion {
-        a: Box::new(body_with_top),
-        b: Box::new(band_bottom),
+        a: Arc::new(body_with_top),
+        b: Arc::new(band_bottom),
         k: 0.05,
     };
 
     // Hollow it out
     SdfOp::Shell {
-        inner: Box::new(body_with_bands),
+        inner: Arc::new(body_with_bands),
         thickness: 0.05,
     }
 }

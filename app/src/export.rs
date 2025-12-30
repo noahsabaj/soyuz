@@ -1,5 +1,10 @@
 //! Export panel for mesh generation and export
 
+// Closure is required for Dioxus signals
+#![allow(clippy::redundant_closure)]
+// Borrowed format strings are valid for file dialogs
+#![allow(clippy::needless_borrows_for_generic_args)]
+
 use crate::state::{AppState, ExportFormat, ExportSettings};
 use dioxus::prelude::*;
 
@@ -214,24 +219,24 @@ pub fn export_mesh(
     use soyuz_core::export::MeshExport;
     use soyuz_core::mesh::{MeshConfig, OptimizeConfig, SdfToMesh};
     use soyuz_core::sdf::Sdf;
-    use soyuz_script::ScriptEngine;
+    use soyuz_script::{CpuSdf, ScriptEngine};
 
     // Evaluate script to get SDF
     let engine = ScriptEngine::new();
     let rhai_sdf = engine.eval_sdf(code)?;
 
-    // Get the SdfOperation which implements the Sdf trait for CPU evaluation
-    let sdf_op = &rhai_sdf.op;
+    // Wrap in CpuSdf which implements the Sdf trait for CPU evaluation
+    let cpu_sdf = CpuSdf::from_arc(rhai_sdf.op);
 
     // Use the SDF's bounds for mesh generation, or default if unbounded
-    let bounds = sdf_op.bounds();
+    let bounds = cpu_sdf.bounds();
 
     // Generate mesh using parallel marching cubes
     let config = MeshConfig::default()
         .with_resolution(settings.resolution)
         .with_bounds(bounds);
 
-    let mut mesh = sdf_op.to_mesh(config)?;
+    let mut mesh = cpu_sdf.to_mesh(config)?;
 
     // Optimize if requested
     if settings.optimize {

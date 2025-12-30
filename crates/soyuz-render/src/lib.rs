@@ -33,11 +33,14 @@ pub use wgpu;
 pub use winit;
 
 // Re-export platform-agnostic types from soyuz-sdf for backward compatibility
-pub use soyuz_sdf::{Environment, EnvironmentUniforms, SdfOp, WgslGenerator, build_shader, get_base_shader, inject_scene_sdf};
+pub use soyuz_sdf::{
+    Environment, EnvironmentUniforms, SdfOp, WgslGenerator, build_shader, get_base_shader,
+    inject_scene_sdf,
+};
 
 pub use camera::Camera;
 pub use embedded::{EmbeddedConfig, embedded_controls_help, run_embedded_preview};
-pub use raymarcher::{Raymarcher, Uniforms, init_headless, init_with_surface};
+pub use raymarcher::{Raymarcher, RaymarcherError, Uniforms, init_headless, init_with_surface};
 pub use text_overlay::{FpsCounter, FpsOverlay, TextOverlay};
 pub use watch_window::{WatchWindowConfig, run_watch_window, watch_controls_help};
 pub use window::{WindowConfig, controls_help, run_preview, run_preview_with_sdf};

@@ -2,6 +2,11 @@
 //!
 //! Provides an interactive environment for experimenting with SDF operations.
 
+// REPL always returns Ok for graceful exit
+#![allow(clippy::unnecessary_wraps)]
+// Match arms with fallback are clearer than if-let-else chains
+#![allow(clippy::single_match_else)]
+
 use anyhow::Result;
 use rhai::Scope;
 use rustyline::error::ReadlineError;

@@ -11,8 +11,8 @@ mod statusbar;
 mod toolbar;
 mod viewport;
 
-use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::desktop::tao::window::Icon;
+use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
 use state::AppState;
 

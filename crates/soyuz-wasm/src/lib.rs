@@ -18,7 +18,7 @@ pub fn validate_script(code: &str) -> Result<JsValue, JsValue> {
 
     let engine = ScriptEngine::new();
     match engine.compile(code) {
-        Ok(_) => Ok(JsValue::NULL),
+        Ok(()) => Ok(JsValue::NULL),
         Err(e) => Err(JsValue::from_str(&e.to_string())),
     }
 }
@@ -70,7 +70,7 @@ pub fn parse_script(code: &str) -> ScriptResult {
 
     let engine = ScriptEngine::new();
     match engine.compile(code) {
-        Ok(_) => ScriptResult {
+        Ok(()) => ScriptResult {
             success: true,
             error_message: None,
             error_line: None,

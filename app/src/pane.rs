@@ -1,5 +1,10 @@
 //! Recursive pane rendering for split editor views
 
+// Syntax highlighter has complex state machine logic
+#![allow(clippy::too_many_lines)]
+// map_or is less readable for optional values
+#![allow(clippy::map_unwrap_or)]
+
 use crate::js_interop::{self, position_to_line_col};
 use crate::state::{AppState, EditorPane, EditorTab, PaneId, SplitDirection};
 use dioxus::prelude::*;

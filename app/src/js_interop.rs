@@ -3,6 +3,9 @@
 //! Consolidates all document::eval calls into reusable async functions,
 //! reducing code duplication across components.
 
+// map_or is less readable for position calculation
+#![allow(clippy::map_unwrap_or)]
+
 use crate::state::PaneId;
 use dioxus::prelude::document;
 

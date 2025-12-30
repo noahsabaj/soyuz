@@ -2,6 +2,12 @@
 //!
 //! Provides FPS counter and other text overlay functionality.
 
+// Text rendering is infallible in practice
+// u32 to i32 cast is safe for reasonable screen sizes
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::expect_used)]
+
 use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Shaping, SwashCache, TextArea,
     TextAtlas, TextBounds, TextRenderer, Viewport,

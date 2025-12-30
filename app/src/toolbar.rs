@@ -1,5 +1,12 @@
 //! Top toolbar component with file operations and window controls
 
+// Separate if statements are clearer for async dialog handling
+#![allow(clippy::collapsible_if)]
+// map_or_else is less readable for UI state
+#![allow(clippy::map_unwrap_or)]
+// Borrowed format strings are valid
+#![allow(clippy::needless_borrows_for_generic_args)]
+
 use crate::preview::spawn_preview;
 use crate::state::AppState;
 use dioxus::prelude::*;
