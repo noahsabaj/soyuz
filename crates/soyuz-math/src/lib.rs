@@ -32,7 +32,12 @@
 //! ```
 
 // Include the auto-generated Rust implementations
-include!(concat!(env!("OUT_DIR"), "/formulas.rs"));
+// Allow doc_markdown because generated docs contain function names like cos(), sin(), etc.
+#[allow(clippy::doc_markdown)]
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/formulas.rs"));
+}
+pub use generated::*;
 
 /// Get the WGSL code for all formulas
 ///
@@ -49,6 +54,7 @@ pub fn get_docs() -> &'static str {
 }
 
 #[cfg(test)]
+#[allow(clippy::unreadable_literal)]
 mod tests {
     use super::*;
 

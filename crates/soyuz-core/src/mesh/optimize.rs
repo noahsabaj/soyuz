@@ -1,5 +1,12 @@
 //! Mesh optimization: vertex welding, decimation, and normal smoothing
 
+// Builder pattern methods intentionally return Self without #[must_use]
+// Edge collapse algorithm is a complex single unit
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::map_entry)] // Performance is fine and clearer this way
+#![allow(clippy::unused_self)] // API consistency
+
 use super::{Mesh, Vertex};
 use glam::Vec3;
 use std::collections::HashMap;

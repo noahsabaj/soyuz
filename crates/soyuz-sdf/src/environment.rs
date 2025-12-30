@@ -83,8 +83,15 @@ impl Default for Environment {
 
 /// GPU-ready environment uniforms
 /// This struct must match the WGSL struct layout exactly
+///
+/// # Memory Layout
+///
+/// This struct uses explicit padding to ensure 16-byte alignment
+/// for GPU uniform buffers. The `_pad` fields are required
+/// by WGSL uniform buffer layout rules (std140).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
+#[allow(clippy::pub_underscore_fields)] // Padding fields must be public for Pod derive
 pub struct EnvironmentUniforms {
     // Lighting (vec4 aligned)
     pub sun_direction: [f32; 3],

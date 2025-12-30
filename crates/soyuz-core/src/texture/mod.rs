@@ -2,6 +2,9 @@
 //!
 //! Generate 2D textures using noise functions, patterns, and compositing.
 
+// as_normal consumes self to chain into normal map conversion
+#![allow(clippy::wrong_self_convention)]
+
 pub mod noise;
 pub mod ops;
 pub mod pattern;

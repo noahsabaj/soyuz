@@ -24,6 +24,9 @@ notify = { workspace = true }
 rhai = { workspace = true }
 dirs = "5.0"
 
+[lints]
+workspace = true
+
 [package.metadata.deb]
 name = "soyuz"
 maintainer = "Noah Sabaj"

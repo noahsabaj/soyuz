@@ -1,5 +1,12 @@
 //! Material definitions for procedural assets
 
+// Builder pattern methods intentionally return Self without #[must_use]
+// PNG encoding failure is a programming error, not a runtime condition
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::match_wildcard_for_single_variants)]
+
 use crate::texture::Texture;
 use image::{ImageBuffer, Rgba, RgbaImage};
 use std::sync::Arc;

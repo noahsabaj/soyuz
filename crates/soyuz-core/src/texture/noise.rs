@@ -1,5 +1,12 @@
 //! Noise functions for procedural textures
 
+// Mathematical constants for hash functions don't need separators
+// Builder pattern methods intentionally return Self without #[must_use]
+// The *= pattern is intentional for squared signal weighted accumulation
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::misrefactored_assign_op)]
+
 use super::Texture;
 use glam::Vec2;
 use noise::{NoiseFn, Perlin, Simplex};

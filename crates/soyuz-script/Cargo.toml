@@ -24,3 +24,6 @@ notify-debouncer-mini = { workspace = true, optional = true }
 [features]
 default = ["file-watcher"]
 file-watcher = ["dep:notify", "dep:notify-debouncer-mini"]
+
+[lints]
+workspace = true

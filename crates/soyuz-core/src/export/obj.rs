@@ -1,5 +1,7 @@
 //! OBJ file export
 
+#![allow(clippy::uninlined_format_args)]
+
 use crate::Result;
 use crate::mesh::Mesh;
 use std::fs::File;

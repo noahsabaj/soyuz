@@ -35,6 +35,9 @@ dirs = "5.0"
 # For window icon
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+[lints]
+workspace = true
+
 [package.metadata.deb]
 name = "soyuz-studio"
 maintainer = "Noah Sabaj"

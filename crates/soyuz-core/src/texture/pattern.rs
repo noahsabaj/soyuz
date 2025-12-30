@@ -1,5 +1,10 @@
 //! Pattern generators for procedural textures
 
+// Mathematical constants don't need separators
+// Return expression binding is clearer for debugging
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::let_and_return)]
+
 use super::Texture;
 use glam::{Vec2, Vec2Swizzles};
 use std::f32::consts::PI;

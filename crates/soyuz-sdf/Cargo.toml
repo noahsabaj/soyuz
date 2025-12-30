@@ -10,3 +10,6 @@ soyuz-math = { path = "../soyuz-math" }
 
 # GPU types (no actual GPU code, just bytemuck for Pod/Zeroable)
 bytemuck = { workspace = true }
+
+[lints]
+workspace = true

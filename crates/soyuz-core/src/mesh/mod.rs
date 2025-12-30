@@ -2,6 +2,13 @@
 //!
 //! Uses Rayon for parallel processing of voxel grids.
 
+// Builder pattern methods intentionally return Self without #[must_use]
+// Config is small and passed by value for ergonomics
+// Range loop is clearer for marching cubes corner indexing
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::needless_range_loop)]
+
 mod lod;
 mod marching_cubes;
 mod optimize;

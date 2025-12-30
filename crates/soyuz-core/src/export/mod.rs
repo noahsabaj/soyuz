@@ -93,7 +93,7 @@ impl MeshExport for Mesh {
         let path = path.as_ref();
         match ExportFormat::from_extension(path) {
             Some(ExportFormat::Obj) => self.export_obj(path),
-            Some(ExportFormat::Gltf) | Some(ExportFormat::Glb) => self.export_gltf(path),
+            Some(ExportFormat::Gltf | ExportFormat::Glb) => self.export_gltf(path),
             None => Err(crate::Error::Export(format!(
                 "Unknown file extension: {}",
                 path.display()
@@ -115,7 +115,7 @@ impl MeshExport for MeshWithMaterial {
         let path = path.as_ref();
         match ExportFormat::from_extension(path) {
             Some(ExportFormat::Obj) => self.export_obj(path),
-            Some(ExportFormat::Gltf) | Some(ExportFormat::Glb) => self.export_gltf(path),
+            Some(ExportFormat::Gltf | ExportFormat::Glb) => self.export_gltf(path),
             None => Err(crate::Error::Export(format!(
                 "Unknown file extension: {}",
                 path.display()

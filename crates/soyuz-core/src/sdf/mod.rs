@@ -18,6 +18,9 @@
 //!     .union(sphere(0.5).translate_y(2.5));
 //! ```
 
+// Aabb methods return modified copy, not Self builder pattern
+#![allow(clippy::return_self_not_must_use)]
+
 pub mod operations;
 pub mod primitives;
 pub mod transforms;

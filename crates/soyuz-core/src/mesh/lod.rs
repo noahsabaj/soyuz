@@ -1,13 +1,19 @@
 //! Level of Detail (LOD) generation for meshes
 
+// Builder pattern methods intentionally return Self without #[must_use]
+// Sorting f32 values that are guaranteed not to be NaN
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::missing_panics_doc)]
+
 use super::{Mesh, OptimizeConfig};
 
 /// Configuration for LOD generation
 #[derive(Debug, Clone)]
 pub struct LodConfig {
-    /// LOD levels as (distance, detail_ratio) pairs
+    /// LOD levels as (distance, `detail_ratio`) pairs
     /// distance: view distance in meters where this LOD is used
-    /// detail_ratio: 0.0-1.0, percentage of original triangles to keep
+    /// `detail_ratio`: 0.0-1.0, percentage of original triangles to keep
     pub levels: Vec<(f32, f32)>,
     /// Maximum error allowed during decimation
     pub max_error: f32,
