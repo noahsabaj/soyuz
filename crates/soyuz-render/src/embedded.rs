@@ -6,11 +6,26 @@
 //! Since winit's event loop must run on the main thread, this is designed
 //! to be run as a separate process with a parent window ID passed in.
 
+// Input state tracks multiple mouse buttons independently
+// Collapsible if is clearer as two separate conditions
+// Let-else pattern is less readable for complex async init
+// Raw strings are clearer without unnecessary hashes
+// GPU initialization patterns are clearer with match
+// Closures are clearer than method references in this context
+// Default trait access is consistent with wgpu patterns
+#![allow(clippy::struct_excessive_bools)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::manual_let_else)]
+#![allow(clippy::needless_raw_string_hashes)]
+#![allow(clippy::single_match_else)]
+#![allow(clippy::redundant_closure_for_method_calls)]
+#![allow(clippy::default_trait_access)]
+
 use crate::camera::Camera;
 use crate::raymarcher::Raymarcher;
-use soyuz_sdf::SdfOp;
 use crate::text_overlay::FpsOverlay;
 use glam::Vec3;
+use soyuz_sdf::SdfOp;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::{
@@ -24,6 +39,51 @@ use winit::{
 
 #[cfg(target_os = "linux")]
 use winit::platform::x11::WindowAttributesExtX11;
+
+/// A surface tied to its window, ensuring correct lifetime management.
+///
+/// The surface is created from the window and holds a reference to it.
+/// This struct ensures the window outlives the surface by storing them together.
+/// When dropped, the surface is dropped first (Rust's drop order is field order),
+/// then the window.
+struct WindowedSurface {
+    /// The surface must be dropped before the window
+    surface: wgpu::Surface<'static>,
+    /// The window that owns the surface's underlying handle
+    #[allow(dead_code)]
+    window: Arc<Window>,
+}
+
+impl WindowedSurface {
+    /// Create a new windowed surface.
+    ///
+    /// # Safety
+    /// This is safe because:
+    /// 1. The surface is created from the window
+    /// 2. The window is stored in the same struct
+    /// 3. Rust's drop order guarantees surface drops before window
+    fn new(
+        instance: &wgpu::Instance,
+        window: Arc<Window>,
+    ) -> Result<Self, wgpu::CreateSurfaceError> {
+        let surface = instance.create_surface(window.clone())?;
+        // SAFETY: The surface is created from `window`, and `window` is stored
+        // in this struct. Rust drops fields in declaration order, so `surface`
+        // is dropped before `window`. This guarantees the window outlives the surface.
+        #[allow(unsafe_code)]
+        let surface =
+            unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(surface) };
+        Ok(Self { surface, window })
+    }
+
+    fn surface(&self) -> &wgpu::Surface<'static> {
+        &self.surface
+    }
+
+    fn window(&self) -> &Arc<Window> {
+        &self.window
+    }
+}
 
 /// Configuration for the embedded preview window
 #[derive(Debug, Clone)]
@@ -98,8 +158,7 @@ struct InputState {
 struct EmbeddedPreviewApp {
     config: EmbeddedConfig,
     sdf: Option<SdfOp>,
-    window: Option<Arc<Window>>,
-    surface: Option<wgpu::Surface<'static>>,
+    windowed_surface: Option<WindowedSurface>,
     surface_config: Option<wgpu::SurfaceConfiguration>,
     device: Option<Arc<wgpu::Device>>,
     queue: Option<Arc<wgpu::Queue>>,
@@ -124,8 +183,7 @@ impl EmbeddedPreviewApp {
         Self {
             config,
             sdf,
-            window: None,
-            surface: None,
+            windowed_surface: None,
             surface_config: None,
             device: None,
             queue: None,
@@ -141,12 +199,14 @@ impl EmbeddedPreviewApp {
 
     fn resize(&mut self, new_size: PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            if let (Some(config), Some(surface), Some(device)) =
-                (&mut self.surface_config, &self.surface, &self.device)
-            {
+            if let (Some(config), Some(ws), Some(device)) = (
+                &mut self.surface_config,
+                &self.windowed_surface,
+                &self.device,
+            ) {
                 config.width = new_size.width;
                 config.height = new_size.height;
-                surface.configure(device, config);
+                ws.surface().configure(device, config);
                 self.camera.aspect = new_size.width as f32 / new_size.height as f32;
             }
         }
@@ -177,8 +237,8 @@ impl EmbeddedPreviewApp {
     }
 
     fn render(&mut self) {
-        let (Some(surface), Some(raymarcher), Some(config), Some(device), Some(queue)) = (
-            &self.surface,
+        let (Some(ws), Some(raymarcher), Some(config), Some(device), Some(queue)) = (
+            &self.windowed_surface,
             &self.raymarcher,
             &self.surface_config,
             &self.device,
@@ -187,6 +247,7 @@ impl EmbeddedPreviewApp {
             return;
         };
 
+        let surface = ws.surface();
         let output = match surface.get_current_texture() {
             Ok(output) => output,
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -239,7 +300,7 @@ impl EmbeddedPreviewApp {
 
 impl ApplicationHandler for EmbeddedPreviewApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
+        if self.windowed_surface.is_some() {
             return;
         }
 
@@ -265,9 +326,9 @@ impl ApplicationHandler for EmbeddedPreviewApp {
             }
         };
 
-        // Create surface
-        let surface = match self.instance.create_surface(window.clone()) {
-            Ok(s) => s,
+        // Create windowed surface (safely manages window/surface lifetime)
+        let windowed_surface = match WindowedSurface::new(&self.instance, window) {
+            Ok(ws) => ws,
             Err(e) => {
                 tracing::error!("Failed to create surface: {}", e);
                 event_loop.exit();
@@ -275,13 +336,15 @@ impl ApplicationHandler for EmbeddedPreviewApp {
             }
         };
 
+        let surface = windowed_surface.surface();
+
         // Initialize WGPU
         let (device, queue, format) = match pollster::block_on(async {
             let adapter = self
                 .instance
                 .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
-                    compatible_surface: Some(&surface),
+                    compatible_surface: Some(surface),
                     force_fallback_adapter: false,
                 })
                 .await
@@ -316,7 +379,7 @@ impl ApplicationHandler for EmbeddedPreviewApp {
             }
         };
 
-        let size = window.inner_size();
+        let size = windowed_surface.window().inner_size();
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -343,9 +406,7 @@ impl ApplicationHandler for EmbeddedPreviewApp {
         self.camera.aspect = size.width as f32 / size.height.max(1) as f32;
 
         // Store everything
-        self.window = Some(window);
-        // SAFETY: The surface is tied to the window's lifetime which we're managing
-        self.surface = Some(unsafe { std::mem::transmute(surface) });
+        self.windowed_surface = Some(windowed_surface);
         self.surface_config = Some(surface_config);
         self.device = Some(device);
         self.queue = Some(queue);
@@ -370,8 +431,8 @@ impl ApplicationHandler for EmbeddedPreviewApp {
             }
             WindowEvent::RedrawRequested => {
                 self.render();
-                if let Some(window) = &self.window {
-                    window.request_redraw();
+                if let Some(ws) = &self.windowed_surface {
+                    ws.window().request_redraw();
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -418,8 +479,8 @@ impl ApplicationHandler for EmbeddedPreviewApp {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(window) = &self.window {
-            window.request_redraw();
+        if let Some(ws) = &self.windowed_surface {
+            ws.window().request_redraw();
         }
     }
 }

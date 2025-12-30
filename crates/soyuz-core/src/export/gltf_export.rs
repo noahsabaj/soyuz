@@ -1,6 +1,33 @@
 //! GLTF/GLB file export with full PBR material support
 
+// String writing is infallible, so .expect() is safe here
+// Large JSON builder function is intentionally a single unit
+// Result wrapper kept for future error handling paths
+#![allow(clippy::expect_used)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::unnecessary_wraps)]
+#![allow(clippy::uninlined_format_args)]
+
 use crate::Result;
+
+/// Helper macro for writing to a String buffer.
+/// String writing is infallible, so we use `expect()` with a clear message.
+macro_rules! write_str {
+    ($dst:expr, $($arg:tt)*) => {
+        write!($dst, $($arg)*).expect("String write is infallible")
+    };
+}
+
+/// Helper macro for writeln to a String buffer.
+/// String writing is infallible, so we use `expect()` with a clear message.
+macro_rules! writeln_str {
+    ($dst:expr) => {
+        writeln!($dst).expect("String write is infallible")
+    };
+    ($dst:expr, $($arg:tt)*) => {
+        writeln!($dst, $($arg)*).expect("String write is infallible")
+    };
+}
 use crate::material::{Material, MeshWithMaterial, RasterizedMaterial};
 use crate::mesh::Mesh;
 use std::path::Path;
@@ -201,13 +228,13 @@ fn write_glb(path: &Path, data: &GltfData) -> Result<()> {
 
     // JSON chunk
     file.write_all(&((json_bytes.len() + json_padding) as u32).to_le_bytes())?;
-    file.write_all(&0x4E4F534Au32.to_le_bytes())?; // "JSON"
+    file.write_all(&0x4E4F_534A_u32.to_le_bytes())?; // "JSON"
     file.write_all(json_bytes)?;
     file.write_all(&vec![0x20u8; json_padding])?;
 
     // BIN chunk
     file.write_all(&((total_bin_size + bin_padding) as u32).to_le_bytes())?;
-    file.write_all(&0x004E4942u32.to_le_bytes())?; // "BIN\0"
+    file.write_all(&0x004E_4942_u32.to_le_bytes())?; // "BIN\0"
     file.write_all(&data.mesh_buffer)?;
 
     // Write texture data with padding
@@ -242,6 +269,7 @@ fn write_gltf_separate(path: &Path, data: &GltfData) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::needless_raw_string_hashes)] // Raw strings are more readable for JSON templates
 fn build_gltf_json_with_material(
     vertex_count: usize,
     index_count: usize,
@@ -279,15 +307,14 @@ fn build_gltf_json_with_material(
     let total_buffer_size = current_offset;
 
     // Start JSON
-    writeln!(json, "{{").unwrap();
-    writeln!(
+    writeln_str!(json, "{{");
+    writeln_str!(
         json,
         r#"  "asset": {{ "version": "2.0", "generator": "Soyuz" }},"#
-    )
-    .unwrap();
-    writeln!(json, r#"  "scene": 0,"#).unwrap();
-    writeln!(json, r#"  "scenes": [{{ "nodes": [0] }}],"#).unwrap();
-    writeln!(json, r#"  "nodes": [{{ "mesh": 0 }}],"#).unwrap();
+    );
+    writeln_str!(json, r#"  "scene": 0,"#);
+    writeln_str!(json, r#"  "scenes": [{{ "nodes": [0] }}],"#);
+    writeln_str!(json, r#"  "nodes": [{{ "mesh": 0 }}],"#);
 
     // Meshes
     let material_idx = if material.is_some() {
@@ -295,103 +322,109 @@ fn build_gltf_json_with_material(
     } else {
         ""
     };
-    writeln!(json, r#"  "meshes": [{{"#).unwrap();
-    writeln!(json, r#"    "primitives": [{{"#).unwrap();
-    writeln!(
+    writeln_str!(json, r#"  "meshes": [{{"#);
+    writeln_str!(json, r#"    "primitives": [{{"#);
+    writeln_str!(
         json,
         r#"      "attributes": {{ "POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2 }},"#
-    )
-    .unwrap();
-    writeln!(json, r#"      "indices": 3{}"#, material_idx).unwrap();
-    writeln!(json, r#"    }}]"#).unwrap();
-    writeln!(json, r#"  }}],"#).unwrap();
+    );
+    writeln_str!(json, r#"      "indices": 3{}"#, material_idx);
+    writeln_str!(json, r#"    }}]"#);
+    writeln_str!(json, r#"  }}],"#);
 
     // Accessors
-    writeln!(json, r#"  "accessors": ["#).unwrap();
-    writeln!(json, r#"    {{ "bufferView": 0, "componentType": 5126, "count": {}, "type": "VEC3", "min": [{}, {}, {}], "max": [{}, {}, {}] }},"#,
-             vertex_count, min[0], min[1], min[2], max[0], max[1], max[2]).unwrap();
-    writeln!(
+    writeln_str!(json, r#"  "accessors": ["#);
+    writeln_str!(
+        json,
+        r#"    {{ "bufferView": 0, "componentType": 5126, "count": {}, "type": "VEC3", "min": [{}, {}, {}], "max": [{}, {}, {}] }},"#,
+        vertex_count,
+        min[0],
+        min[1],
+        min[2],
+        max[0],
+        max[1],
+        max[2]
+    );
+    writeln_str!(
         json,
         r#"    {{ "bufferView": 1, "componentType": 5126, "count": {}, "type": "VEC3" }},"#,
         vertex_count
-    )
-    .unwrap();
-    writeln!(
+    );
+    writeln_str!(
         json,
         r#"    {{ "bufferView": 2, "componentType": 5126, "count": {}, "type": "VEC2" }},"#,
         vertex_count
-    )
-    .unwrap();
-    writeln!(
+    );
+    writeln_str!(
         json,
         r#"    {{ "bufferView": 3, "componentType": 5125, "count": {}, "type": "SCALAR" }}"#,
         index_count
-    )
-    .unwrap();
-    writeln!(json, r#"  ],"#).unwrap();
+    );
+    writeln_str!(json, r#"  ],"#);
 
     // Buffer views
-    writeln!(json, r#"  "bufferViews": ["#).unwrap();
-    writeln!(
+    writeln_str!(json, r#"  "bufferViews": ["#);
+    writeln_str!(
         json,
         r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }},"#,
-        positions_offset, positions_size
-    )
-    .unwrap();
-    writeln!(
+        positions_offset,
+        positions_size
+    );
+    writeln_str!(
         json,
         r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }},"#,
-        normals_offset, normals_size
-    )
-    .unwrap();
-    writeln!(
+        normals_offset,
+        normals_size
+    );
+    writeln_str!(
         json,
         r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }},"#,
-        uvs_offset, uvs_size
-    )
-    .unwrap();
-    write!(
+        uvs_offset,
+        uvs_size
+    );
+    write_str!(
         json,
         r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }}"#,
-        indices_offset, indices_size
-    )
-    .unwrap();
+        indices_offset,
+        indices_size
+    );
 
     // Add buffer views for textures
     for (offset, tex) in texture_offsets.iter().zip(texture_buffers.iter()) {
-        writeln!(json, ",").unwrap();
-        write!(
+        writeln_str!(json, ",");
+        write_str!(
             json,
             r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }}"#,
             offset,
             tex.len()
-        )
-        .unwrap();
+        );
     }
-    writeln!(json).unwrap();
-    writeln!(json, r#"  ],"#).unwrap();
+    writeln_str!(json);
+    writeln_str!(json, r#"  ],"#);
 
     // Materials
     if let Some(mat) = material {
-        writeln!(json, r#"  "materials": [{{"#).unwrap();
-        writeln!(json, r#"    "pbrMetallicRoughness": {{"#).unwrap();
+        writeln_str!(json, r#"  "materials": [{{"#);
+        writeln_str!(json, r#"    "pbrMetallicRoughness": {{"#);
 
         // Base color
         let base_color = mat.base_color_factor();
-        write!(
+        write_str!(
             json,
             r#"      "baseColorFactor": [{}, {}, {}, {}]"#,
-            base_color[0], base_color[1], base_color[2], base_color[3]
-        )
-        .unwrap();
+            base_color[0],
+            base_color[1],
+            base_color[2],
+            base_color[3]
+        );
 
         // Base color texture
         if texture_info
             .iter()
             .any(|(name, _)| *name == "baseColorTexture")
         {
-            writeln!(json, ",").unwrap();
-            write!(json, r#"      "baseColorTexture": {{ "index": 0 }}"#).unwrap();
+            writeln_str!(json, ",");
+            write_str!(json, r#"      "baseColorTexture": {{ "index": 0 }}"#);
         }
 
         // Metallic-roughness texture
@@ -399,28 +432,25 @@ fn build_gltf_json_with_material(
             .iter()
             .any(|(name, _)| *name == "metallicRoughnessTexture")
         {
-            writeln!(json, ",").unwrap();
-            write!(
+            writeln_str!(json, ",");
+            write_str!(
                 json,
                 r#"      "metallicRoughnessTexture": {{ "index": 1 }}"#
-            )
-            .unwrap();
+            );
         }
 
-        writeln!(json, ",").unwrap();
-        writeln!(
+        writeln_str!(json, ",");
+        writeln_str!(
             json,
             r#"      "metallicFactor": {},"#,
             mat.metallic_factor()
-        )
-        .unwrap();
-        writeln!(
+        );
+        writeln_str!(
             json,
             r#"      "roughnessFactor": {}"#,
             mat.roughness_factor()
-        )
-        .unwrap();
-        writeln!(json, r#"    }}"#).unwrap();
+        );
+        writeln_str!(json, r#"    }}"#);
 
         // Normal texture
         if texture_info
@@ -430,8 +460,8 @@ fn build_gltf_json_with_material(
             let idx = texture_info
                 .iter()
                 .position(|(name, _)| *name == "normalTexture")
-                .unwrap();
-            writeln!(json, r#"    ,"normalTexture": {{ "index": {} }}"#, idx).unwrap();
+                .expect("normalTexture should exist after any() check");
+            writeln_str!(json, r#"    ,"normalTexture": {{ "index": {} }}"#, idx);
         }
 
         // Emissive
@@ -442,71 +472,68 @@ fn build_gltf_json_with_material(
             let idx = texture_info
                 .iter()
                 .position(|(name, _)| *name == "emissiveTexture")
-                .unwrap();
-            writeln!(json, r#"    ,"emissiveTexture": {{ "index": {} }}"#, idx).unwrap();
-            writeln!(json, r#"    ,"emissiveFactor": [1.0, 1.0, 1.0]"#).unwrap();
+                .expect("emissiveTexture should exist after any() check");
+            writeln_str!(json, r#"    ,"emissiveTexture": {{ "index": {} }}"#, idx);
+            writeln_str!(json, r#"    ,"emissiveFactor": [1.0, 1.0, 1.0]"#);
         }
 
-        writeln!(json, r#"  }}],"#).unwrap();
+        writeln_str!(json, r#"  }}],"#);
     }
 
     // Textures and images
     if !texture_buffers.is_empty() {
-        writeln!(json, r#"  "textures": ["#).unwrap();
+        writeln_str!(json, r#"  "textures": ["#);
         for i in 0..texture_buffers.len() {
             if i > 0 {
-                writeln!(json, ",").unwrap();
+                writeln_str!(json, ",");
             }
-            write!(json, r#"    {{ "source": {}, "sampler": 0 }}"#, i).unwrap();
+            write_str!(json, r#"    {{ "source": {}, "sampler": 0 }}"#, i);
         }
-        writeln!(json).unwrap();
-        writeln!(json, r#"  ],"#).unwrap();
+        writeln_str!(json);
+        writeln_str!(json, r#"  ],"#);
 
-        writeln!(json, r#"  "samplers": [{{"#).unwrap();
-        writeln!(json, r#"    "magFilter": 9729,"#).unwrap(); // LINEAR
-        writeln!(json, r#"    "minFilter": 9987,"#).unwrap(); // LINEAR_MIPMAP_LINEAR
-        writeln!(json, r#"    "wrapS": 10497,"#).unwrap(); // REPEAT
-        writeln!(json, r#"    "wrapT": 10497"#).unwrap(); // REPEAT
-        writeln!(json, r#"  }}],"#).unwrap();
+        writeln_str!(json, r#"  "samplers": [{{"#);
+        writeln_str!(json, r#"    "magFilter": 9729,"#); // LINEAR
+        writeln_str!(json, r#"    "minFilter": 9987,"#); // LINEAR_MIPMAP_LINEAR
+        writeln_str!(json, r#"    "wrapS": 10497,"#); // REPEAT
+        writeln_str!(json, r#"    "wrapT": 10497"#); // REPEAT
+        writeln_str!(json, r#"  }}],"#);
 
-        writeln!(json, r#"  "images": ["#).unwrap();
+        writeln_str!(json, r#"  "images": ["#);
         for i in 0..texture_buffers.len() {
             if i > 0 {
-                writeln!(json, ",").unwrap();
+                writeln_str!(json, ",");
             }
             if is_glb {
-                write!(
+                write_str!(
                     json,
                     r#"    {{ "bufferView": {}, "mimeType": "image/png" }}"#,
                     4 + i
-                )
-                .unwrap();
+                );
             } else {
-                write!(json, r#"    {{ "uri": "texture_{}.png" }}"#, i).unwrap();
+                write_str!(json, r#"    {{ "uri": "texture_{}.png" }}"#, i);
             }
         }
-        writeln!(json).unwrap();
-        writeln!(json, r#"  ],"#).unwrap();
+        writeln_str!(json);
+        writeln_str!(json, r#"  ],"#);
     }
 
     // Buffer
     if is_glb {
-        writeln!(
+        writeln_str!(
             json,
             r#"  "buffers": [{{ "byteLength": {} }}]"#,
             total_buffer_size
-        )
-        .unwrap();
+        );
     } else {
-        writeln!(
+        writeln_str!(
             json,
             r#"  "buffers": [{{ "uri": "mesh.bin", "byteLength": {} }}]"#,
             mesh_buffer_size
-        )
-        .unwrap();
+        );
     }
 
-    writeln!(json, "}}").unwrap();
+    writeln_str!(json, "}}");
 
     json
 }

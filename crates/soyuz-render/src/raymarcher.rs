@@ -1,11 +1,36 @@
 //! GPU-based raymarching renderer for SDFs
 
+// Padding fields must be public for Pod derive
+// GPU init function is a single unit
+// Default trait access is consistent with wgpu patterns
+// Closures are clearer than method references in this context
+// Explicit div_ceil calculation is more readable
+#![allow(clippy::pub_underscore_fields)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::default_trait_access)]
+#![allow(clippy::redundant_closure_for_method_calls)]
+#![allow(clippy::manual_div_ceil)]
+
 use crate::camera::Camera;
-use soyuz_sdf::{Environment, EnvironmentUniforms, SdfOp, build_shader, get_base_shader};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
+use soyuz_sdf::{Environment, EnvironmentUniforms, SdfOp, build_shader, get_base_shader};
 use std::sync::Arc;
+use thiserror::Error;
 use wgpu::util::DeviceExt;
+
+/// Errors that can occur during raymarching operations
+#[derive(Debug, Error)]
+pub enum RaymarcherError {
+    #[error("Failed to find a suitable GPU adapter: {0}")]
+    NoAdapter(#[from] wgpu::RequestAdapterError),
+    #[error("Failed to create GPU device: {0}")]
+    DeviceCreation(#[from] wgpu::RequestDeviceError),
+    #[error("Buffer mapping failed: {0}")]
+    BufferMapping(#[from] wgpu::BufferAsyncError),
+    #[error("Buffer mapping channel closed unexpectedly")]
+    ChannelClosed,
+}
 
 /// Uniform buffer data sent to the GPU
 #[repr(C)]
@@ -317,13 +342,16 @@ impl Raymarcher {
     }
 
     /// Render to an image buffer (for headless rendering)
+    ///
+    /// # Errors
+    /// Returns an error if GPU buffer mapping fails.
     pub fn render_to_image(
         &self,
         width: u32,
         height: u32,
         camera: &Camera,
         time: f32,
-    ) -> image::RgbaImage {
+    ) -> Result<image::RgbaImage, RaymarcherError> {
         // Create output texture
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Output Texture"),
@@ -393,14 +421,16 @@ impl Raymarcher {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        // Read back
+        // Read back with proper error handling
         let buffer_slice = output_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
+            // Ignore send error if receiver is dropped
+            let _ = tx.send(result);
         });
         let _ = self.device.poll(wgpu::PollType::Wait);
-        rx.recv().unwrap().unwrap();
+        let map_result = rx.recv().map_err(|_| RaymarcherError::ChannelClosed)?;
+        map_result?;
 
         let data = buffer_slice.get_mapped_range();
 
@@ -421,7 +451,7 @@ impl Raymarcher {
         drop(data);
         output_buffer.unmap();
 
-        img
+        Ok(img)
     }
 
     /// Get the surface format
@@ -456,7 +486,10 @@ impl Raymarcher {
 }
 
 /// Initialize WGPU for headless rendering (no window)
-pub async fn init_headless() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
+///
+/// # Errors
+/// Returns an error if no suitable GPU adapter is found or device creation fails.
+pub async fn init_headless() -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>), RaymarcherError> {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
         ..Default::default()
@@ -468,8 +501,7 @@ pub async fn init_headless() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
             compatible_surface: None,
             force_fallback_adapter: false,
         })
-        .await
-        .expect("Failed to find an appropriate adapter");
+        .await?;
 
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
@@ -479,25 +511,26 @@ pub async fn init_headless() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
             memory_hints: Default::default(),
             trace: wgpu::Trace::Off,
         })
-        .await
-        .expect("Failed to create device");
+        .await?;
 
-    (Arc::new(device), Arc::new(queue))
+    Ok((Arc::new(device), Arc::new(queue)))
 }
 
 /// Initialize WGPU for windowed rendering
+///
+/// # Errors
+/// Returns an error if no suitable GPU adapter is found or device creation fails.
 pub async fn init_with_surface(
     instance: &wgpu::Instance,
     surface: &wgpu::Surface<'_>,
-) -> (Arc<wgpu::Device>, Arc<wgpu::Queue>, wgpu::TextureFormat) {
+) -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>, wgpu::TextureFormat), RaymarcherError> {
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(surface),
             force_fallback_adapter: false,
         })
-        .await
-        .expect("Failed to find an appropriate adapter");
+        .await?;
 
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
@@ -507,8 +540,7 @@ pub async fn init_with_surface(
             memory_hints: Default::default(),
             trace: wgpu::Trace::Off,
         })
-        .await
-        .expect("Failed to create device");
+        .await?;
 
     let surface_caps = surface.get_capabilities(&adapter);
     let surface_format = surface_caps
@@ -518,5 +550,5 @@ pub async fn init_with_surface(
         .find(|f| f.is_srgb())
         .unwrap_or(surface_caps.formats[0]);
 
-    (Arc::new(device), Arc::new(queue), surface_format)
+    Ok((Arc::new(device), Arc::new(queue), surface_format))
 }

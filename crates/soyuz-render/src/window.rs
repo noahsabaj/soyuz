@@ -1,10 +1,21 @@
 //! Window management with winit for real-time preview
 
+// Raw strings are clearer without unnecessary hashes
+// Input state tracks multiple mouse buttons independently
+// Lifetime annotation is clearer explicit
+// Collapsible if is clearer as two separate conditions
+// Format inlining not always clearer
+#![allow(clippy::needless_raw_string_hashes)]
+#![allow(clippy::struct_excessive_bools)]
+#![allow(clippy::elidable_lifetime_names)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::uninlined_format_args)]
+
 use crate::camera::Camera;
 use crate::raymarcher::{Raymarcher, init_with_surface};
-use soyuz_sdf::SdfOp;
 use crate::text_overlay::FpsOverlay;
 use glam::Vec3;
+use soyuz_sdf::SdfOp;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::{
@@ -204,21 +215,35 @@ impl ApplicationHandler for PreviewApp<'_> {
             .with_title(&self.config.title)
             .with_inner_size(LogicalSize::new(self.config.width, self.config.height));
 
-        let window = Arc::new(
-            event_loop
-                .create_window(window_attrs)
-                .expect("Failed to create window"),
-        );
+        let window = match event_loop.create_window(window_attrs) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                eprintln!("Failed to create window: {}", e);
+                event_loop.exit();
+                return;
+            }
+        };
 
         // Create surface
-        let surface = self
-            .instance
-            .create_surface(window.clone())
-            .expect("Failed to create surface");
+        let surface = match self.instance.create_surface(window.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to create surface: {}", e);
+                event_loop.exit();
+                return;
+            }
+        };
 
         // Initialize WGPU
         let (device, queue, format) =
-            pollster::block_on(init_with_surface(&self.instance, &surface));
+            match pollster::block_on(init_with_surface(&self.instance, &surface)) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Failed to initialize GPU: {}", e);
+                    event_loop.exit();
+                    return;
+                }
+            };
 
         let size = window.inner_size();
         let surface_config = wgpu::SurfaceConfiguration {
