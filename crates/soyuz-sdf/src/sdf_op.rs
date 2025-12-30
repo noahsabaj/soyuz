@@ -3,8 +3,17 @@
 //! This module defines the SDF operation tree representation that can be
 //! converted to WGSL shader code for GPU raymarching.
 
-/// Represents an SDF operation in a format suitable for shader generation
+use std::sync::Arc;
+
+/// Represents an SDF operation in a format suitable for shader generation.
+///
+/// Uses `Arc` for child nodes to enable efficient cloning (O(1) reference count increment
+/// instead of O(n) deep clone) and thread-safe sharing of SDF trees.
+///
+/// Marked `#[non_exhaustive]` to allow adding new SDF primitives and operations
+/// in future versions without breaking downstream code.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum SdfOp {
     // Primitives
     Sphere {
@@ -53,108 +62,108 @@ pub enum SdfOp {
 
     // Boolean operations
     Union {
-        a: Box<SdfOp>,
-        b: Box<SdfOp>,
+        a: Arc<SdfOp>,
+        b: Arc<SdfOp>,
     },
     Subtract {
-        a: Box<SdfOp>,
-        b: Box<SdfOp>,
+        a: Arc<SdfOp>,
+        b: Arc<SdfOp>,
     },
     Intersect {
-        a: Box<SdfOp>,
-        b: Box<SdfOp>,
+        a: Arc<SdfOp>,
+        b: Arc<SdfOp>,
     },
     SmoothUnion {
-        a: Box<SdfOp>,
-        b: Box<SdfOp>,
+        a: Arc<SdfOp>,
+        b: Arc<SdfOp>,
         k: f32,
     },
     SmoothSubtract {
-        a: Box<SdfOp>,
-        b: Box<SdfOp>,
+        a: Arc<SdfOp>,
+        b: Arc<SdfOp>,
         k: f32,
     },
     SmoothIntersect {
-        a: Box<SdfOp>,
-        b: Box<SdfOp>,
+        a: Arc<SdfOp>,
+        b: Arc<SdfOp>,
         k: f32,
     },
 
     // Modifiers
     Shell {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         thickness: f32,
     },
     Round {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         radius: f32,
     },
     Onion {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         thickness: f32,
     },
     Elongate {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         h: [f32; 3],
     },
 
     // Transforms
     Translate {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         offset: [f32; 3],
     },
     RotateX {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         angle: f32,
     },
     RotateY {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         angle: f32,
     },
     RotateZ {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         angle: f32,
     },
     Scale {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         factor: f32,
     },
     Mirror {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         axis: [f32; 3],
     },
     SymmetryX {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
     },
     SymmetryY {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
     },
     SymmetryZ {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
     },
 
     // Deformations
     Twist {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         amount: f32,
     },
     Bend {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         amount: f32,
     },
 
     // Repetition
     RepeatInfinite {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         spacing: [f32; 3],
     },
     RepeatLimited {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         spacing: [f32; 3],
         count: [f32; 3],
     },
     RepeatPolar {
-        inner: Box<SdfOp>,
+        inner: Arc<SdfOp>,
         count: u32,
     },
 }

@@ -1,236 +1,102 @@
 //! Rhai API for SDF primitives and operations
 //!
 //! This module provides all SDF functions accessible from Rhai scripts.
+//!
+//! # Precision Notes
+//!
+//! Rhai scripts use `f64` for numeric literals, but all values are
+//! converted to `f32` when constructing SDF operations. This is
+//! required for GPU shader compatibility. For most use cases,
+//! the precision loss is negligible.
 
 use rhai::{Engine, Module};
 use soyuz_sdf::SdfOp;
+use std::sync::Arc;
 
 /// SDF node representation for Rhai
-/// This is a wrapper that can be passed around in Rhai and converted to SdfOp
+///
+/// This wrapper holds an `Arc<SdfOp>` for efficient cloning (O(1) reference
+/// count increment instead of O(n) deep clone) and thread-safe sharing.
 #[derive(Debug, Clone)]
 pub struct RhaiSdf {
-    pub op: SdfOperation,
-}
-
-/// All possible SDF operations (mirrors soyuz_sdf::SdfOp)
-#[derive(Debug, Clone)]
-pub enum SdfOperation {
-    // Primitives
-    Sphere {
-        radius: f64,
-    },
-    Box3 {
-        half_extents: [f64; 3],
-    },
-    RoundedBox {
-        half_extents: [f64; 3],
-        radius: f64,
-    },
-    Cylinder {
-        radius: f64,
-        half_height: f64,
-    },
-    Capsule {
-        radius: f64,
-        half_height: f64,
-    },
-    Torus {
-        major_radius: f64,
-        minor_radius: f64,
-    },
-    Cone {
-        radius: f64,
-        height: f64,
-    },
-    Plane {
-        normal: [f64; 3],
-        offset: f64,
-    },
-    Ellipsoid {
-        radii: [f64; 3],
-    },
-    Octahedron {
-        size: f64,
-    },
-    HexPrism {
-        half_height: f64,
-        radius: f64,
-    },
-    TriPrism {
-        size: [f64; 2],
-    },
-
-    // Boolean operations
-    Union {
-        a: Box<SdfOperation>,
-        b: Box<SdfOperation>,
-    },
-    Subtract {
-        a: Box<SdfOperation>,
-        b: Box<SdfOperation>,
-    },
-    Intersect {
-        a: Box<SdfOperation>,
-        b: Box<SdfOperation>,
-    },
-    SmoothUnion {
-        a: Box<SdfOperation>,
-        b: Box<SdfOperation>,
-        k: f64,
-    },
-    SmoothSubtract {
-        a: Box<SdfOperation>,
-        b: Box<SdfOperation>,
-        k: f64,
-    },
-    SmoothIntersect {
-        a: Box<SdfOperation>,
-        b: Box<SdfOperation>,
-        k: f64,
-    },
-
-    // Modifiers
-    Shell {
-        inner: Box<SdfOperation>,
-        thickness: f64,
-    },
-    Round {
-        inner: Box<SdfOperation>,
-        radius: f64,
-    },
-    Onion {
-        inner: Box<SdfOperation>,
-        thickness: f64,
-    },
-    Elongate {
-        inner: Box<SdfOperation>,
-        h: [f64; 3],
-    },
-
-    // Transforms
-    Translate {
-        inner: Box<SdfOperation>,
-        offset: [f64; 3],
-    },
-    RotateX {
-        inner: Box<SdfOperation>,
-        angle: f64,
-    },
-    RotateY {
-        inner: Box<SdfOperation>,
-        angle: f64,
-    },
-    RotateZ {
-        inner: Box<SdfOperation>,
-        angle: f64,
-    },
-    Scale {
-        inner: Box<SdfOperation>,
-        factor: f64,
-    },
-    MirrorX {
-        inner: Box<SdfOperation>,
-    },
-    MirrorY {
-        inner: Box<SdfOperation>,
-    },
-    MirrorZ {
-        inner: Box<SdfOperation>,
-    },
-    SymmetryX {
-        inner: Box<SdfOperation>,
-    },
-    SymmetryY {
-        inner: Box<SdfOperation>,
-    },
-    SymmetryZ {
-        inner: Box<SdfOperation>,
-    },
-
-    // Deformations
-    Twist {
-        inner: Box<SdfOperation>,
-        amount: f64,
-    },
-    Bend {
-        inner: Box<SdfOperation>,
-        amount: f64,
-    },
-
-    // Repetition
-    RepeatInfinite {
-        inner: Box<SdfOperation>,
-        spacing: [f64; 3],
-    },
-    RepeatLimited {
-        inner: Box<SdfOperation>,
-        spacing: [f64; 3],
-        count: [f64; 3],
-    },
-    RepeatPolar {
-        inner: Box<SdfOperation>,
-        count: i64,
-    },
+    /// The underlying SDF operation tree
+    pub op: Arc<SdfOp>,
 }
 
 impl RhaiSdf {
-    pub fn new(op: SdfOperation) -> Self {
+    /// Create a new RhaiSdf from an SdfOp
+    pub fn new(op: SdfOp) -> Self {
+        Self { op: Arc::new(op) }
+    }
+
+    /// Create a new RhaiSdf from an Arc<SdfOp>
+    pub fn from_arc(op: Arc<SdfOp>) -> Self {
         Self { op }
+    }
+
+    /// Get a reference to the underlying SdfOp
+    pub fn as_sdf_op(&self) -> &SdfOp {
+        &self.op
+    }
+
+    /// Clone the inner SdfOp (for when you need ownership)
+    pub fn to_sdf_op(&self) -> SdfOp {
+        (*self.op).clone()
     }
 
     // === Boolean Operations ===
 
     pub fn union(&mut self, other: RhaiSdf) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Union {
-            a: Box::new(self.op.clone()),
-            b: Box::new(other.op),
+        RhaiSdf::new(SdfOp::Union {
+            a: Arc::clone(&self.op),
+            b: other.op,
         })
     }
 
     pub fn subtract(&mut self, other: RhaiSdf) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Subtract {
-            a: Box::new(self.op.clone()),
-            b: Box::new(other.op),
+        RhaiSdf::new(SdfOp::Subtract {
+            a: Arc::clone(&self.op),
+            b: other.op,
         })
     }
 
     pub fn intersect(&mut self, other: RhaiSdf) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Intersect {
-            a: Box::new(self.op.clone()),
-            b: Box::new(other.op),
+        RhaiSdf::new(SdfOp::Intersect {
+            a: Arc::clone(&self.op),
+            b: other.op,
         })
     }
 
     pub fn smooth_union(&mut self, other: RhaiSdf, k: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::SmoothUnion {
-            a: Box::new(self.op.clone()),
-            b: Box::new(other.op),
-            k,
+        RhaiSdf::new(SdfOp::SmoothUnion {
+            a: Arc::clone(&self.op),
+            b: other.op,
+            k: k as f32,
         })
     }
 
     pub fn smooth_subtract(&mut self, other: RhaiSdf, k: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::SmoothSubtract {
-            a: Box::new(self.op.clone()),
-            b: Box::new(other.op),
-            k,
+        RhaiSdf::new(SdfOp::SmoothSubtract {
+            a: Arc::clone(&self.op),
+            b: other.op,
+            k: k as f32,
         })
     }
 
     pub fn smooth_intersect(&mut self, other: RhaiSdf, k: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::SmoothIntersect {
-            a: Box::new(self.op.clone()),
-            b: Box::new(other.op),
-            k,
+        RhaiSdf::new(SdfOp::SmoothIntersect {
+            a: Arc::clone(&self.op),
+            b: other.op,
+            k: k as f32,
         })
     }
 
     // === Modifiers ===
 
     pub fn shell(&mut self, thickness: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Shell {
-            inner: Box::new(self.op.clone()),
-            thickness,
+        RhaiSdf::new(SdfOp::Shell {
+            inner: Arc::clone(&self.op),
+            thickness: thickness as f32,
         })
     }
 
@@ -239,32 +105,32 @@ impl RhaiSdf {
     }
 
     pub fn round(&mut self, radius: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Round {
-            inner: Box::new(self.op.clone()),
-            radius,
+        RhaiSdf::new(SdfOp::Round {
+            inner: Arc::clone(&self.op),
+            radius: radius as f32,
         })
     }
 
     pub fn onion(&mut self, thickness: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Onion {
-            inner: Box::new(self.op.clone()),
-            thickness,
+        RhaiSdf::new(SdfOp::Onion {
+            inner: Arc::clone(&self.op),
+            thickness: thickness as f32,
         })
     }
 
     pub fn elongate(&mut self, x: f64, y: f64, z: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Elongate {
-            inner: Box::new(self.op.clone()),
-            h: [x, y, z],
+        RhaiSdf::new(SdfOp::Elongate {
+            inner: Arc::clone(&self.op),
+            h: [x as f32, y as f32, z as f32],
         })
     }
 
     // === Transforms ===
 
     pub fn translate(&mut self, x: f64, y: f64, z: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Translate {
-            inner: Box::new(self.op.clone()),
-            offset: [x, y, z],
+        RhaiSdf::new(SdfOp::Translate {
+            inner: Arc::clone(&self.op),
+            offset: [x as f32, y as f32, z as f32],
         })
     }
 
@@ -281,91 +147,94 @@ impl RhaiSdf {
     }
 
     pub fn rotate_x(&mut self, angle: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::RotateX {
-            inner: Box::new(self.op.clone()),
-            angle,
+        RhaiSdf::new(SdfOp::RotateX {
+            inner: Arc::clone(&self.op),
+            angle: angle as f32,
         })
     }
 
     pub fn rotate_y(&mut self, angle: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::RotateY {
-            inner: Box::new(self.op.clone()),
-            angle,
+        RhaiSdf::new(SdfOp::RotateY {
+            inner: Arc::clone(&self.op),
+            angle: angle as f32,
         })
     }
 
     pub fn rotate_z(&mut self, angle: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::RotateZ {
-            inner: Box::new(self.op.clone()),
-            angle,
+        RhaiSdf::new(SdfOp::RotateZ {
+            inner: Arc::clone(&self.op),
+            angle: angle as f32,
         })
     }
 
     pub fn scale(&mut self, factor: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Scale {
-            inner: Box::new(self.op.clone()),
-            factor,
+        RhaiSdf::new(SdfOp::Scale {
+            inner: Arc::clone(&self.op),
+            factor: factor as f32,
         })
     }
 
     pub fn mirror_x(&mut self) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::MirrorX {
-            inner: Box::new(self.op.clone()),
+        RhaiSdf::new(SdfOp::Mirror {
+            inner: Arc::clone(&self.op),
+            axis: [1.0, 0.0, 0.0],
         })
     }
 
     pub fn mirror_y(&mut self) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::MirrorY {
-            inner: Box::new(self.op.clone()),
+        RhaiSdf::new(SdfOp::Mirror {
+            inner: Arc::clone(&self.op),
+            axis: [0.0, 1.0, 0.0],
         })
     }
 
     pub fn mirror_z(&mut self) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::MirrorZ {
-            inner: Box::new(self.op.clone()),
+        RhaiSdf::new(SdfOp::Mirror {
+            inner: Arc::clone(&self.op),
+            axis: [0.0, 0.0, 1.0],
         })
     }
 
     pub fn symmetry_x(&mut self) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::SymmetryX {
-            inner: Box::new(self.op.clone()),
+        RhaiSdf::new(SdfOp::SymmetryX {
+            inner: Arc::clone(&self.op),
         })
     }
 
     pub fn symmetry_y(&mut self) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::SymmetryY {
-            inner: Box::new(self.op.clone()),
+        RhaiSdf::new(SdfOp::SymmetryY {
+            inner: Arc::clone(&self.op),
         })
     }
 
     pub fn symmetry_z(&mut self) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::SymmetryZ {
-            inner: Box::new(self.op.clone()),
+        RhaiSdf::new(SdfOp::SymmetryZ {
+            inner: Arc::clone(&self.op),
         })
     }
 
     // === Deformations ===
 
     pub fn twist(&mut self, amount: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Twist {
-            inner: Box::new(self.op.clone()),
-            amount,
+        RhaiSdf::new(SdfOp::Twist {
+            inner: Arc::clone(&self.op),
+            amount: amount as f32,
         })
     }
 
     pub fn bend(&mut self, amount: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::Bend {
-            inner: Box::new(self.op.clone()),
-            amount,
+        RhaiSdf::new(SdfOp::Bend {
+            inner: Arc::clone(&self.op),
+            amount: amount as f32,
         })
     }
 
     // === Repetition ===
 
     pub fn repeat(&mut self, sx: f64, sy: f64, sz: f64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::RepeatInfinite {
-            inner: Box::new(self.op.clone()),
-            spacing: [sx, sy, sz],
+        RhaiSdf::new(SdfOp::RepeatInfinite {
+            inner: Arc::clone(&self.op),
+            spacing: [sx as f32, sy as f32, sz as f32],
         })
     }
 
@@ -378,17 +247,17 @@ impl RhaiSdf {
         cy: f64,
         cz: f64,
     ) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::RepeatLimited {
-            inner: Box::new(self.op.clone()),
-            spacing: [sx, sy, sz],
-            count: [cx, cy, cz],
+        RhaiSdf::new(SdfOp::RepeatLimited {
+            inner: Arc::clone(&self.op),
+            spacing: [sx as f32, sy as f32, sz as f32],
+            count: [cx as f32, cy as f32, cz as f32],
         })
     }
 
     pub fn repeat_polar(&mut self, count: i64) -> RhaiSdf {
-        RhaiSdf::new(SdfOperation::RepeatPolar {
-            inner: Box::new(self.op.clone()),
-            count,
+        RhaiSdf::new(SdfOp::RepeatPolar {
+            inner: Arc::clone(&self.op),
+            count: count as u32,
         })
     }
 }
@@ -396,58 +265,63 @@ impl RhaiSdf {
 // === Primitive Constructor Functions ===
 
 pub fn sphere(radius: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Sphere { radius })
+    RhaiSdf::new(SdfOp::Sphere {
+        radius: radius as f32,
+    })
 }
 
 pub fn cube(size: f64) -> RhaiSdf {
-    let half = size / 2.0;
-    RhaiSdf::new(SdfOperation::Box3 {
+    let half = (size / 2.0) as f32;
+    RhaiSdf::new(SdfOp::Box {
         half_extents: [half, half, half],
     })
 }
 
 pub fn box3(x: f64, y: f64, z: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Box3 {
-        half_extents: [x / 2.0, y / 2.0, z / 2.0],
+    RhaiSdf::new(SdfOp::Box {
+        half_extents: [(x / 2.0) as f32, (y / 2.0) as f32, (z / 2.0) as f32],
     })
 }
 
 pub fn rounded_box(x: f64, y: f64, z: f64, radius: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::RoundedBox {
-        half_extents: [x / 2.0, y / 2.0, z / 2.0],
-        radius,
+    RhaiSdf::new(SdfOp::RoundedBox {
+        half_extents: [(x / 2.0) as f32, (y / 2.0) as f32, (z / 2.0) as f32],
+        radius: radius as f32,
     })
 }
 
 pub fn cylinder(radius: f64, height: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Cylinder {
-        radius,
-        half_height: height / 2.0,
+    RhaiSdf::new(SdfOp::Cylinder {
+        radius: radius as f32,
+        half_height: (height / 2.0) as f32,
     })
 }
 
 pub fn capsule(radius: f64, height: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Capsule {
-        radius,
-        half_height: height / 2.0,
+    RhaiSdf::new(SdfOp::Capsule {
+        radius: radius as f32,
+        half_height: (height / 2.0) as f32,
     })
 }
 
 pub fn torus(major_radius: f64, minor_radius: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Torus {
-        major_radius,
-        minor_radius,
+    RhaiSdf::new(SdfOp::Torus {
+        major_radius: major_radius as f32,
+        minor_radius: minor_radius as f32,
     })
 }
 
 pub fn cone(radius: f64, height: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Cone { radius, height })
+    RhaiSdf::new(SdfOp::Cone {
+        radius: radius as f32,
+        height: height as f32,
+    })
 }
 
 pub fn plane(nx: f64, ny: f64, nz: f64, offset: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Plane {
-        normal: [nx, ny, nz],
-        offset,
+    RhaiSdf::new(SdfOp::Plane {
+        normal: [nx as f32, ny as f32, nz as f32],
+        offset: offset as f32,
     })
 }
 
@@ -456,25 +330,25 @@ pub fn ground_plane() -> RhaiSdf {
 }
 
 pub fn ellipsoid(rx: f64, ry: f64, rz: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Ellipsoid {
-        radii: [rx, ry, rz],
+    RhaiSdf::new(SdfOp::Ellipsoid {
+        radii: [rx as f32, ry as f32, rz as f32],
     })
 }
 
 pub fn octahedron(size: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::Octahedron { size })
+    RhaiSdf::new(SdfOp::Octahedron { size: size as f32 })
 }
 
 pub fn hex_prism(radius: f64, height: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::HexPrism {
-        half_height: height / 2.0,
-        radius,
+    RhaiSdf::new(SdfOp::HexPrism {
+        half_height: (height / 2.0) as f32,
+        radius: radius as f32,
     })
 }
 
 pub fn tri_prism(width: f64, height: f64) -> RhaiSdf {
-    RhaiSdf::new(SdfOperation::TriPrism {
-        size: [width, height],
+    RhaiSdf::new(SdfOp::TriPrism {
+        size: [width as f32, height as f32],
     })
 }
 
@@ -571,205 +445,4 @@ pub fn register_sdf_api(engine: &mut Engine) {
 pub fn create_sdf_module() -> Module {
     // Return empty module - functions are registered directly via register_sdf_api
     Module::new()
-}
-
-// ============================================================================
-// Conversion from SdfOperation to soyuz_sdf::SdfOp
-// ============================================================================
-
-impl RhaiSdf {
-    /// Convert to renderer-compatible SdfOp
-    pub fn to_sdf_op(&self) -> SdfOp {
-        convert_to_sdf_op(&self.op)
-    }
-}
-
-/// Convert SdfOperation (f64) to SdfOp (f32) for the renderer
-fn convert_to_sdf_op(op: &SdfOperation) -> SdfOp {
-    match op {
-        // Primitives
-        SdfOperation::Sphere { radius } => SdfOp::Sphere {
-            radius: *radius as f32,
-        },
-        SdfOperation::Box3 { half_extents } => SdfOp::Box {
-            half_extents: [
-                half_extents[0] as f32,
-                half_extents[1] as f32,
-                half_extents[2] as f32,
-            ],
-        },
-        SdfOperation::RoundedBox {
-            half_extents,
-            radius,
-        } => SdfOp::RoundedBox {
-            half_extents: [
-                half_extents[0] as f32,
-                half_extents[1] as f32,
-                half_extents[2] as f32,
-            ],
-            radius: *radius as f32,
-        },
-        SdfOperation::Cylinder {
-            radius,
-            half_height,
-        } => SdfOp::Cylinder {
-            radius: *radius as f32,
-            half_height: *half_height as f32,
-        },
-        SdfOperation::Capsule {
-            radius,
-            half_height,
-        } => SdfOp::Capsule {
-            radius: *radius as f32,
-            half_height: *half_height as f32,
-        },
-        SdfOperation::Torus {
-            major_radius,
-            minor_radius,
-        } => SdfOp::Torus {
-            major_radius: *major_radius as f32,
-            minor_radius: *minor_radius as f32,
-        },
-        SdfOperation::Cone { radius, height } => SdfOp::Cone {
-            radius: *radius as f32,
-            height: *height as f32,
-        },
-        SdfOperation::Plane { normal, offset } => SdfOp::Plane {
-            normal: [normal[0] as f32, normal[1] as f32, normal[2] as f32],
-            offset: *offset as f32,
-        },
-        SdfOperation::Ellipsoid { radii } => SdfOp::Ellipsoid {
-            radii: [radii[0] as f32, radii[1] as f32, radii[2] as f32],
-        },
-        SdfOperation::Octahedron { size } => SdfOp::Octahedron { size: *size as f32 },
-        SdfOperation::HexPrism {
-            half_height,
-            radius,
-        } => SdfOp::HexPrism {
-            half_height: *half_height as f32,
-            radius: *radius as f32,
-        },
-        SdfOperation::TriPrism { size } => SdfOp::TriPrism {
-            size: [size[0] as f32, size[1] as f32],
-        },
-
-        // Boolean operations
-        SdfOperation::Union { a, b } => SdfOp::Union {
-            a: Box::new(convert_to_sdf_op(a)),
-            b: Box::new(convert_to_sdf_op(b)),
-        },
-        SdfOperation::Subtract { a, b } => SdfOp::Subtract {
-            a: Box::new(convert_to_sdf_op(a)),
-            b: Box::new(convert_to_sdf_op(b)),
-        },
-        SdfOperation::Intersect { a, b } => SdfOp::Intersect {
-            a: Box::new(convert_to_sdf_op(a)),
-            b: Box::new(convert_to_sdf_op(b)),
-        },
-        SdfOperation::SmoothUnion { a, b, k } => SdfOp::SmoothUnion {
-            a: Box::new(convert_to_sdf_op(a)),
-            b: Box::new(convert_to_sdf_op(b)),
-            k: *k as f32,
-        },
-        SdfOperation::SmoothSubtract { a, b, k } => SdfOp::SmoothSubtract {
-            a: Box::new(convert_to_sdf_op(a)),
-            b: Box::new(convert_to_sdf_op(b)),
-            k: *k as f32,
-        },
-        SdfOperation::SmoothIntersect { a, b, k } => SdfOp::SmoothIntersect {
-            a: Box::new(convert_to_sdf_op(a)),
-            b: Box::new(convert_to_sdf_op(b)),
-            k: *k as f32,
-        },
-
-        // Modifiers
-        SdfOperation::Shell { inner, thickness } => SdfOp::Shell {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            thickness: *thickness as f32,
-        },
-        SdfOperation::Round { inner, radius } => SdfOp::Round {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            radius: *radius as f32,
-        },
-        SdfOperation::Onion { inner, thickness } => SdfOp::Onion {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            thickness: *thickness as f32,
-        },
-        SdfOperation::Elongate { inner, h } => SdfOp::Elongate {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            h: [h[0] as f32, h[1] as f32, h[2] as f32],
-        },
-
-        // Transforms
-        SdfOperation::Translate { inner, offset } => SdfOp::Translate {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            offset: [offset[0] as f32, offset[1] as f32, offset[2] as f32],
-        },
-        SdfOperation::RotateX { inner, angle } => SdfOp::RotateX {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            angle: *angle as f32,
-        },
-        SdfOperation::RotateY { inner, angle } => SdfOp::RotateY {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            angle: *angle as f32,
-        },
-        SdfOperation::RotateZ { inner, angle } => SdfOp::RotateZ {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            angle: *angle as f32,
-        },
-        SdfOperation::Scale { inner, factor } => SdfOp::Scale {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            factor: *factor as f32,
-        },
-        SdfOperation::MirrorX { inner } => SdfOp::Mirror {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            axis: [1.0, 0.0, 0.0],
-        },
-        SdfOperation::MirrorY { inner } => SdfOp::Mirror {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            axis: [0.0, 1.0, 0.0],
-        },
-        SdfOperation::MirrorZ { inner } => SdfOp::Mirror {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            axis: [0.0, 0.0, 1.0],
-        },
-        SdfOperation::SymmetryX { inner } => SdfOp::SymmetryX {
-            inner: Box::new(convert_to_sdf_op(inner)),
-        },
-        SdfOperation::SymmetryY { inner } => SdfOp::SymmetryY {
-            inner: Box::new(convert_to_sdf_op(inner)),
-        },
-        SdfOperation::SymmetryZ { inner } => SdfOp::SymmetryZ {
-            inner: Box::new(convert_to_sdf_op(inner)),
-        },
-
-        // Deformations
-        SdfOperation::Twist { inner, amount } => SdfOp::Twist {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            amount: *amount as f32,
-        },
-        SdfOperation::Bend { inner, amount } => SdfOp::Bend {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            amount: *amount as f32,
-        },
-
-        // Repetition
-        SdfOperation::RepeatInfinite { inner, spacing } => SdfOp::RepeatInfinite {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            spacing: [spacing[0] as f32, spacing[1] as f32, spacing[2] as f32],
-        },
-        SdfOperation::RepeatLimited {
-            inner,
-            spacing,
-            count,
-        } => SdfOp::RepeatLimited {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            spacing: [spacing[0] as f32, spacing[1] as f32, spacing[2] as f32],
-            count: [count[0] as f32, count[1] as f32, count[2] as f32],
-        },
-        SdfOperation::RepeatPolar { inner, count } => SdfOp::RepeatPolar {
-            inner: Box::new(convert_to_sdf_op(inner)),
-            count: *count as u32,
-        },
-    }
 }

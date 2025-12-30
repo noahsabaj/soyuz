@@ -1,5 +1,10 @@
 //! Script engine for evaluating Rhai scripts that produce SDFs
 
+// Raw strings are clearer in test scripts
+// Format inlining not always clearer for error messages
+#![allow(clippy::needless_raw_string_hashes)]
+#![allow(clippy::uninlined_format_args)]
+
 use crate::env_api::{get_current_environment, register_env_api, reset_environment};
 use crate::sdf_api::{RhaiSdf, register_sdf_api};
 use anyhow::{Result, anyhow};

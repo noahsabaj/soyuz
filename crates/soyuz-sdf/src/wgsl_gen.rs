@@ -2,6 +2,13 @@
 //!
 //! Converts Rust SDF types to WGSL shader code for GPU raymarching.
 
+// String writing is infallible, so .unwrap() is safe here
+// Format args inlining is not always more readable for shader code generation
+// The generate_op function is large because each SDF operation is a separate case
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::too_many_lines)]
+
 use std::fmt::Write;
 
 use crate::SdfOp;
@@ -28,7 +35,7 @@ impl WgslGenerator {
         var
     }
 
-    /// Generate the complete scene_sdf function
+    /// Generate the complete `scene_sdf` function
     pub fn generate(&mut self, sdf: &SdfOp) -> String {
         self.var_counter = 0;
         let mut code = String::new();
@@ -446,12 +453,12 @@ impl Default for WgslGenerator {
     }
 }
 
-/// Get the base shader code (everything except the scene_sdf function)
+/// Get the base shader code (everything except the `scene_sdf` function)
 pub fn get_base_shader() -> &'static str {
     include_str!("shaders/raymarch.wgsl")
 }
 
-/// Replace the scene_sdf function in the base shader with custom code
+/// Replace the `scene_sdf` function in the base shader with custom code
 pub fn inject_scene_sdf(base_shader: &str, scene_sdf_code: &str) -> String {
     // Find the default scene_sdf function and replace it
     let marker = "// SCENE_SDF_PLACEHOLDER";
@@ -525,6 +532,7 @@ fn inject_ssot_formulas(shader: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_simple_sphere() {
@@ -538,8 +546,8 @@ mod tests {
     #[test]
     fn test_union() {
         let sdf = SdfOp::Union {
-            a: Box::new(SdfOp::Sphere { radius: 1.0 }),
-            b: Box::new(SdfOp::Box {
+            a: Arc::new(SdfOp::Sphere { radius: 1.0 }),
+            b: Arc::new(SdfOp::Box {
                 half_extents: [0.5, 0.5, 0.5],
             }),
         };
@@ -553,7 +561,7 @@ mod tests {
     #[test]
     fn test_transform() {
         let sdf = SdfOp::Translate {
-            inner: Box::new(SdfOp::Sphere { radius: 1.0 }),
+            inner: Arc::new(SdfOp::Sphere { radius: 1.0 }),
             offset: [1.0, 2.0, 3.0],
         };
         let mut generator = WgslGenerator::new();

@@ -6,7 +6,7 @@
 //! ## Key Types
 //!
 //! - [`SdfOp`] - The SDF operation tree representation
-//! - [`WgslGenerator`] - Converts SdfOp trees to WGSL shader code
+//! - [`WgslGenerator`] - Converts [`SdfOp`] trees to WGSL shader code
 //! - [`Environment`] - Lighting, material, and background settings
 //!
 //! ## Example
