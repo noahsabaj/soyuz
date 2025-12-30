@@ -213,9 +213,9 @@ body.union(teeth).subtract(hole).subtract(spokes)
 |          |                                    |                  |
 |  Files   |         Code Editor                |    Reference     |
 |          |                                    |                  |
-|  gear    |  let body = cylinder(0.5, 0.2);   |    Primitives    |
-|  barrel  |  let hole = cylinder(0.2, 0.3);   |    sphere(r)     |
-|  donut   |  body.subtract(hole)              |    cube(s)       |
+|  gear    |  let body = cylinder(0.5, 0.2);    |    Primitives    |
+|  barrel  |  let hole = cylinder(0.2, 0.3);    |    sphere(r)     |
+|  donut   |  body.subtract(hole)               |    cube(s)       |
 |          |                                    |    ...           |
 |          |                                    |                  |
 |          |                                    +------------------+
