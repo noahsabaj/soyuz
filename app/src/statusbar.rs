@@ -3,6 +3,9 @@
 use crate::state::AppState;
 use dioxus::prelude::*;
 
+/// Application version from Cargo.toml
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Bottom status bar showing application state
 #[component]
 pub fn StatusBar() -> Element {
@@ -30,6 +33,7 @@ pub fn StatusBar() -> Element {
             if has_unsaved {
                 span { class: "status-item unsaved", "Unsaved changes" }
             }
+            span { class: "status-item version", "v{VERSION}" }
         }
     }
 }

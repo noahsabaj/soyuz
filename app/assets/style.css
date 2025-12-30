@@ -1121,6 +1121,13 @@ body {
     color: var(--warning);
 }
 
+/* Status bar version - subtle, right-aligned */
+.status-item.version {
+    margin-left: auto;
+    opacity: 0.5;
+    font-size: 11px;
+}
+
 /* Viewport header - additional styles */
 .viewport-header {
     justify-content: space-between;
