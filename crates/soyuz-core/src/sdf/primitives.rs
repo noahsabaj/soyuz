@@ -2,6 +2,12 @@
 //!
 //! All primitives are centered at the origin. Use transforms to position them.
 
+// Mathematical formulas use standard notation with single-char variable names
+// and mathematical constants without separators (excess precision is truncated)
+#![allow(clippy::many_single_char_names)]
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::excessive_precision)]
+
 use super::{Aabb, Sdf};
 use glam::Vec3;
 
@@ -604,4 +610,170 @@ fn cross_sdf(p: Vec3) -> f32 {
     let inf_cross_y = p.x.abs().max(p.z.abs());
     let inf_cross_z = p.x.abs().max(p.y.abs());
     inf_cross_x.min(inf_cross_y).min(inf_cross_z)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    // ========================================================================
+    // Sphere tests
+    // ========================================================================
+
+    #[test]
+    fn sphere_distance_at_origin() {
+        let s = sphere(1.0);
+        assert_relative_eq!(s.distance(Vec3::ZERO), -1.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn sphere_distance_on_surface() {
+        let s = sphere(1.0);
+        assert_relative_eq!(s.distance(Vec3::X), 0.0, epsilon = 1e-6);
+        assert_relative_eq!(s.distance(Vec3::Y), 0.0, epsilon = 1e-6);
+        assert_relative_eq!(s.distance(Vec3::Z), 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn sphere_distance_outside() {
+        let s = sphere(1.0);
+        assert_relative_eq!(s.distance(Vec3::new(2.0, 0.0, 0.0)), 1.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn sphere_bounds() {
+        let s = sphere(2.0);
+        let bounds = s.bounds();
+        assert_relative_eq!(bounds.min.x, -2.0, epsilon = 1e-6);
+        assert_relative_eq!(bounds.max.x, 2.0, epsilon = 1e-6);
+    }
+
+    // ========================================================================
+    // Box/Cube tests
+    // ========================================================================
+
+    #[test]
+    fn cube_distance_at_origin() {
+        let c = cube(2.0); // half-extent 1.0
+        assert_relative_eq!(c.distance(Vec3::ZERO), -1.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn cube_distance_on_face() {
+        let c = cube(2.0);
+        assert_relative_eq!(c.distance(Vec3::X), 0.0, epsilon = 1e-6);
+        assert_relative_eq!(c.distance(Vec3::Y), 0.0, epsilon = 1e-6);
+        assert_relative_eq!(c.distance(Vec3::Z), 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn cube_distance_outside() {
+        let c = cube(2.0);
+        assert_relative_eq!(c.distance(Vec3::new(2.0, 0.0, 0.0)), 1.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn box3_asymmetric() {
+        let b = box3(Vec3::new(1.0, 2.0, 3.0));
+        assert!(b.distance(Vec3::ZERO) < 0.0); // Inside
+        assert_relative_eq!(b.distance(Vec3::new(1.0, 0.0, 0.0)), 0.0, epsilon = 1e-6);
+        assert_relative_eq!(b.distance(Vec3::new(0.0, 2.0, 0.0)), 0.0, epsilon = 1e-6);
+        assert_relative_eq!(b.distance(Vec3::new(0.0, 0.0, 3.0)), 0.0, epsilon = 1e-6);
+    }
+
+    // ========================================================================
+    // Cylinder tests
+    // ========================================================================
+
+    #[test]
+    fn cylinder_distance_at_origin() {
+        let cyl = cylinder(1.0, 2.0);
+        // At origin, should be inside (negative)
+        assert!(cyl.distance(Vec3::ZERO) < 0.0);
+    }
+
+    #[test]
+    fn cylinder_distance_on_caps() {
+        let cyl = cylinder(1.0, 2.0); // half_height = 1.0
+        // At top cap center
+        assert_relative_eq!(cyl.distance(Vec3::new(0.0, 1.0, 0.0)), 0.0, epsilon = 1e-6);
+        // At bottom cap center
+        assert_relative_eq!(cyl.distance(Vec3::new(0.0, -1.0, 0.0)), 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn cylinder_distance_on_side() {
+        let cyl = cylinder(1.0, 2.0);
+        // On the cylindrical surface
+        assert_relative_eq!(cyl.distance(Vec3::new(1.0, 0.0, 0.0)), 0.0, epsilon = 1e-6);
+    }
+
+    // ========================================================================
+    // Torus tests
+    // ========================================================================
+
+    #[test]
+    fn torus_distance_at_center() {
+        let t = torus(1.0, 0.3);
+        // At origin, distance should be major_radius - minor_radius
+        assert_relative_eq!(t.distance(Vec3::ZERO), 1.0 - 0.3, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn torus_distance_on_surface() {
+        let t = torus(1.0, 0.3);
+        // On the outer edge
+        assert_relative_eq!(t.distance(Vec3::new(1.3, 0.0, 0.0)), 0.0, epsilon = 1e-6);
+        // On the inner edge
+        assert_relative_eq!(t.distance(Vec3::new(0.7, 0.0, 0.0)), 0.0, epsilon = 1e-6);
+    }
+
+    // ========================================================================
+    // Capsule tests
+    // ========================================================================
+
+    #[test]
+    fn capsule_distance_at_center() {
+        let cap = capsule(0.5, 2.0);
+        // At origin, should be inside
+        assert_relative_eq!(cap.distance(Vec3::ZERO), -0.5, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn capsule_distance_on_end() {
+        let cap = capsule(0.5, 2.0); // half_height = 1.0
+        // At the tip of the top hemisphere
+        assert_relative_eq!(cap.distance(Vec3::new(0.0, 1.5, 0.0)), 0.0, epsilon = 1e-6);
+    }
+
+    // ========================================================================
+    // Plane tests
+    // ========================================================================
+
+    #[test]
+    fn ground_plane_distance() {
+        let p = ground_plane();
+        assert_relative_eq!(p.distance(Vec3::ZERO), 0.0, epsilon = 1e-6);
+        assert_relative_eq!(p.distance(Vec3::new(0.0, 1.0, 0.0)), 1.0, epsilon = 1e-6);
+        assert_relative_eq!(p.distance(Vec3::new(0.0, -1.0, 0.0)), -1.0, epsilon = 1e-6);
+    }
+
+    // ========================================================================
+    // Octahedron tests
+    // ========================================================================
+
+    #[test]
+    fn octahedron_distance_at_origin() {
+        let o = octahedron(1.0);
+        // Inside the octahedron
+        assert!(o.distance(Vec3::ZERO) < 0.0);
+    }
+
+    #[test]
+    fn octahedron_distance_at_vertex() {
+        let o = octahedron(1.0);
+        // At a vertex
+        assert_relative_eq!(o.distance(Vec3::new(1.0, 0.0, 0.0)), 0.0, epsilon = 1e-5);
+    }
 }
