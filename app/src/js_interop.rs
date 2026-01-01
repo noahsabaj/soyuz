@@ -104,3 +104,4 @@ pub fn position_to_line_col(text: &str, pos: usize) -> (usize, usize) {
         .unwrap_or(pos + 1);
     (line, col)
 }
+

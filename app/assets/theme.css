@@ -1,0 +1,53 @@
+/*
+ * Soyuz Studio Theme
+ *
+ * This file defines the color palette and design tokens for the entire application.
+ * All windows and components should use these variables for consistent styling.
+ *
+ * Future themes can be added by creating theme-{name}.css files with the same
+ * variable structure (e.g., theme-one-dark.css, theme-light.css).
+ */
+
+:root {
+    /* ========================================
+     * Background Colors
+     * ======================================== */
+    --bg-primary: #1e1e2e;      /* Main background (darkest) */
+    --bg-secondary: #313244;    /* Panels, cards */
+    --bg-tertiary: #45475a;     /* Hover states, elevated elements */
+
+    /* ========================================
+     * Text Colors
+     * ======================================== */
+    --text-primary: #cdd6f4;    /* Main text */
+    --text-secondary: #a6adc8;  /* Secondary text, labels */
+    --text-muted: #6c7086;      /* Disabled, placeholder text */
+
+    /* ========================================
+     * Interactive Colors
+     * ======================================== */
+    --accent: #89b4fa;          /* Primary action color (buttons, links) */
+    --accent-hover: #b4befe;    /* Hover state for accent elements */
+
+    /* ========================================
+     * Semantic Colors
+     * ======================================== */
+    --success: #a6e3a1;         /* Success states */
+    --warning: #f9e2af;         /* Warning states */
+    --error: #f38ba8;           /* Error states */
+
+    /* ========================================
+     * Structure
+     * ======================================== */
+    --border: #45475a;          /* Borders, dividers */
+
+    /* ========================================
+     * Syntax Highlighting
+     * ======================================== */
+    --syntax-keyword: #cba6f7;  /* Keywords (let, if, fn) */
+    --syntax-builtin: #89b4fa;  /* Built-in functions */
+    --syntax-string: #a6e3a1;   /* Strings */
+    --syntax-number: #fab387;   /* Numbers */
+    --syntax-comment: #6c7086;  /* Comments */
+    --syntax-operator: #89dceb; /* Operators */
+}

@@ -7,9 +7,27 @@
 // Borrowed format strings are valid
 #![allow(clippy::needless_borrows_for_generic_args)]
 
+use crate::command_palette::PaletteState;
 use crate::preview::spawn_preview;
 use crate::state::AppState;
 use dioxus::prelude::*;
+
+/// Application logo in the toolbar
+#[component]
+fn AppLogo() -> Element {
+    rsx! {
+        div {
+            class: "app-logo",
+            onmousedown: |e| e.stop_propagation(),
+            img {
+                src: asset!("/assets/icons/icon-32.png"),
+                alt: "Soyuz Studio",
+                width: "20",
+                height: "20"
+            }
+        }
+    }
+}
 
 /// Top toolbar with file operations and window controls
 #[component]
@@ -19,6 +37,7 @@ pub fn Toolbar() -> Element {
 
     // Clone window for each closure that needs it
     let window_drag = window.clone();
+    let window_dblclick = window.clone();
     let window_min = window.clone();
     let window_max = window.clone();
     let window_close = window.clone();
@@ -27,24 +46,38 @@ pub fn Toolbar() -> Element {
         div {
             class: "titlebar",
             onmousedown: move |_| { window_drag.drag(); },
+            ondoubleclick: move |_| { window_dblclick.set_maximized(!window_dblclick.is_maximized()); },
 
-            // File operations
-            FileOperations { state }
+            // Left side: Logo, file operations and preview controls
+            div { class: "titlebar-left",
+                AppLogo {}
+                FileOperations { state }
+                PreviewControls { state }
+            }
 
-            // Preview and export
-            PreviewControls { state }
+            // Center: Search bar (fills available space, centers content)
+            div { class: "titlebar-center",
+                WindowTitle { state }
+            }
 
-            // Title
-            WindowTitle { state }
-
-            // Window controls
-            div { class: "window-controls",
+            // Right side: Window controls
+            div { class: "titlebar-right window-controls",
                 button {
                     class: "window-button minimize",
                     title: "Minimize",
                     onclick: move |_| window_min.set_minimized(true),
                     onmousedown: |e| e.stop_propagation(),
-                    "-"
+                    // Minimize icon: horizontal line
+                    svg {
+                        width: "10",
+                        height: "10",
+                        view_box: "0 0 10 10",
+                        path {
+                            d: "M0 5L10 5",
+                            stroke: "currentColor",
+                            stroke_width: "1.2"
+                        }
+                    }
                 }
                 button {
                     class: "window-button maximize",
@@ -54,24 +87,49 @@ pub fn Toolbar() -> Element {
                         move |_| window_max.set_maximized(!window_max.is_maximized())
                     },
                     onmousedown: |e| e.stop_propagation(),
-                    "[]"
+                    // Maximize icon: square outline
+                    svg {
+                        width: "10",
+                        height: "10",
+                        view_box: "0 0 10 10",
+                        rect {
+                            x: "0.5",
+                            y: "0.5",
+                            width: "9",
+                            height: "9",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "1.2"
+                        }
+                    }
                 }
                 button {
                     class: "window-button close",
                     title: "Close",
                     onclick: move |_| window_close.close(),
                     onmousedown: |e| e.stop_propagation(),
-                    "x"
+                    // Close icon: X shape
+                    svg {
+                        width: "10",
+                        height: "10",
+                        view_box: "0 0 10 10",
+                        path {
+                            d: "M0 0L10 10M10 0L0 10",
+                            stroke: "currentColor",
+                            stroke_width: "1.2"
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-/// File operation buttons (New, Open, Save)
+/// File operation buttons (New, Open, Save, etc.)
 #[component]
 fn FileOperations(state: Signal<AppState>) -> Element {
     let mut state = state;
+    let has_workspace = state.read().has_workspace();
 
     rsx! {
         div { class: "toolbar-group",
@@ -103,6 +161,29 @@ fn FileOperations(state: Signal<AppState>) -> Element {
                 onclick: move |_| { save_current_file(state); }
             }
         }
+        div { class: "toolbar-group",
+            ToolbarButton {
+                title: "Open a new window",
+                label: "New Window",
+                onclick: move |_| { spawn_new_window(); }
+            }
+            if has_workspace {
+                ToolbarButton {
+                    title: "Close the current folder",
+                    label: "Close Folder",
+                    onclick: move |_| { state.write().close_folder(); }
+                }
+            }
+        }
+    }
+}
+
+/// Spawn a new Soyuz Studio window (fresh session)
+fn spawn_new_window() {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::process::Command::new(exe)
+            .arg("--fresh")
+            .spawn();
     }
 }
 
@@ -131,33 +212,39 @@ fn PreviewControls(state: Signal<AppState>) -> Element {
             ToolbarButton {
                 title: "Export mesh",
                 label: "Export",
-                onclick: move |_| { trigger_export(state); }
+                onclick: move |_| { crate::export::open_export_window(state); }
             }
         }
     }
 }
 
-/// Window title showing current file
+/// Search bar in toolbar - opens command palette when clicked
 #[component]
 fn WindowTitle(state: Signal<AppState>) -> Element {
-    let title = {
-        let state_read = state.read();
-        state_read
-            .active_tab()
-            .map(|t| {
-                let name = t.display_name();
-                if t.is_dirty {
-                    format!("{} *", name)
-                } else {
-                    name
-                }
-            })
-            .unwrap_or_else(|| "Untitled".to_string())
+    let mut palette = use_context::<Signal<PaletteState>>();
+
+    // Get workspace name for display
+    let workspace_name = state
+        .read()
+        .workspace
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Soyuz Studio".to_string());
+
+    let open_palette = move |_| {
+        palette.write().visible = true;
+        palette.write().query.clear();
     };
 
     rsx! {
-        div { class: "toolbar-title",
-            "Soyuz Studio - {title}"
+        div {
+            class: "toolbar-search-bar",
+            onclick: open_palette,
+            onmousedown: |e| e.stop_propagation(), // Don't drag window
+
+            span { class: "search-icon", "" }
+            span { class: "search-placeholder", "{workspace_name}" }
         }
     }
 }
@@ -215,35 +302,3 @@ fn save_current_file(mut state: Signal<AppState>) {
     }
 }
 
-/// Trigger mesh export with file dialog
-fn trigger_export(state: Signal<AppState>) {
-    let settings = state.read().export_settings.clone();
-    let code = state.read().code();
-    let format = settings.format;
-
-    spawn(async move {
-        if let Some(file) = rfd::AsyncFileDialog::new()
-            .add_filter(format.name(), &[format.extension()])
-            .set_file_name(&format!("export.{}", format.extension()))
-            .save_file()
-            .await
-        {
-            let result = tokio::task::spawn_blocking(move || {
-                crate::export::export_mesh(&code, file.path(), &settings)
-            })
-            .await;
-
-            match result {
-                Ok(Ok(info)) => {
-                    tracing::info!("Export successful: {}", info);
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Export failed: {}", e);
-                }
-                Err(e) => {
-                    tracing::error!("Export task failed: {}", e);
-                }
-            }
-        }
-    });
-}

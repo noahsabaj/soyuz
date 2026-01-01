@@ -3,19 +3,57 @@
 // Separate if statements are clearer for path validation
 #![allow(clippy::collapsible_if)]
 
-use crate::state::{AppState, EditorPane, EditorTab, UndoHistory};
+use crate::state::{AppState, EditorPane, EditorTab, PaneId, SplitDirection, UndoHistory};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// Serializable pane state (recursive tree structure)
+#[derive(Serialize, Deserialize)]
+pub enum PaneSession {
+    TabGroup {
+        id: u64,
+        tabs: Vec<TabSession>,
+        active_tab_idx: usize,
+    },
+    Split {
+        direction: SplitDirection,
+        first: Box<PaneSession>,
+        second: Box<PaneSession>,
+        ratio: f32,
+    },
+}
 
 /// Serializable session state
 #[derive(Serialize, Deserialize, Default)]
 pub struct Session {
-    /// Open tabs
+    /// Pane layout (new: full pane tree)
+    #[serde(default)]
+    pub pane_layout: Option<PaneSession>,
+    /// Focused pane ID
+    #[serde(default = "default_focused_pane")]
+    pub focused_pane_id: u64,
+    /// Legacy: flat tabs list (for backward compatibility)
+    #[serde(default)]
     pub tabs: Vec<TabSession>,
-    /// Active tab index
+    /// Legacy: active tab index
+    #[serde(default)]
     pub active_tab_idx: usize,
-    /// Working directory
-    pub working_dir: Option<PathBuf>,
+    /// Workspace folder (None = no folder opened)
+    pub workspace: Option<PathBuf>,
+    /// Last used export directory
+    #[serde(default)]
+    pub last_export_dir: Option<PathBuf>,
+    /// Whether to close export window after exporting
+    #[serde(default = "default_close_after_export")]
+    pub close_after_export: bool,
+}
+
+fn default_close_after_export() -> bool {
+    true
+}
+
+fn default_focused_pane() -> u64 {
+    1
 }
 
 /// Serializable tab state
@@ -67,94 +105,160 @@ impl Session {
     }
 }
 
+/// Convert EditorPane to PaneSession (recursive)
+fn pane_to_session(pane: &EditorPane) -> PaneSession {
+    match pane {
+        EditorPane::TabGroup { id, tabs, active_tab_idx } => {
+            PaneSession::TabGroup {
+                id: *id,
+                tabs: tabs.iter().map(|tab| TabSession {
+                    path: tab.path.clone(),
+                    content: if tab.path.is_none() || tab.is_dirty {
+                        Some(tab.content.clone())
+                    } else {
+                        None
+                    },
+                    is_dirty: tab.is_dirty,
+                    history: Some(tab.history.clone()),
+                }).collect(),
+                active_tab_idx: *active_tab_idx,
+            }
+        }
+        EditorPane::Split { direction, first, second, ratio } => {
+            PaneSession::Split {
+                direction: *direction,
+                first: Box::new(pane_to_session(first)),
+                second: Box::new(pane_to_session(second)),
+                ratio: *ratio,
+            }
+        }
+    }
+}
+
 /// Convert app state to session for saving
 pub fn state_to_session(state: &AppState) -> Session {
-    let (tabs, active_tab_idx) = match &state.editor_pane {
-        EditorPane::TabGroup {
-            tabs,
-            active_tab_idx,
-            ..
-        } => {
-            let tab_sessions: Vec<TabSession> = tabs
-                .iter()
-                .map(|tab| {
-                    TabSession {
-                        path: tab.path.clone(),
-                        // Only store content for untitled tabs or dirty tabs without a path
-                        content: if tab.path.is_none() || tab.is_dirty {
-                            Some(tab.content.clone())
-                        } else {
-                            None
-                        },
-                        is_dirty: tab.is_dirty,
-                        history: Some(tab.history.clone()),
-                    }
-                })
-                .collect();
-            (tab_sessions, *active_tab_idx)
-        }
-        EditorPane::Split { .. } => (vec![], 0),
-    };
-
     Session {
-        tabs,
-        active_tab_idx,
-        working_dir: Some(state.working_dir.clone()),
+        pane_layout: Some(pane_to_session(&state.editor_pane)),
+        focused_pane_id: state.focused_pane_id,
+        tabs: Vec::new(), // Legacy field, empty for new sessions
+        active_tab_idx: 0,
+        workspace: state.workspace.clone(),
+        last_export_dir: state.export_settings.last_export_dir.clone(),
+        close_after_export: state.export_settings.close_after_export,
+    }
+}
+
+/// Convert PaneSession to EditorPane (recursive)
+fn session_to_pane(session: &PaneSession, next_tab_id: &mut u64, max_pane_id: &mut PaneId) -> EditorPane {
+    match session {
+        PaneSession::TabGroup { id, tabs, active_tab_idx } => {
+            // Track max pane ID
+            if *id > *max_pane_id {
+                *max_pane_id = *id;
+            }
+
+            let mut restored_tabs = Vec::new();
+            for tab_session in tabs {
+                let content = if let Some(path) = &tab_session.path {
+                    if let Some(stored_content) = &tab_session.content {
+                        stored_content.clone()
+                    } else {
+                        std::fs::read_to_string(path).unwrap_or_else(|_| {
+                            format!("// Error: Could not load file: {}", path.display())
+                        })
+                    }
+                } else {
+                    tab_session.content.clone().unwrap_or_default()
+                };
+
+                let history = tab_session.history.clone().unwrap_or_default();
+                restored_tabs.push(EditorTab::with_history(
+                    *next_tab_id,
+                    tab_session.path.clone(),
+                    content,
+                    tab_session.is_dirty,
+                    history,
+                ));
+                *next_tab_id += 1;
+            }
+
+            EditorPane::TabGroup {
+                id: *id,
+                tabs: restored_tabs,
+                active_tab_idx: *active_tab_idx,
+            }
+        }
+        PaneSession::Split { direction, first, second, ratio } => {
+            EditorPane::Split {
+                direction: *direction,
+                first: Box::new(session_to_pane(first, next_tab_id, max_pane_id)),
+                second: Box::new(session_to_pane(second, next_tab_id, max_pane_id)),
+                ratio: *ratio,
+            }
+        }
     }
 }
 
 /// Restore app state from session
 pub fn restore_session(state: &mut AppState, session: Session) {
-    if session.tabs.is_empty() {
+    let mut next_tab_id = 1u64;
+    let mut max_pane_id = 0u64;
+
+    // Try new pane_layout first, fall back to legacy tabs
+    if let Some(pane_layout) = session.pane_layout {
+        state.editor_pane = session_to_pane(&pane_layout, &mut next_tab_id, &mut max_pane_id);
+    } else if !session.tabs.is_empty() {
+        // Legacy: restore from flat tabs list
+        let mut tabs = Vec::new();
+        for tab_session in session.tabs {
+            let content = if let Some(path) = &tab_session.path {
+                if let Some(stored_content) = tab_session.content {
+                    stored_content
+                } else {
+                    std::fs::read_to_string(path).unwrap_or_else(|_| {
+                        format!("// Error: Could not load file: {}", path.display())
+                    })
+                }
+            } else {
+                tab_session.content.unwrap_or_default()
+            };
+
+            let history = tab_session.history.unwrap_or_default();
+            tabs.push(EditorTab::with_history(
+                next_tab_id,
+                tab_session.path,
+                content,
+                tab_session.is_dirty,
+                history,
+            ));
+            next_tab_id += 1;
+        }
+
+        let active_idx = session.active_tab_idx.min(tabs.len().saturating_sub(1));
+        state.editor_pane = EditorPane::TabGroup {
+            id: 1,
+            tabs,
+            active_tab_idx: active_idx,
+        };
+        max_pane_id = 1;
+    } else {
         return;
     }
 
-    let mut tabs = Vec::new();
-    let mut next_id = 1u64;
+    state.next_tab_id = next_tab_id;
+    state.next_pane_id = max_pane_id + 1;
 
-    for tab_session in session.tabs {
-        let content = if let Some(path) = &tab_session.path {
-            // Try to load file content
-            if let Some(stored_content) = tab_session.content {
-                // Use stored content if tab was dirty
-                stored_content
-            } else {
-                // Load from disk
-                std::fs::read_to_string(path).unwrap_or_else(|_| {
-                    format!("// Error: Could not load file: {}", path.display())
-                })
-            }
-        } else {
-            // Untitled tab - use stored content
-            tab_session.content.unwrap_or_default()
-        };
-
-        // Restore undo history if present
-        let history = tab_session.history.unwrap_or_default();
-
-        tabs.push(EditorTab::with_history(
-            next_id,
-            tab_session.path,
-            content,
-            tab_session.is_dirty,
-            history,
-        ));
-        next_id += 1;
+    // Restore focused pane (validate it exists)
+    if state.editor_pane.find_pane(session.focused_pane_id).is_some() {
+        state.focused_pane_id = session.focused_pane_id;
+    } else if let Some(first_id) = state.editor_pane.all_pane_ids().first() {
+        state.focused_pane_id = *first_id;
     }
 
-    // Update state
-    let active_idx = session.active_tab_idx.min(tabs.len().saturating_sub(1));
-    state.editor_pane = EditorPane::TabGroup {
-        id: 1, // Default pane ID
-        tabs,
-        active_tab_idx: active_idx,
-    };
-    state.next_tab_id = next_id;
-    state.next_pane_id = 2; // Next available pane ID
+    // Restore workspace only if the folder still exists
+    state.workspace = session.workspace.filter(|p| p.exists());
 
-    if let Some(wd) = session.working_dir {
-        if wd.exists() {
-            state.working_dir = wd;
-        }
-    }
+    // Restore export settings
+    state.export_settings.last_export_dir = session.last_export_dir.filter(|p| p.exists());
+    state.export_settings.close_after_export = session.close_after_export;
 }

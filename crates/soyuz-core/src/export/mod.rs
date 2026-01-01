@@ -2,6 +2,7 @@
 
 mod gltf_export;
 mod obj;
+mod stl;
 
 use crate::Result;
 use crate::material::MeshWithMaterial;
@@ -12,6 +13,7 @@ pub use gltf_export::{
     GltfExportOptions, export_gltf, export_gltf_with_material, export_gltf_with_options,
 };
 pub use obj::export_obj;
+pub use stl::export_stl;
 
 /// Supported export formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -20,6 +22,8 @@ pub enum ExportFormat {
     Gltf,
     #[default]
     Glb,
+    /// STL format for 3D printing (no material support)
+    Stl,
 }
 
 impl ExportFormat {
@@ -29,6 +33,7 @@ impl ExportFormat {
             "obj" => Some(Self::Obj),
             "gltf" => Some(Self::Gltf),
             "glb" => Some(Self::Glb),
+            "stl" => Some(Self::Stl),
             _ => None,
         }
     }
@@ -39,6 +44,7 @@ impl ExportFormat {
             Self::Glb => "glb",
             Self::Gltf => "gltf",
             Self::Obj => "obj",
+            Self::Stl => "stl",
         }
     }
 
@@ -48,6 +54,15 @@ impl ExportFormat {
             Self::Glb => "GLB (Binary)",
             Self::Gltf => "GLTF (JSON)",
             Self::Obj => "OBJ",
+            Self::Stl => "STL",
+        }
+    }
+
+    /// Check if this format supports materials/textures
+    pub fn supports_materials(&self) -> bool {
+        match self {
+            Self::Glb | Self::Gltf => true,
+            Self::Obj | Self::Stl => false,
         }
     }
 }
@@ -86,6 +101,9 @@ pub trait MeshExport {
 
     /// Export mesh to GLTF format
     fn export_gltf<P: AsRef<Path>>(&self, path: P) -> Result<()>;
+
+    /// Export mesh to STL format (binary)
+    fn export_stl<P: AsRef<Path>>(&self, path: P) -> Result<()>;
 }
 
 impl MeshExport for Mesh {
@@ -94,6 +112,7 @@ impl MeshExport for Mesh {
         match ExportFormat::from_extension(path) {
             Some(ExportFormat::Obj) => self.export_obj(path),
             Some(ExportFormat::Gltf | ExportFormat::Glb) => self.export_gltf(path),
+            Some(ExportFormat::Stl) => self.export_stl(path),
             None => Err(crate::Error::Export(format!(
                 "Unknown file extension: {}",
                 path.display()
@@ -108,6 +127,10 @@ impl MeshExport for Mesh {
     fn export_gltf<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         export_gltf(self, path.as_ref())
     }
+
+    fn export_stl<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        export_stl(self, path.as_ref())
+    }
 }
 
 impl MeshExport for MeshWithMaterial {
@@ -116,6 +139,7 @@ impl MeshExport for MeshWithMaterial {
         match ExportFormat::from_extension(path) {
             Some(ExportFormat::Obj) => self.export_obj(path),
             Some(ExportFormat::Gltf | ExportFormat::Glb) => self.export_gltf(path),
+            Some(ExportFormat::Stl) => self.export_stl(path),
             None => Err(crate::Error::Export(format!(
                 "Unknown file extension: {}",
                 path.display()
@@ -130,5 +154,10 @@ impl MeshExport for MeshWithMaterial {
 
     fn export_gltf<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         export_gltf_with_material(self, path.as_ref())
+    }
+
+    fn export_stl<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        // STL doesn't support materials, export mesh only
+        export_stl(&self.mesh, path.as_ref())
     }
 }

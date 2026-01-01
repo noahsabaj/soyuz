@@ -6,14 +6,26 @@
 #![allow(clippy::map_unwrap_or)]
 
 use crate::js_interop::{self, position_to_line_col};
-use crate::state::{AppState, EditorPane, EditorTab, PaneId, SplitDirection};
+use crate::state::{AppState, EditorPane, EditorTab, PaneId, SplitDirection, TabId};
 use dioxus::prelude::*;
+
+/// State for tab drag-and-drop operations (shared via context)
+#[derive(Clone, Copy, Default, PartialEq)]
+pub struct TabDragState {
+    /// Source tab being dragged: (pane_id, tab_id, tab_index)
+    pub source: Option<(PaneId, TabId, usize)>,
+    /// Current drop target: (pane_id, insert_index, is_content_area)
+    pub target: Option<(PaneId, usize, bool)>,
+}
 
 /// Render the entire pane tree recursively
 #[component]
 pub fn PaneTree() -> Element {
     let state = use_context::<Signal<AppState>>();
     let pane = state.read().editor_pane.clone();
+
+    // Provide drag state context for all child components
+    let _drag_state: Signal<TabDragState> = use_context_provider(|| Signal::new(TabDragState::default()));
 
     rsx! {
         div { class: "pane-tree",
@@ -22,7 +34,7 @@ pub fn PaneTree() -> Element {
     }
 }
 
-/// Recursive component to render a pane (either a TabGroup or a Split)
+/// Component to render the editor pane (recursive)
 #[component]
 fn PaneView(pane: EditorPane) -> Element {
     match pane {
@@ -45,26 +57,129 @@ fn PaneView(pane: EditorPane) -> Element {
             second,
             ratio,
         } => {
-            let class = match direction {
-                SplitDirection::Horizontal => "split-container horizontal",
-                SplitDirection::Vertical => "split-container vertical",
-            };
-            let first_style = format!("flex: {};", ratio);
-            let second_style = format!("flex: {};", 1.0 - ratio);
-
             rsx! {
-                div { class: "{class}",
-                    div {
-                        class: "split-pane",
-                        style: "{first_style}",
-                        PaneView { pane: *first }
-                    }
-                    div { class: "split-handle" }
-                    div {
-                        class: "split-pane",
-                        style: "{second_style}",
-                        PaneView { pane: *second }
-                    }
+                SplitPane {
+                    direction,
+                    first: *first,
+                    second: *second,
+                    ratio,
+                }
+            }
+        }
+    }
+}
+
+/// Resize state stored during drag operation
+#[derive(Clone, Copy, Default)]
+struct ResizeState {
+    active: bool,
+    start_mouse_pos: f64,   // Mouse position when drag started
+    start_ratio: f32,       // Ratio when drag started
+    container_width: f64,   // Estimated container width
+}
+
+/// A split container with two child panes and a resizable handle
+#[component]
+fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, ratio: f32) -> Element {
+    let mut state = use_context::<Signal<AppState>>();
+    let mut resize_state = use_signal(ResizeState::default);
+
+    // Generate a stable ID for this split container based on first pane's ID
+    let target_pane_id = first.all_pane_ids().first().copied().unwrap_or(1);
+    let container_id = format!("split-{}", target_pane_id);
+
+    let container_class = match direction {
+        SplitDirection::Vertical => "split-container vertical",
+        SplitDirection::Horizontal => "split-container horizontal",
+    };
+
+    let handle_class = match direction {
+        SplitDirection::Vertical => "split-handle vertical",
+        SplitDirection::Horizontal => "split-handle horizontal",
+    };
+
+    // Calculate flex values based on ratio
+    let first_flex = ratio;
+    let second_flex = 1.0 - ratio;
+
+    // Cursor style for the resize overlay
+    let overlay_cursor = match direction {
+        SplitDirection::Vertical => "col-resize",
+        SplitDirection::Horizontal => "row-resize",
+    };
+
+    rsx! {
+        div {
+            id: "{container_id}",
+            class: "{container_class}",
+
+            // First pane
+            div {
+                class: "split-pane",
+                style: "flex: {first_flex};",
+                PaneView { pane: first }
+            }
+
+            // Resizable handle
+            div {
+                class: "{handle_class}",
+                onmousedown: move |evt| {
+                    evt.prevent_default();
+                    let start_pos = match direction {
+                        SplitDirection::Vertical => evt.client_coordinates().x as f64,
+                        SplitDirection::Horizontal => evt.client_coordinates().y as f64,
+                    };
+                    // Estimate container size from click position and current ratio
+                    // For vertical: click_x = explorer_width + container_width * ratio
+                    // For horizontal: click_y = menu_height + container_height * ratio
+                    let (offset, min_size) = match direction {
+                        SplitDirection::Vertical => (220.0, 400.0),   // Explorer panel width
+                        SplitDirection::Horizontal => (60.0, 200.0), // Menu/title bar height
+                    };
+                    let container_size = if ratio > 0.01 {
+                        (start_pos - offset) / ratio as f64
+                    } else {
+                        800.0 // Fallback
+                    };
+                    resize_state.set(ResizeState {
+                        active: true,
+                        start_mouse_pos: start_pos,
+                        start_ratio: ratio,
+                        container_width: container_size.max(min_size),
+                    });
+                },
+            }
+
+            // Second pane
+            div {
+                class: "split-pane",
+                style: "flex: {second_flex};",
+                PaneView { pane: second }
+            }
+
+            // Invisible overlay during resize - captures all mouse events
+            if resize_state.read().active {
+                div {
+                    class: "resize-overlay",
+                    style: "position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; cursor: {overlay_cursor};",
+                    onmousemove: move |evt| {
+                        let rs = *resize_state.read();
+                        if rs.active {
+                            let current_pos = match direction {
+                                SplitDirection::Vertical => evt.client_coordinates().x as f64,
+                                SplitDirection::Horizontal => evt.client_coordinates().y as f64,
+                            };
+                            // Delta in pixels from start position
+                            let delta_px = current_pos - rs.start_mouse_pos;
+                            // Convert to ratio change using estimated container size
+                            let delta_ratio = (delta_px / rs.container_width) as f32;
+                            let new_ratio = (rs.start_ratio + delta_ratio).clamp(0.1, 0.9);
+                            state.write().set_split_ratio(target_pane_id, new_ratio);
+                        }
+                    },
+                    onmouseup: move |_| {
+                        resize_state.set(ResizeState::default());
+                    },
                 }
             }
         }
@@ -75,17 +190,30 @@ fn PaneView(pane: EditorPane) -> Element {
 #[component]
 fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) -> Element {
     let mut state = use_context::<Signal<AppState>>();
+    let mut drag_state = use_context::<Signal<TabDragState>>();
+    let tabs_len = tabs.len();
 
     let is_focused = state.read().focused_pane_id == pane_id;
     let active_tab = tabs.get(active_tab_idx);
     let code = active_tab.map(|t| t.content.clone()).unwrap_or_default();
     let active_tab_id = active_tab.map(|t| t.id).unwrap_or(0);
 
-    let highlighted_html = highlight_rhai(&code);
+    // Check if editor content is a drop target
+    let is_content_drop_target = drag_state.read().target
+        .map(|t| t.0 == pane_id && t.2)  // t.2 = is_content_area
+        .unwrap_or(false);
+
+    // Memoize syntax highlighting - only recalculate when code changes
+    let code_for_highlight = code.clone();
+    let highlighted_html = use_memo(use_reactive!(|code_for_highlight| {
+        highlight_rhai(&code_for_highlight)
+    }));
+
+    let pane_class = if is_focused { "editor-pane focused" } else { "editor-pane" };
 
     rsx! {
         div {
-            class: if is_focused { "editor-pane focused" } else { "editor-pane" },
+            class: "{pane_class}",
             onclick: move |_| { state.write().focus_pane(pane_id); },
 
             // Tab bar
@@ -96,12 +224,36 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
                 is_focused,
             }
 
-            // Editor content
-            EditorArea {
-                pane_id,
-                code,
-                active_tab_id,
-                highlighted_html,
+            // Editor content wrapper (drop zone for content area)
+            div {
+                class: if is_content_drop_target { "editor-content-wrapper drop-target" } else { "editor-content-wrapper" },
+                ondragover: move |evt| {
+                    evt.prevent_default();
+                    drag_state.write().target = Some((pane_id, tabs_len, true)); // is_content_area = true
+                },
+                ondragleave: move |_| {
+                    // Only clear if this was a content area target
+                    let current = drag_state.read().target;
+                    if current.map(|t| t.0 == pane_id && t.2).unwrap_or(false) {
+                        drag_state.write().target = None;
+                    }
+                },
+                ondrop: move |evt| {
+                    evt.prevent_default();
+                    let ds = *drag_state.read();
+                    if let Some((_, src_tab_id, _)) = ds.source {
+                        state.write().move_tab(src_tab_id, pane_id, tabs_len); // Append at end
+                    }
+                    drag_state.set(TabDragState::default());
+                },
+
+                // Editor content
+                EditorArea {
+                    pane_id,
+                    code,
+                    active_tab_id,
+                    highlighted_html,
+                }
             }
         }
     }
@@ -111,21 +263,105 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
 #[component]
 fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused: bool) -> Element {
     let mut state = use_context::<Signal<AppState>>();
+    let mut drag_state = use_context::<Signal<TabDragState>>();
+    let tabs_len = tabs.len();
 
     rsx! {
-        div { class: "editor-tabs",
-            for tab in tabs.iter() {
+        div {
+            class: "editor-tabs",
+            // Drop zone for end of tab bar (when not over a specific tab)
+            ondragover: move |evt| {
+                evt.prevent_default();
+                // Only set target to end if not already over a specific tab
+                let current_target = drag_state.read().target;
+                if current_target.map(|t| t.0 != pane_id).unwrap_or(true) {
+                    drag_state.write().target = Some((pane_id, tabs_len, false));
+                }
+            },
+            ondrop: move |evt| {
+                evt.prevent_default();
+                let ds = *drag_state.read();
+                if let Some((_, src_tab_id, _)) = ds.source {
+                    let target_idx = ds.target.map(|t| t.1).unwrap_or(tabs_len);
+                    state.write().move_tab(src_tab_id, pane_id, target_idx);
+                }
+                drag_state.set(TabDragState::default());
+            },
+
+            for (tab_index, tab) in tabs.iter().enumerate() {
                 {
                     let tab_id = tab.id;
                     let name = tab.display_name();
                     let is_dirty = tab.is_dirty;
                     let is_active = tab_id == active_tab_id;
 
+                    // Determine CSS classes based on drag state
+                    let ds = drag_state.read();
+                    let is_dragging = ds.source.map(|s| s.1 == tab_id).unwrap_or(false);
+                    let is_drop_target = ds.target.map(|t| t.0 == pane_id && t.1 == tab_index && !t.2).unwrap_or(false);
+                    let is_drop_after = ds.target.map(|t| t.0 == pane_id && t.1 == tab_index + 1 && !t.2).unwrap_or(false);
+
+                    let mut class = String::from("editor-tab");
+                    if is_active { class.push_str(" active"); }
+                    if is_dragging { class.push_str(" dragging"); }
+                    if is_drop_target { class.push_str(" drop-before"); }
+                    if is_drop_after { class.push_str(" drop-after"); }
+
                     rsx! {
                         div {
                             key: "{tab_id}",
-                            class: if is_active { "editor-tab active" } else { "editor-tab" },
+                            class: "{class}",
+                            draggable: "true",
+
+                            // Start drag
+                            ondragstart: move |_| {
+                                drag_state.write().source = Some((pane_id, tab_id, tab_index));
+                            },
+
+                            // End drag (cleanup)
+                            ondragend: move |_| {
+                                drag_state.set(TabDragState::default());
+                            },
+
+                            // Drag over this tab - set as drop target
+                            ondragover: move |evt| {
+                                evt.prevent_default();
+                                evt.stop_propagation();
+                                drag_state.write().target = Some((pane_id, tab_index, false));
+                            },
+
+                            // Drag left this tab
+                            ondragleave: move |_| {
+                                // Only clear if this was the target
+                                let current = drag_state.read().target;
+                                if current.map(|t| t.0 == pane_id && t.1 == tab_index && !t.2).unwrap_or(false) {
+                                    drag_state.write().target = None;
+                                }
+                            },
+
+                            // Drop on this tab
+                            ondrop: move |evt| {
+                                evt.prevent_default();
+                                evt.stop_propagation();
+                                let ds = *drag_state.read();
+                                if let Some((_, src_tab_id, _)) = ds.source {
+                                    state.write().move_tab(src_tab_id, pane_id, tab_index);
+                                }
+                                drag_state.set(TabDragState::default());
+                            },
+
+                            // Handle clicks: left-click to switch, middle-click to close
+                            onmousedown: move |evt| {
+                                // Middle button (button index 1)
+                                if evt.trigger_button() == Some(dioxus_elements::input_data::MouseButton::Auxiliary) {
+                                    evt.stop_propagation();
+                                    state.write().close_tab_in_pane(pane_id, tab_id);
+                                }
+                            },
+
+                            // Left-click to switch tab
                             onclick: move |_| { state.write().switch_to_tab(tab_id); },
+
                             span { class: "tab-name",
                                 if is_dirty {
                                     span { class: "dirty-indicator", "*" }
@@ -150,33 +386,45 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                 onclick: move |_| { state.write().new_tab_in_pane(pane_id); },
                 "+"
             }
-            // Split buttons (only show if focused)
-            if is_focused {
-                div { class: "tab-actions",
-                    button {
-                        class: "tab-action-btn",
-                        title: "Split vertically",
-                        onclick: move |_| {
-                            state.write().split_pane_by_id(pane_id, SplitDirection::Vertical);
-                        },
-                        "|"
+
+            // Split action buttons (right side)
+            div { class: "tab-actions",
+                // Vertical split (side-by-side)
+                button {
+                    class: "tab-action-btn",
+                    title: "Split Right",
+                    onclick: move |_| {
+                        state.write().split_pane(pane_id, SplitDirection::Vertical);
+                    },
+                    // Two vertical rectangles icon
+                    svg {
+                        width: "14",
+                        height: "14",
+                        view_box: "0 0 14 14",
+                        fill: "none",
+                        stroke: "currentColor",
+                        stroke_width: "1.2",
+                        rect { x: "1", y: "1", width: "5", height: "12", rx: "1" }
+                        rect { x: "8", y: "1", width: "5", height: "12", rx: "1" }
                     }
-                    button {
-                        class: "tab-action-btn",
-                        title: "Split horizontally",
-                        onclick: move |_| {
-                            state.write().split_pane_by_id(pane_id, SplitDirection::Horizontal);
-                        },
-                        "-"
-                    }
-                    // Close pane button (only if more than one pane)
-                    if state.read().editor_pane.all_pane_ids().len() > 1 {
-                        button {
-                            class: "tab-action-btn",
-                            title: "Close this pane",
-                            onclick: move |_| { state.write().close_pane(pane_id); },
-                            "x"
-                        }
+                }
+                // Horizontal split (top/bottom)
+                button {
+                    class: "tab-action-btn",
+                    title: "Split Down",
+                    onclick: move |_| {
+                        state.write().split_pane(pane_id, SplitDirection::Horizontal);
+                    },
+                    // Two horizontal rectangles icon
+                    svg {
+                        width: "14",
+                        height: "14",
+                        view_box: "0 0 14 14",
+                        fill: "none",
+                        stroke: "currentColor",
+                        stroke_width: "1.2",
+                        rect { x: "1", y: "1", width: "12", height: "5", rx: "1" }
+                        rect { x: "1", y: "8", width: "12", height: "5", rx: "1" }
                     }
                 }
             }
@@ -308,20 +556,6 @@ fn handle_editor_keydown(
     if evt.modifiers().ctrl() && evt.key() == Key::Character("w".to_string()) {
         evt.prevent_default();
         state.write().close_tab_in_pane(pane_id, active_tab_id);
-    }
-
-    // Ctrl+\: Split pane
-    if evt.modifiers().ctrl() && evt.key() == Key::Character("\\".to_string()) {
-        evt.prevent_default();
-        if evt.modifiers().shift() {
-            state
-                .write()
-                .split_pane_by_id(pane_id, SplitDirection::Horizontal);
-        } else {
-            state
-                .write()
-                .split_pane_by_id(pane_id, SplitDirection::Vertical);
-        }
     }
 
     // Tab: Insert 4 spaces or indent selection

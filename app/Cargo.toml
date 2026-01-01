@@ -35,6 +35,9 @@ dirs = "5.0"
 # For window icon
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+# For clipboard operations
+arboard = "3.4"
+
 [lints]
 workspace = true
 

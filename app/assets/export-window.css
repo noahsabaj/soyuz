@@ -1,0 +1,238 @@
+/*
+ * Soyuz Studio - Export Window Styles
+ *
+ * Theme variables are loaded from theme.css (via Rust include_str!)
+ * This file contains export window-specific layout styles only.
+ */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.export-window {
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 16px;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.export-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.export-section-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.export-path-row {
+    display: flex;
+    gap: 8px;
+}
+
+.export-path-input {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.export-path-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.export-browse-btn {
+    padding: 8px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.export-browse-btn:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.export-filename-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.export-filename-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.export-format-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.export-format-btn {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.export-format-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.export-format-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-primary);
+}
+
+.export-info-message {
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-left: 3px solid var(--warning);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.export-slider {
+    width: 100%;
+    height: 6px;
+    appearance: none;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+.export-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.15s;
+}
+
+.export-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+}
+
+.export-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.export-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.export-option label {
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.export-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 16px;
+}
+
+.export-btn-primary {
+    flex: 2;
+    padding: 10px 16px;
+    background: var(--accent);
+    border: none;
+    border-radius: 4px;
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.export-btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+.export-btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.export-btn-secondary {
+    flex: 1;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.export-btn-secondary:hover:not(:disabled) {
+    background: var(--bg-secondary);
+    border-color: var(--accent);
+}
+
+.export-btn-secondary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.export-status {
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-align: center;
+}
