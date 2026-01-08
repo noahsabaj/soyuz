@@ -10,9 +10,13 @@ description = "Soyuz Desktop Application"
 name = "soyuz-studio"
 path = "src/main.rs"
 
+[[bin]]
+name = "soyuz-preview"
+path = "src/preview_runner.rs"
+
 [dependencies]
 soyuz-core = { path = "../crates/soyuz-core" }
-soyuz-render = { path = "../crates/soyuz-render" }
+soyuz-engine = { path = "../crates/soyuz-engine" }
 soyuz-script = { path = "../crates/soyuz-script" }
 
 dioxus = { workspace = true }
@@ -37,6 +41,12 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 # For clipboard operations
 arboard = "3.4"
+
+# For markdown rendering in cookbook
+pulldown-cmark = "0.13"
+
+# For fuzzy string matching in command palette
+strsim = "0.11"
 
 [lints]
 workspace = true
