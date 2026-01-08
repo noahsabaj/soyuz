@@ -33,7 +33,6 @@ jobs:
         run: |
           mkdir -p soyuz-linux
           cp target/release/soyuz-studio soyuz-linux/
-          cp target/release/soyuz-preview soyuz-linux/
           cp assets/icons/icon-256.png soyuz-linux/soyuz.png
           cp README.md LICENSE-MIT LICENSE-APACHE soyuz-linux/
           tar -czvf soyuz-${{ github.ref_name }}-linux-x86_64.tar.gz soyuz-linux
@@ -89,11 +88,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust with both targets
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
 
-      - name: Build release
-        run: cargo build --release -p soyuz-app
+      - name: Build for Intel (x86_64)
+        run: cargo build --release -p soyuz-app --target x86_64-apple-darwin
+
+      - name: Build for Apple Silicon (aarch64)
+        run: cargo build --release -p soyuz-app --target aarch64-apple-darwin
+
+      - name: Create universal binaries with lipo
+        run: |
+          mkdir -p target/universal/release
+          lipo -create \
+            target/x86_64-apple-darwin/release/soyuz-studio \
+            target/aarch64-apple-darwin/release/soyuz-studio \
+            -output target/universal/release/soyuz-studio
+          lipo -create \
+            target/x86_64-apple-darwin/release/soyuz-preview \
+            target/aarch64-apple-darwin/release/soyuz-preview \
+            -output target/universal/release/soyuz-preview
 
       - name: Create .icns icon
         run: |
@@ -114,7 +130,8 @@ jobs:
         run: |
           mkdir -p "Soyuz Studio.app/Contents/MacOS"
           mkdir -p "Soyuz Studio.app/Contents/Resources"
-          cp target/release/soyuz-studio "Soyuz Studio.app/Contents/MacOS/"
+          cp target/universal/release/soyuz-studio "Soyuz Studio.app/Contents/MacOS/"
+          cp target/universal/release/soyuz-preview "Soyuz Studio.app/Contents/MacOS/"
           cp soyuz.icns "Soyuz Studio.app/Contents/Resources/"
           cat > "Soyuz Studio.app/Contents/Info.plist" << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -164,7 +181,6 @@ jobs:
         run: |
           mkdir -p dmg-contents
           cp -r "Soyuz Studio.app" dmg-contents/
-          cp target/release/soyuz-preview dmg-contents/
           ln -s /Applications dmg-contents/Applications
           hdiutil create -volname "Soyuz" -srcfolder dmg-contents -ov -format UDZO soyuz-${{ github.ref_name }}-macos-universal.dmg
 
