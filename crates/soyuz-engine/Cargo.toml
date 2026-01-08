@@ -1,0 +1,23 @@
+[package]
+name = "soyuz-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Unified runtime engine for Soyuz - orchestrates scripting, rendering, and export"
+
+[dependencies]
+soyuz-core = { path = "../soyuz-core" }
+soyuz-script = { path = "../soyuz-script" }
+soyuz-render = { path = "../soyuz-render" }
+soyuz-sdf = { path = "../soyuz-sdf" }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = ["file-watcher"]
+file-watcher = ["soyuz-script/file-watcher"]
+
+[lints]
+workspace = true
