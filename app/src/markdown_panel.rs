@@ -1,16 +1,36 @@
-//! Cookbook panel - displays SOYUZ_COOKBOOK.md as formatted HTML
+//! Markdown documentation panel - displays embedded markdown as formatted HTML
 //!
-//! Renders the embedded cookbook documentation with proper markdown styling.
-//! The content is parsed at runtime using pulldown-cmark but memoized to avoid
-//! re-parsing on each render. Headings are automatically assigned IDs based on
-//! their text content for anchor link navigation.
+//! Renders embedded markdown documentation with proper styling.
+//! Supports multiple document types (Cookbook, README).
+//! The content is parsed once per document type using a lazy static cache.
+//! Headings are automatically assigned IDs based on their text content for
+//! anchor link navigation.
 
+use crate::state::MarkdownDoc;
 use dioxus::prelude::*;
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
-/// Embedded cookbook markdown (compile-time)
+/// Embedded markdown content (compile-time)
 const COOKBOOK_MD: &str = include_str!("../../SOYUZ_COOKBOOK.md");
+const README_MD: &str = include_str!("../../README.md");
+
+/// Static cache for parsed HTML content (one per document type)
+static COOKBOOK_HTML: OnceLock<String> = OnceLock::new();
+static README_HTML: OnceLock<String> = OnceLock::new();
+
+/// Get parsed HTML content for a document type (cached)
+fn get_html_content(doc: MarkdownDoc) -> &'static str {
+    match doc {
+        MarkdownDoc::Cookbook => {
+            COOKBOOK_HTML.get_or_init(|| markdown_to_html(COOKBOOK_MD))
+        }
+        MarkdownDoc::Readme => {
+            README_HTML.get_or_init(|| markdown_to_html(README_MD))
+        }
+    }
+}
 
 /// Convert heading text to a URL-friendly slug
 /// "Quick Start" -> "quick-start"
@@ -114,14 +134,14 @@ fn markdown_to_html(markdown: &str) -> String {
     html_output
 }
 
-/// Cookbook panel component - displays formatted markdown documentation
+/// Markdown panel component - displays formatted markdown documentation
 #[component]
-pub fn CookbookPanel() -> Element {
-    // Parse markdown to HTML once (no reactive dependencies)
-    let html_content = use_memo(|| markdown_to_html(COOKBOOK_MD));
+pub fn MarkdownPanel(doc: MarkdownDoc) -> Element {
+    // Get cached HTML content for this document type
+    let html_content = get_html_content(doc);
 
     rsx! {
-        div { class: "cookbook-panel",
+        div { class: "markdown-panel",
             // Intercept anchor link clicks and scroll instead of navigating
             script {
                 dangerous_inner_html: "
@@ -147,7 +167,7 @@ pub fn CookbookPanel() -> Element {
                     }})();
                 "
             }
-            div { class: "cookbook-content markdown-body",
+            div { class: "markdown-content markdown-body",
                 dangerous_inner_html: "{html_content}"
             }
         }

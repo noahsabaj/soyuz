@@ -21,8 +21,25 @@ pub enum TabKind {
     File,
     /// Settings panel (singleton)
     Settings,
-    /// Cookbook documentation (singleton)
+    /// Embedded markdown documentation (singleton per doc type)
+    Markdown(MarkdownDoc),
+}
+
+/// Types of embedded markdown documents
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MarkdownDoc {
     Cookbook,
+    Readme,
+}
+
+impl MarkdownDoc {
+    /// Get display name for the tab
+    pub fn display_name(self) -> &'static str {
+        match self {
+            MarkdownDoc::Cookbook => "Cookbook",
+            MarkdownDoc::Readme => "README",
+        }
+    }
 }
 
 /// Unique identifier for panes
@@ -87,11 +104,11 @@ impl EditorTab {
         }
     }
 
-    /// Create a Cookbook tab
-    pub fn new_cookbook(id: TabId) -> Self {
+    /// Create a Markdown documentation tab
+    pub fn new_markdown(id: TabId, doc: MarkdownDoc) -> Self {
         Self {
             id,
-            kind: TabKind::Cookbook,
+            kind: TabKind::Markdown(doc),
             path: None,
             content: String::new(),
             is_dirty: false,
@@ -137,9 +154,9 @@ impl EditorTab {
 
     /// Get display name for the tab
     pub fn display_name(&self) -> String {
-        match self.kind {
+        match &self.kind {
             TabKind::Settings => "Settings".to_string(),
-            TabKind::Cookbook => "Cookbook".to_string(),
+            TabKind::Markdown(doc) => doc.display_name().to_string(),
             TabKind::File => self
                 .path
                 .as_ref()
@@ -154,9 +171,17 @@ impl EditorTab {
         self.kind == TabKind::Settings
     }
 
-    /// Check if this is a Cookbook tab
-    pub fn is_cookbook(&self) -> bool {
-        self.kind == TabKind::Cookbook
+    /// Check if this is a markdown documentation tab
+    pub fn is_markdown(&self) -> bool {
+        matches!(self.kind, TabKind::Markdown(_))
+    }
+
+    /// Get the markdown doc type if this is a markdown tab
+    pub fn markdown_doc(&self) -> Option<MarkdownDoc> {
+        match self.kind {
+            TabKind::Markdown(doc) => Some(doc),
+            _ => None,
+        }
     }
 }
 
@@ -325,19 +350,21 @@ impl EditorPane {
         }
     }
 
-    /// Find the Cookbook tab if it exists (returns pane_id, tab_id)
-    pub fn find_cookbook_tab(&self) -> Option<(PaneId, TabId)> {
+    /// Find a markdown documentation tab by type (returns pane_id, tab_id)
+    pub fn find_markdown_tab(&self, doc: MarkdownDoc) -> Option<(PaneId, TabId)> {
         match self {
             EditorPane::TabGroup { id, tabs, .. } => {
                 for tab in tabs {
-                    if tab.is_cookbook() {
+                    if tab.markdown_doc() == Some(doc) {
                         return Some((*id, tab.id));
                     }
                 }
                 None
             }
             EditorPane::Split { first, second, .. } => {
-                first.find_cookbook_tab().or_else(|| second.find_cookbook_tab())
+                first
+                    .find_markdown_tab(doc)
+                    .or_else(|| second.find_markdown_tab(doc))
             }
         }
     }

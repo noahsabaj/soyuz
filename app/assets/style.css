@@ -2593,17 +2593,17 @@ body {
 }
 
 /* ============================================================================
- * Cookbook Panel - Markdown Documentation Viewer
+ * Markdown Panel - Documentation Viewer (Cookbook, README, etc.)
  * ============================================================================ */
 
-.cookbook-panel {
+.markdown-panel {
     height: 100%;
     overflow-y: auto;
     background: var(--bg-primary);
     scroll-behavior: smooth;
 }
 
-.cookbook-content {
+.markdown-content {
     max-width: 800px;
     margin: 0 auto;
     padding: 24px 32px;
@@ -2737,15 +2737,15 @@ body {
     font-style: italic;
 }
 
-/* Cookbook tab icon styling */
-.cookbook-tab .tab-icon.cookbook-icon {
+/* Markdown tab icon styling (Cookbook, README, etc.) */
+.markdown-tab .tab-icon.markdown-icon {
     width: 14px;
     height: 14px;
     margin-right: 4px;
     opacity: 0.8;
 }
 
-.cookbook-tab .tab-icon.cookbook-icon svg {
+.markdown-tab .tab-icon.markdown-icon svg {
     width: 14px;
     height: 14px;
 }

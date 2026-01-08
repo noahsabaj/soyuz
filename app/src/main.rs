@@ -2,8 +2,8 @@
 
 mod browser;
 mod command_palette;
-mod cookbook_panel;
 mod export;
+mod markdown_panel;
 mod js_interop;
 mod pane;
 mod preview;

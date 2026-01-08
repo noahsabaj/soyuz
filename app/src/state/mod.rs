@@ -26,7 +26,7 @@ mod terminal;
 mod undo;
 
 // Re-export all public types
-pub use editor::{EditorPane, EditorTab, PaneId, SplitDirection, TabId};
+pub use editor::{EditorPane, EditorTab, MarkdownDoc, PaneId, SplitDirection, TabId};
 pub use export::{ExportFormat, ExportSettings};
 pub use preview::PreviewState;
 pub use terminal::{TerminalBuffer, TerminalEntry, TerminalFilter, TerminalLevel};
@@ -256,18 +256,18 @@ impl AppState {
         }
     }
 
-    /// Open the Cookbook tab (singleton - focuses existing if already open)
-    pub fn open_cookbook(&mut self) {
-        // Check if Cookbook tab already exists anywhere
-        if let Some((pane_id, tab_id)) = self.editor_pane.find_cookbook_tab() {
-            // Focus the existing Cookbook tab
+    /// Open a markdown documentation tab (singleton - focuses existing if already open)
+    pub fn open_markdown(&mut self, doc: MarkdownDoc) {
+        // Check if this markdown tab already exists anywhere
+        if let Some((pane_id, tab_id)) = self.editor_pane.find_markdown_tab(doc) {
+            // Focus the existing tab
             self.focused_pane_id = pane_id;
             self.switch_to_tab(tab_id);
             return;
         }
 
-        // Create a new Cookbook tab in the focused pane
-        let tab = EditorTab::new_cookbook(self.next_tab_id);
+        // Create a new markdown tab in the focused pane
+        let tab = EditorTab::new_markdown(self.next_tab_id, doc);
         self.next_tab_id += 1;
 
         if let Some(EditorPane::TabGroup {
@@ -277,6 +277,16 @@ impl AppState {
             tabs.push(tab);
             *active_tab_idx = tabs.len() - 1;
         }
+    }
+
+    /// Open the Cookbook tab (convenience method)
+    pub fn open_cookbook(&mut self) {
+        self.open_markdown(MarkdownDoc::Cookbook);
+    }
+
+    /// Open the README tab (convenience method)
+    pub fn open_readme(&mut self) {
+        self.open_markdown(MarkdownDoc::Readme);
     }
 
     /// Open a file in a new tab (or focus existing tab if already open)

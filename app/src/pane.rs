@@ -5,8 +5,8 @@
 // map_or is less readable for optional values
 #![allow(clippy::map_unwrap_or)]
 
-use crate::cookbook_panel::CookbookPanel;
 use crate::js_interop::{self, position_to_line_col};
+use crate::markdown_panel::MarkdownPanel;
 use crate::settings_panel::SettingsPanel;
 use crate::state::{AppState, EditorPane, EditorTab, PaneId, SplitDirection, TabId};
 use dioxus::prelude::*;
@@ -268,7 +268,7 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
     let code = active_tab.map(|t| t.content.clone()).unwrap_or_default();
     let active_tab_id = active_tab.map(|t| t.id).unwrap_or(0);
     let is_settings_tab = active_tab.map(|t| t.is_settings()).unwrap_or(false);
-    let is_cookbook_tab = active_tab.map(|t| t.is_cookbook()).unwrap_or(false);
+    let markdown_doc = active_tab.and_then(|t| t.markdown_doc());
 
     // Check if editor content is a drop target
     let is_content_drop_target = drag_state.read().target
@@ -322,8 +322,8 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
                 // Render panel based on tab type
                 if is_settings_tab {
                     SettingsPanel {}
-                } else if is_cookbook_tab {
-                    CookbookPanel {}
+                } else if let Some(doc) = markdown_doc {
+                    MarkdownPanel { doc }
                 } else {
                     EditorArea {
                         pane_id,
@@ -373,7 +373,7 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                     let is_dirty = tab.is_dirty;
                     let is_active = tab_id == active_tab_id;
                     let is_settings = tab.is_settings();
-                    let is_cookbook = tab.is_cookbook();
+                    let is_markdown = tab.is_markdown();
 
                     // Determine CSS classes based on drag state
                     let ds = drag_state.read();
@@ -387,7 +387,7 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                     if is_drop_target { class.push_str(" drop-before"); }
                     if is_drop_after { class.push_str(" drop-after"); }
                     if is_settings { class.push_str(" settings-tab"); }
-                    if is_cookbook { class.push_str(" cookbook-tab"); }
+                    if is_markdown { class.push_str(" markdown-tab"); }
 
                     rsx! {
                         div {
@@ -452,10 +452,10 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                                         dangerous_inner_html: include_str!("../assets/gear.svg")
                                     }
                                 }
-                                // Book icon for Cookbook tab
-                                if is_cookbook {
+                                // Book icon for markdown tabs (Cookbook, README, etc.)
+                                if is_markdown {
                                     span {
-                                        class: "tab-icon cookbook-icon",
+                                        class: "tab-icon markdown-icon",
                                         dangerous_inner_html: include_str!("../assets/book.svg")
                                     }
                                 }
