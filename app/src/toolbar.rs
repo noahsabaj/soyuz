@@ -13,6 +13,9 @@ use crate::state::AppState;
 use dioxus::prelude::*;
 use tracing::warn;
 
+/// Embedded 32x32 logo as base64 data URL (ensures it's bundled in the binary)
+const LOGO_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAALcUExURQAAABAjHBUmHw4gGgscFur//xIkHA8gGxIlHREjHBAjGxMkHhEiGxEjGxEkHRUqIBAmHRAiGwAGAA4gGRk0JRIiHA8gGhEkHhcaFBAiHBIlHhMmHg4eFhIkHRMlHRMlHhAhGwcOEBInHSFSMwQFCwAAAAASDBgrIyo8MhQhGgsdFxcpIRksIwsbFhEjHBAiGxQnHxElHRMmHx0vJxMlHRMlHRIiGxIkHREjHBAiHFVrVihCMBowJA8gGhAhGhMmHhIlHREkHREkHRIkHRIkHREjHA8hGhEkHREkHQsdF1hvWZq2kz9kRCxIMxgsIgkWFRMmHxQmHxEjHBEjHBEkHREjHAkbFVNpVZCqiqbCnabCnZaxj1t9XCxJNBIlHREkHREjHBAiGwsbExAkHBAjGxMlHUplTW2La26MbFJuVBUsIBEkHREkHBEjHREjHBAjHAweGEJiSBYuIQgUFBEkHBEjHBEkHREjHBAjHBEjHBEjHBAjHBgtI1+HYCtbNiJJLhQrIBAjHBEjHBAiGxAiGxEjHBAjHBAiHA0fGjNPO26bbztjQi1fOClUMxYuIREkHBAjHBAiGxMnIREjHBAiGxAiGhAiHDxYQlN7VlF7VCRFLxgyIxIlHRMnHhIlHRIkHREjHA8hGhEjHRktIydCMUBkR1R5WDBLOBguIxQqHxo3JhcxIhMmHhIkHRMlHhIkHBAjGxIiGBIiGhIkHBEjGw8iGg8iGxAlHA8iGxQrHx1AKR9CKxgzJBInHg4cGRAjHBEjHBEjGxAiGxAiGxAiGxEjHBAjGxAiGxAiGxEkHBYvIhcyIxQqIAsXFhAiGxAiGw8iGw8iGg8hGhEjHBIkHQ0bGAwbF111XZ67ll9+X1B7U26MbC1RNiZOMUtwT1iFWVqHW1mGWlmGWz1kQyRMMCRPMGCJY1J7VV6NYF6NX1J9VS9bOXCecVJ5VlmGXFyKXmmTa3GfcmaQaP///3OLDxEAAADXdFJOUwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABASkoARZufR0LIjxE0dhgJwEMSYLi0GliYk0xm59JiywDM3BTlPv6u0MEBwd3TD+SJ17z/v3+/u9WMZsZA1dUWuX+/v1yNjwkZ3RBkXEFXaI6BUp1Jk1q3v7if5CKHwhhYw5NvP394rapoUwGAV1bBFD29dWzqq6uTSp6BxF219q8rKyusrZ+HEGBCwECCRk6iK+ssLrQpDsEDnybjpGcoJNrNzCpyFoLBSE1NScSAxEVhyxtoAAAAAFiS0dE86yxvu4AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQfpDB0AOQp0TeYNAAABQ0lEQVQ4y2NgGAXYgKoqiGRUU9fQZMKUZWbR0tbRZdXTNzA0MjYxNWNDlWbnMLewtLpubWNrZ+/g6OTs4sqJIs/l5u7h6eV946aPr58/d0AgT1AwL4oCvpDQsPCIyKjomFuxcfwCnPEJiYJI0kLCSckpqWm309MzMu/czRIRzXbK4RBDyItL5OblFxTeu//g4aPHT54WFZeUlnHyIeQ5yysqq6prap89f/Hy1eu6+obGpmZGSYS8YEtrWztfR2fXm7fv3nf39Pb1T5jIhWQ/56TJU6YKSk2b/uHjpxkzZ82eM3eetAyy+2XnL1goyCC7aPGSpcuWr1i5avWatXIoHpRft37Dxk2bt2zdtn3Hzl279+zdp4AahIz7Dxw8dPjI0WPHT5w8dfrMWXaMOBA8d/7CxUuXr8gqKl29pqwyAGlkJAAAvLR0g5Oy8vgAAAAASUVORK5CYII=";
+
 /// Application logo in the toolbar
 #[component]
 fn AppLogo() -> Element {
@@ -21,7 +24,7 @@ fn AppLogo() -> Element {
             class: "app-logo",
             onmousedown: |e| e.stop_propagation(),
             img {
-                src: asset!("/assets/icons/icon-32.png"),
+                src: LOGO_DATA_URL,
                 alt: "Soyuz Studio",
                 width: "20",
                 height: "20"
