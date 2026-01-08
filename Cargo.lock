@@ -5356,7 +5356,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-app"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -5379,7 +5379,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-core"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "approx",
  "bytemuck",
@@ -5395,7 +5395,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-engine"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "soyuz-core",
@@ -5418,7 +5418,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-render"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5438,7 +5438,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-script"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "notify",
@@ -5455,7 +5455,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-sdf"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "bytemuck",
  "soyuz-math",
@@ -5463,7 +5463,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-wasm"
-version = "0.4.0"
+version = "0.4.2"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
