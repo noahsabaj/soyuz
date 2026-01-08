@@ -26,5 +26,5 @@ mod sdf_op;
 mod wgsl_gen;
 
 pub use environment::{Environment, EnvironmentUniforms};
-pub use sdf_op::SdfOp;
+pub use sdf_op::{ExtrudeProfile, RevolveProfile, SdfOp};
 pub use wgsl_gen::{WgslGenerator, build_shader, get_base_shader, inject_scene_sdf};

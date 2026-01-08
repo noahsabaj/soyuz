@@ -11,7 +11,7 @@
 
 use std::fmt::Write;
 
-use crate::SdfOp;
+use crate::{ExtrudeProfile, RevolveProfile, SdfOp};
 
 /// Generate WGSL code for an SDF operation tree
 pub struct WgslGenerator {
@@ -189,6 +189,30 @@ impl WgslGenerator {
                 .unwrap();
                 var
             }
+            SdfOp::Pyramid { height } => {
+                let var = self.next_var();
+                writeln!(
+                    code,
+                    "    let {} = sd_pyramid({}, {:.6});",
+                    var, pos_var, height
+                )
+                .unwrap();
+                var
+            }
+            SdfOp::Link {
+                length,
+                major_radius,
+                minor_radius,
+            } => {
+                let var = self.next_var();
+                writeln!(
+                    code,
+                    "    let {} = sd_link({}, {:.6}, {:.6}, {:.6});",
+                    var, pos_var, length, major_radius, minor_radius
+                )
+                .unwrap();
+                var
+            }
 
             // Boolean operations
             SdfOp::Union { a, b } => {
@@ -251,6 +275,13 @@ impl WgslGenerator {
                     var, a_var, b_var, k
                 )
                 .unwrap();
+                var
+            }
+            SdfOp::Xor { a, b } => {
+                let a_var = self.generate_op(a, pos_var, code);
+                let b_var = self.generate_op(b, pos_var, code);
+                let var = self.next_var();
+                writeln!(code, "    let {} = op_xor({}, {});", var, a_var, b_var).unwrap();
                 var
             }
 
@@ -405,6 +436,82 @@ impl WgslGenerator {
                 )
                 .unwrap();
                 self.generate_op(inner, &new_pos, code)
+            }
+            SdfOp::Displacement {
+                inner,
+                amount,
+                frequency,
+            } => {
+                let inner_var = self.generate_op(inner, pos_var, code);
+                let var = self.next_var();
+                writeln!(
+                    code,
+                    "    let {} = op_displacement({}, {}, {:.6}, {:.6});",
+                    var, inner_var, pos_var, amount, frequency
+                )
+                .unwrap();
+                var
+            }
+
+            // 2D-to-3D Operations
+            SdfOp::Extrude { profile, depth } => {
+                let var = self.next_var();
+                match profile {
+                    ExtrudeProfile::Circle { radius } => {
+                        writeln!(
+                            code,
+                            "    let {} = op_extrude(sd_circle_2d({}.xy, {:.6}), {}.z, {:.6});",
+                            var, pos_var, radius, pos_var, depth
+                        )
+                        .unwrap();
+                    }
+                    ExtrudeProfile::Rectangle { width, height } => {
+                        writeln!(
+                            code,
+                            "    let {} = op_extrude(sd_box_2d({}.xy, vec2<f32>({:.6}, {:.6})), {}.z, {:.6});",
+                            var, pos_var, width / 2.0, height / 2.0, pos_var, depth
+                        )
+                        .unwrap();
+                    }
+                    ExtrudeProfile::RoundedRectangle {
+                        width,
+                        height,
+                        radius,
+                    } => {
+                        writeln!(
+                            code,
+                            "    let {} = op_extrude(sd_rounded_box_2d({}.xy, vec2<f32>({:.6}, {:.6}), {:.6}), {}.z, {:.6});",
+                            var, pos_var, width / 2.0, height / 2.0, radius, pos_var, depth
+                        )
+                        .unwrap();
+                    }
+                }
+                var
+            }
+            SdfOp::Revolve { profile, offset } => {
+                let var = self.next_var();
+                let p2d = self.next_pos_var();
+                writeln!(
+                    code,
+                    "    let {} = op_revolve({}, {:.6});",
+                    p2d, pos_var, offset
+                )
+                .unwrap();
+                match profile {
+                    RevolveProfile::Circle { radius } => {
+                        writeln!(code, "    let {} = sd_circle_2d({}, {:.6});", var, p2d, radius)
+                            .unwrap();
+                    }
+                    RevolveProfile::Rectangle { width, height } => {
+                        writeln!(
+                            code,
+                            "    let {} = sd_box_2d({}, vec2<f32>({:.6}, {:.6}));",
+                            var, p2d, width / 2.0, height / 2.0
+                        )
+                        .unwrap();
+                    }
+                }
+                var
             }
 
             // Repetition

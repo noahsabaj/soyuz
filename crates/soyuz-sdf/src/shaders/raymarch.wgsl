@@ -168,6 +168,51 @@ fn sd_tri_prism(p: vec3<f32>, h: vec2<f32>) -> f32 {
     return max(q.z - h.y, max(q.x * 0.866025 + p.y * 0.5, -p.y) - h.x * 0.5);
 }
 
+fn sd_pyramid(p: vec3<f32>, h: f32) -> f32 {
+    let m2 = h * h + 0.25;
+    var p_xz = abs(p.xz);
+    if (p_xz.y > p_xz.x) {
+        p_xz = p_xz.yx;
+    }
+    p_xz = p_xz - vec2<f32>(0.5);
+
+    let q = vec3<f32>(p_xz.y, h * p.y - 0.5 * p_xz.x, h * p_xz.x + 0.5 * p.y);
+    let s = max(-q.x, 0.0);
+    let t = clamp((q.y - 0.5 * p_xz.y) / (m2 + 0.25), 0.0, 1.0);
+
+    let a = m2 * (q.x + s) * (q.x + s) + q.y * q.y;
+    let b = m2 * (q.x + 0.5 * t) * (q.x + 0.5 * t) + (q.y - m2 * t) * (q.y - m2 * t);
+
+    let d2 = select(min(a, b), 0.0, min(q.y, -q.x * m2 - q.y * 0.5) > 0.0);
+    return sqrt((d2 + q.z * q.z) / m2) * sign(max(q.z, -p.y));
+}
+
+fn sd_link(p: vec3<f32>, le: f32, r1: f32, r2: f32) -> f32 {
+    let q = vec3<f32>(p.x, max(abs(p.y) - le, 0.0), p.z);
+    return length(vec2<f32>(length(q.xy) - r1, q.z)) - r2;
+}
+
+// 2D SDF primitives for extrusion and revolution
+fn sd_circle_2d(p: vec2<f32>, r: f32) -> f32 {
+    return length(p) - r;
+}
+
+fn sd_box_2d(p: vec2<f32>, b: vec2<f32>) -> f32 {
+    let d = abs(p) - b;
+    return length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0);
+}
+
+fn sd_rounded_box_2d(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
+    let q = abs(p) - b + vec2<f32>(r);
+    return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+
+// Noise function for displacement
+fn noise3d(p: vec3<f32>) -> f32 {
+    return sin(p.x * 1.0) * sin(p.y * 1.1) * sin(p.z * 0.9) +
+           sin(p.x * 2.3) * sin(p.y * 2.1) * sin(p.z * 2.5) * 0.5;
+}
+
 // ============================================================================
 // SDF Operations
 // ============================================================================
@@ -288,6 +333,35 @@ fn op_repeat(p: vec3<f32>, c: vec3<f32>) -> vec3<f32> {
 
 fn op_repeat_limited(p: vec3<f32>, c: vec3<f32>, l: vec3<f32>) -> vec3<f32> {
     return p - c * clamp(round(p / c), -l, l);
+}
+
+// ============================================================================
+// Additional Boolean Operations
+// ============================================================================
+
+fn op_xor(d1: f32, d2: f32) -> f32 {
+    return max(min(d1, d2), -max(d1, d2));
+}
+
+// ============================================================================
+// Displacement and Deformation
+// ============================================================================
+
+fn op_displacement(d: f32, p: vec3<f32>, amount: f32, freq: f32) -> f32 {
+    return d + amount * noise3d(p * freq);
+}
+
+// ============================================================================
+// 2D-to-3D Operations (Extrude and Revolve)
+// ============================================================================
+
+fn op_extrude(d2d: f32, pz: f32, h: f32) -> f32 {
+    let w = vec2<f32>(d2d, abs(pz) - h);
+    return min(max(w.x, w.y), 0.0) + length(max(w, vec2<f32>(0.0)));
+}
+
+fn op_revolve(p: vec3<f32>, offset: f32) -> vec2<f32> {
+    return vec2<f32>(length(p.xz) - offset, p.y);
 }
 
 // SSOT_FORMULAS_PLACEHOLDER

@@ -5,6 +5,21 @@
 
 use std::sync::Arc;
 
+/// Profile shape for 2D-to-3D extrusion operations
+#[derive(Debug, Clone)]
+pub enum ExtrudeProfile {
+    Circle { radius: f32 },
+    Rectangle { width: f32, height: f32 },
+    RoundedRectangle { width: f32, height: f32, radius: f32 },
+}
+
+/// Profile shape for 2D-to-3D revolution (lathe) operations
+#[derive(Debug, Clone)]
+pub enum RevolveProfile {
+    Circle { radius: f32 },
+    Rectangle { width: f32, height: f32 },
+}
+
 /// Represents an SDF operation in a format suitable for shader generation.
 ///
 /// Uses `Arc` for child nodes to enable efficient cloning (O(1) reference count increment
@@ -59,6 +74,14 @@ pub enum SdfOp {
     TriPrism {
         size: [f32; 2],
     },
+    Pyramid {
+        height: f32,
+    },
+    Link {
+        length: f32,
+        major_radius: f32,
+        minor_radius: f32,
+    },
 
     // Boolean operations
     Union {
@@ -87,6 +110,10 @@ pub enum SdfOp {
         a: Arc<SdfOp>,
         b: Arc<SdfOp>,
         k: f32,
+    },
+    Xor {
+        a: Arc<SdfOp>,
+        b: Arc<SdfOp>,
     },
 
     // Modifiers
@@ -150,6 +177,21 @@ pub enum SdfOp {
     Bend {
         inner: Arc<SdfOp>,
         amount: f32,
+    },
+    Displacement {
+        inner: Arc<SdfOp>,
+        amount: f32,
+        frequency: f32,
+    },
+
+    // 2D-to-3D Operations
+    Extrude {
+        profile: ExtrudeProfile,
+        depth: f32,
+    },
+    Revolve {
+        profile: RevolveProfile,
+        offset: f32,
     },
 
     // Repetition

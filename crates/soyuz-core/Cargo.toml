@@ -12,7 +12,6 @@ soyuz-math = { path = "../soyuz-math" }
 
 # Noise generation
 noise = { workspace = true }
-fastnoise-lite = { workspace = true }
 
 # Image export
 image = { workspace = true }
@@ -22,6 +21,9 @@ gltf = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
 
 # Parallelism
 rayon = { workspace = true }

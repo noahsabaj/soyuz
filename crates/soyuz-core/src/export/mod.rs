@@ -7,6 +7,7 @@ mod stl;
 use crate::Result;
 use crate::material::MeshWithMaterial;
 use crate::mesh::Mesh;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub use gltf_export::{
@@ -16,7 +17,8 @@ pub use obj::export_obj;
 pub use stl::export_stl;
 
 /// Supported export formats
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ExportFormat {
     Obj,
     Gltf,

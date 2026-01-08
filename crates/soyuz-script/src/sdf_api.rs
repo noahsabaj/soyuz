@@ -10,7 +10,7 @@
 //! the precision loss is negligible.
 
 use rhai::{Engine, Module};
-use soyuz_sdf::SdfOp;
+use soyuz_sdf::{ExtrudeProfile, RevolveProfile, SdfOp};
 use std::sync::Arc;
 
 /// SDF node representation for Rhai
@@ -88,6 +88,13 @@ impl RhaiSdf {
             a: Arc::clone(&self.op),
             b: other.op,
             k: k as f32,
+        })
+    }
+
+    pub fn xor(&mut self, other: RhaiSdf) -> RhaiSdf {
+        RhaiSdf::new(SdfOp::Xor {
+            a: Arc::clone(&self.op),
+            b: other.op,
         })
     }
 
@@ -229,6 +236,14 @@ impl RhaiSdf {
         })
     }
 
+    pub fn displace(&mut self, amount: f64, frequency: f64) -> RhaiSdf {
+        RhaiSdf::new(SdfOp::Displacement {
+            inner: Arc::clone(&self.op),
+            amount: amount as f32,
+            frequency: frequency as f32,
+        })
+    }
+
     // === Repetition ===
 
     pub fn repeat(&mut self, sx: f64, sy: f64, sz: f64) -> RhaiSdf {
@@ -352,6 +367,71 @@ pub fn tri_prism(width: f64, height: f64) -> RhaiSdf {
     })
 }
 
+pub fn pyramid(height: f64) -> RhaiSdf {
+    RhaiSdf::new(SdfOp::Pyramid {
+        height: height as f32,
+    })
+}
+
+pub fn link(length: f64, major_radius: f64, minor_radius: f64) -> RhaiSdf {
+    RhaiSdf::new(SdfOp::Link {
+        length: length as f32,
+        major_radius: major_radius as f32,
+        minor_radius: minor_radius as f32,
+    })
+}
+
+// === 2D-to-3D Operations ===
+
+pub fn extrude_circle(radius: f64, depth: f64) -> RhaiSdf {
+    RhaiSdf::new(SdfOp::Extrude {
+        profile: ExtrudeProfile::Circle {
+            radius: radius as f32,
+        },
+        depth: depth as f32,
+    })
+}
+
+pub fn extrude_rect(width: f64, height: f64, depth: f64) -> RhaiSdf {
+    RhaiSdf::new(SdfOp::Extrude {
+        profile: ExtrudeProfile::Rectangle {
+            width: width as f32,
+            height: height as f32,
+        },
+        depth: depth as f32,
+    })
+}
+
+pub fn extrude_rounded_rect(width: f64, height: f64, radius: f64, depth: f64) -> RhaiSdf {
+    RhaiSdf::new(SdfOp::Extrude {
+        profile: ExtrudeProfile::RoundedRectangle {
+            width: width as f32,
+            height: height as f32,
+            radius: radius as f32,
+        },
+        depth: depth as f32,
+    })
+}
+
+pub fn revolve_circle(radius: f64, offset: f64) -> RhaiSdf {
+    RhaiSdf::new(SdfOp::Revolve {
+        profile: RevolveProfile::Circle {
+            radius: radius as f32,
+        },
+        offset: offset as f32,
+    })
+}
+
+pub fn revolve_rect(width: f64, height: f64, offset: f64) -> RhaiSdf {
+    RhaiSdf::new(SdfOp::Revolve {
+        profile: RevolveProfile::Rectangle {
+            width: width as f32,
+            height: height as f32,
+        },
+        offset: offset as f32,
+    })
+}
+
 // === Math constants ===
 
 pub fn pi() -> f64 {
@@ -392,6 +472,15 @@ pub fn register_sdf_api(engine: &mut Engine) {
     engine.register_fn("octahedron", octahedron);
     engine.register_fn("hex_prism", hex_prism);
     engine.register_fn("tri_prism", tri_prism);
+    engine.register_fn("pyramid", pyramid);
+    engine.register_fn("link", link);
+
+    // === 2D-to-3D operations ===
+    engine.register_fn("extrude_circle", extrude_circle);
+    engine.register_fn("extrude_rect", extrude_rect);
+    engine.register_fn("extrude_rounded_rect", extrude_rounded_rect);
+    engine.register_fn("revolve_circle", revolve_circle);
+    engine.register_fn("revolve_rect", revolve_rect);
 
     // === Boolean operations ===
     engine.register_fn("union", RhaiSdf::union);
@@ -400,6 +489,7 @@ pub fn register_sdf_api(engine: &mut Engine) {
     engine.register_fn("smooth_union", RhaiSdf::smooth_union);
     engine.register_fn("smooth_subtract", RhaiSdf::smooth_subtract);
     engine.register_fn("smooth_intersect", RhaiSdf::smooth_intersect);
+    engine.register_fn("xor", RhaiSdf::xor);
 
     // === Modifiers ===
     engine.register_fn("shell", RhaiSdf::shell);
@@ -427,6 +517,7 @@ pub fn register_sdf_api(engine: &mut Engine) {
     // === Deformations ===
     engine.register_fn("twist", RhaiSdf::twist);
     engine.register_fn("bend", RhaiSdf::bend);
+    engine.register_fn("displace", RhaiSdf::displace);
 
     // === Repetition ===
     engine.register_fn("repeat", RhaiSdf::repeat);
