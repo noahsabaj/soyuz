@@ -1,28 +1,20 @@
 //! Explorer panel - VSCode-style expandable file tree
+//!
+//! This module provides the AssetBrowser component which displays a file tree
+//! for navigating and managing files in the workspace.
 
-// Icon matching uses separate arms for semantic clarity even if bodies match
-#![allow(clippy::match_same_arms)]
-// Nested or-patterns reduce readability for file extension matching
-#![allow(clippy::unnested_or_patterns)]
 // map_or_else is less readable for file path operations
 #![allow(clippy::map_unwrap_or)]
-// PathBuf is more convenient than Path for file operations
-#![allow(clippy::ptr_arg)]
+
+mod tree;
+
+use tree::{format_size, get_icon, load_directory, TreeNode};
 
 use crate::state::AppState;
 use dioxus::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
-
-/// A node in the file tree (flattened for easy rendering)
-#[derive(Clone, PartialEq)]
-struct TreeNode {
-    name: String,
-    path: PathBuf,
-    is_dir: bool,
-    size: u64,
-    depth: usize,
-}
+use tracing::warn;
 
 /// What type of item is being created
 #[derive(Clone, Copy, PartialEq)]
@@ -302,59 +294,48 @@ pub fn AssetBrowser() -> Element {
         // Listen for drop events from JavaScript
         spawn(async move {
             let mut eval = eval;
-            loop {
-                match eval.recv::<serde_json::Value>().await {
-                    Ok(msg) => {
-                        if let (Some(source), Some(target)) = (
-                            msg.get("source").and_then(|v| v.as_str()),
-                            msg.get("target").and_then(|v| v.as_str()),
-                        ) {
-                            let source_path = PathBuf::from(source);
-                            let target_path = PathBuf::from(target);
+            while let Ok(msg) = eval.recv::<serde_json::Value>().await {
+                if let (Some(source), Some(target)) = (
+                    msg.get("source").and_then(|v| v.as_str()),
+                    msg.get("target").and_then(|v| v.as_str()),
+                ) {
+                    let source_path = PathBuf::from(source);
+                    let target_path = PathBuf::from(target);
 
-                            // Validate: don't drop into self or current parent
-                            if source_path.parent() != Some(target_path.as_path()) {
-                                // Perform the file move
-                                if let Some(file_name) = source_path.file_name() {
-                                    let new_path = target_path.join(file_name);
-                                    if tokio::fs::rename(&source_path, &new_path).await.is_ok() {
-                                        // Refresh tree while preserving expanded folders
-                                        let workspace = state.read().workspace.clone();
-                                        if let Some(dir) = workspace
-                                            && let Ok(mut all_nodes) = load_directory(&dir, 0).await
+                    // Validate: don't drop into self or current parent
+                    if source_path.parent() != Some(target_path.as_path()) {
+                        // Perform the file move
+                        if let Some(file_name) = source_path.file_name() {
+                            let new_path = target_path.join(file_name);
+                            if tokio::fs::rename(&source_path, &new_path).await.is_ok() {
+                                // Refresh tree while preserving expanded folders
+                                let workspace = state.read().workspace.clone();
+                                if let Some(dir) = workspace
+                                    && let Ok(mut all_nodes) = load_directory(&dir, 0).await
+                                {
+                                    let mut expanded_paths: Vec<_> =
+                                        expanded.read().iter().cloned().collect();
+                                    expanded_paths.sort_by_key(|p| p.components().count());
+                                    for exp_path in expanded_paths {
+                                        if let Some(parent_idx) = all_nodes
+                                            .iter()
+                                            .position(|n| n.path == exp_path && n.is_dir)
                                         {
-                                            let mut expanded_paths: Vec<_> =
-                                                expanded.read().iter().cloned().collect();
-                                            expanded_paths.sort_by_key(|p| p.components().count());
-                                            for exp_path in expanded_paths {
-                                                if let Some(parent_idx) = all_nodes
-                                                    .iter()
-                                                    .position(|n| n.path == exp_path && n.is_dir)
+                                            let parent_depth = all_nodes[parent_idx].depth;
+                                            if let Ok(children) =
+                                                load_directory(&exp_path, parent_depth + 1).await
+                                            {
+                                                for (i, child) in children.into_iter().enumerate()
                                                 {
-                                                    let parent_depth = all_nodes[parent_idx].depth;
-                                                    if let Ok(children) =
-                                                        load_directory(&exp_path, parent_depth + 1)
-                                                            .await
-                                                    {
-                                                        for (i, child) in
-                                                            children.into_iter().enumerate()
-                                                        {
-                                                            all_nodes
-                                                                .insert(parent_idx + 1 + i, child);
-                                                        }
-                                                    }
+                                                    all_nodes.insert(parent_idx + 1 + i, child);
                                                 }
                                             }
-                                            nodes.set(all_nodes);
                                         }
                                     }
+                                    nodes.set(all_nodes);
                                 }
                             }
                         }
-                    }
-                    Err(_) => {
-                        // Channel closed, stop listening
-                        break;
                     }
                 }
             }
@@ -483,8 +464,13 @@ pub fn AssetBrowser() -> Element {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     use arboard::Clipboard;
-                    if let Ok(mut clipboard) = Clipboard::new() {
-                        let _ = clipboard.set_text(&path_str);
+                    match Clipboard::new() {
+                        Ok(mut clipboard) => {
+                            if let Err(e) = clipboard.set_text(&path_str) {
+                                warn!("Failed to copy path to clipboard: {e}");
+                            }
+                        }
+                        Err(e) => warn!("Failed to access clipboard: {e}"),
                     }
                 }
             });
@@ -495,7 +481,10 @@ pub fn AssetBrowser() -> Element {
     // Context menu: Rename
     let ctx_rename = move |_| {
         if let Some(path) = context_menu.read().target_path.clone() {
-            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
             rename_state.set(RenameState {
                 active: true,
                 path: Some(path),
@@ -525,12 +514,18 @@ pub fn AssetBrowser() -> Element {
                     if let Some(dir) = workspace
                         && let Ok(mut all_nodes) = load_directory(&dir, 0).await
                     {
-                        let mut expanded_paths: Vec<_> = expanded.read().iter().cloned().collect();
+                        let mut expanded_paths: Vec<_> =
+                            expanded.read().iter().cloned().collect();
                         expanded_paths.sort_by_key(|p| p.components().count());
                         for exp_path in expanded_paths {
-                            if let Some(parent_idx) = all_nodes.iter().position(|n| n.path == exp_path && n.is_dir) {
+                            if let Some(parent_idx) = all_nodes
+                                .iter()
+                                .position(|n| n.path == exp_path && n.is_dir)
+                            {
                                 let parent_depth = all_nodes[parent_idx].depth;
-                                if let Ok(children) = load_directory(&exp_path, parent_depth + 1).await {
+                                if let Ok(children) =
+                                    load_directory(&exp_path, parent_depth + 1).await
+                                {
                                     for (i, child) in children.into_iter().enumerate() {
                                         all_nodes.insert(parent_idx + 1 + i, child);
                                     }
@@ -550,7 +545,12 @@ pub fn AssetBrowser() -> Element {
         if let Some(parent_path) = context_menu.read().target_path.clone() {
             // Expand the folder if not already expanded
             if !expanded.read().contains(&parent_path) {
-                let depth = nodes.read().iter().find(|n| n.path == parent_path).map(|n| n.depth).unwrap_or(0);
+                let depth = nodes
+                    .read()
+                    .iter()
+                    .find(|n| n.path == parent_path)
+                    .map(|n| n.depth)
+                    .unwrap_or(0);
                 toggle_dir(parent_path.clone(), depth);
             }
             // Start inline creation at the folder location
@@ -566,7 +566,12 @@ pub fn AssetBrowser() -> Element {
         if let Some(parent_path) = context_menu.read().target_path.clone() {
             // Expand the folder if not already expanded
             if !expanded.read().contains(&parent_path) {
-                let depth = nodes.read().iter().find(|n| n.path == parent_path).map(|n| n.depth).unwrap_or(0);
+                let depth = nodes
+                    .read()
+                    .iter()
+                    .find(|n| n.path == parent_path)
+                    .map(|n| n.depth)
+                    .unwrap_or(0);
                 toggle_dir(parent_path.clone(), depth);
             }
             // Start inline creation at the folder location
@@ -597,12 +602,18 @@ pub fn AssetBrowser() -> Element {
                         if let Some(dir) = workspace
                             && let Ok(mut all_nodes) = load_directory(&dir, 0).await
                         {
-                            let mut expanded_paths: Vec<_> = expanded.read().iter().cloned().collect();
+                            let mut expanded_paths: Vec<_> =
+                                expanded.read().iter().cloned().collect();
                             expanded_paths.sort_by_key(|p| p.components().count());
                             for exp_path in expanded_paths {
-                                if let Some(parent_idx) = all_nodes.iter().position(|n| n.path == exp_path && n.is_dir) {
+                                if let Some(parent_idx) = all_nodes
+                                    .iter()
+                                    .position(|n| n.path == exp_path && n.is_dir)
+                                {
                                     let parent_depth = all_nodes[parent_idx].depth;
-                                    if let Ok(children) = load_directory(&exp_path, parent_depth + 1).await {
+                                    if let Ok(children) =
+                                        load_directory(&exp_path, parent_depth + 1).await
+                                    {
                                         for (i, child) in children.into_iter().enumerate() {
                                             all_nodes.insert(parent_idx + 1 + i, child);
                                         }
@@ -704,228 +715,229 @@ pub fn AssetBrowser() -> Element {
                             }
                         },
 
-                for node in nodes.read().iter() {
-                    {
-                        let path = node.path.clone();
-                        let is_dir = node.is_dir;
-                        let depth = node.depth;
-                        let name = node.name.clone();
-                        let size = node.size;
-                        let is_expanded = expanded.read().contains(&path);
-                        let is_loading = loading.read().contains(&path);
-                        let indent = 4 + (depth * 12); // Base 4px + depth indentation
+                    for node in nodes.read().iter() {
+                        {
+                            let path = node.path.clone();
+                            let is_dir = node.is_dir;
+                            let depth = node.depth;
+                            let name = node.name.clone();
+                            let size = node.size;
+                            let is_expanded = expanded.read().contains(&path);
+                            let is_loading = loading.read().contains(&path);
+                            let indent = 4 + (depth * 12); // Base 4px + depth indentation
 
-                        // Check if this item is currently selected (open in editor)
-                        let current_file = state.read().current_file();
-                        let is_selected = current_file.as_ref() == Some(&path);
+                            // Check if this item is currently selected (open in editor)
+                            let current_file = state.read().current_file();
+                            let is_selected = current_file.as_ref() == Some(&path);
 
-                        // Check if this item is being renamed
-                        let is_renaming = rename_state.read().active
-                            && rename_state.read().path.as_ref() == Some(&path);
+                            // Check if this item is being renamed
+                            let is_renaming = rename_state.read().active
+                                && rename_state.read().path.as_ref() == Some(&path);
 
-                        // Check if this folder is where we're creating a new item
-                        let is_creating_here = is_creating
-                            && is_dir
-                            && is_expanded
-                            && creating_parent.read().as_ref() == Some(&path);
-                        let child_indent = 4 + ((depth + 1) * 12); // Indent for child items
+                            // Check if this folder is where we're creating a new item
+                            let is_creating_here = is_creating
+                                && is_dir
+                                && is_expanded
+                                && creating_parent.read().as_ref() == Some(&path);
+                            let child_indent = 4 + ((depth + 1) * 12); // Indent for child items
 
-                        // Build class string (drop-target class is managed by JavaScript)
-                        let mut class = "tree-item".to_string();
-                        if is_selected {
-                            class.push_str(" selected");
-                        }
-
-                        // Convert path to string for data attribute
-                        let path_str = path.to_string_lossy().to_string();
-
-                        rsx! {
-                            div {
-                                key: "{path:?}",
-                                class: "{class}",
-                                style: "padding-left: {indent}px;",
-                                draggable: true,
-                                // Data attributes for JavaScript drag-drop handling
-                                "data-path": "{path_str}",
-                                "data-is-dir": if is_dir { "true" } else { "false" },
-
-                                onclick: {
-                                    let path = path.clone();
-                                    move |_| {
-                                        if is_dir {
-                                            toggle_dir(path.clone(), depth);
-                                        } else {
-                                            open_file(path.clone());
-                                        }
-                                    }
-                                },
-
-                                oncontextmenu: {
-                                    let path = path.clone();
-                                    move |e: Event<MouseData>| {
-                                        e.prevent_default();
-                                        e.stop_propagation(); // Don't bubble to parent container
-                                        context_menu.set(ContextMenuState {
-                                            visible: true,
-                                            x: e.client_coordinates().x as i32,
-                                            y: e.client_coordinates().y as i32,
-                                            target_path: Some(path.clone()),
-                                            is_dir,
-                                        });
-                                    }
-                                },
-
-                                // Note: Drag-drop is handled via JavaScript for Linux/WebKitGTK compatibility
-                                // See the use_effect that sets up JS event listeners
-
-                                // Expand/collapse arrow (or spacer for files)
-                                span {
-                                    class: if is_dir {
-                                        if is_expanded { "tree-arrow expanded" } else { "tree-arrow" }
-                                    } else {
-                                        "tree-arrow hidden"
-                                    },
-                                    if is_loading {
-                                        "○"  // Loading indicator
-                                    } else if is_dir {
-                                        "▶"
-                                    }
-                                }
-
-                                // File/folder icon
-                                span { class: if is_dir { "tree-icon folder" } else { "tree-icon file" },
-                                    {get_icon(&path, is_dir)}
-                                }
-
-                                // Name or rename input
-                                if is_renaming {
-                                    input {
-                                        class: "tree-inline-input tree-rename-input",
-                                        r#type: "text",
-                                        value: "{rename_state.read().new_name}",
-                                        autofocus: true,
-                                        // Use onmounted for reliable focus
-                                        onmounted: move |evt| {
-                                            spawn(async move {
-                                                let _ = evt.set_focus(true).await;
-                                            });
-                                        },
-                                        oninput: move |e| {
-                                            rename_state.write().new_name.clone_from(&e.value());
-                                        },
-                                        onkeydown: move |e| {
-                                            if e.key() == Key::Enter {
-                                                confirm_rename(());
-                                            } else if e.key() == Key::Escape {
-                                                cancel_rename(());
-                                            }
-                                        },
-                                        onblur: move |_| {
-                                            cancel_rename(());
-                                        },
-                                        onclick: move |e: Event<MouseData>| {
-                                            e.stop_propagation();
-                                        }
-                                    }
-                                } else {
-                                    span { class: "tree-name", "{name}" }
-                                }
-
-                                // Size (files only)
-                                if !is_dir && !is_renaming {
-                                    span { class: "tree-size", {format_size(size)} }
-                                }
+                            // Build class string (drop-target class is managed by JavaScript)
+                            let mut class = "tree-item".to_string();
+                            if is_selected {
+                                class.push_str(" selected");
                             }
 
-                            // Inline input for creating new file/folder (rendered inside expanded folder)
-                            if is_creating_here {
-                                {
-                                    let parent_for_create = path.clone();
-                                    rsx! {
-                                        div {
-                                            class: "tree-item tree-input-row",
-                                            style: "padding-left: {child_indent}px;",
-                                            // Invisible arrow spacer for alignment
-                                            span { class: "tree-arrow hidden" }
-                                            // Invisible icon spacer for alignment
-                                            span { class: "tree-icon file" }
-                                            input {
-                                                class: "tree-inline-input",
-                                                r#type: "text",
-                                                placeholder: if creating_type == Some(CreatingType::Folder) { "folder name" } else { "filename.rhai" },
-                                                value: "{input_value}",
-                                                autofocus: true,
-                                                onmounted: move |evt| {
-                                                    spawn(async move {
-                                                        let _ = evt.set_focus(true).await;
-                                                    });
-                                                },
-                                                oninput: move |e| input_value.set(e.value().clone()),
-                                                onkeydown: {
-                                                    let parent = parent_for_create.clone();
-                                                    move |e: Event<KeyboardData>| {
-                                                        if e.key() == Key::Enter {
-                                                            let name = input_value.read().trim().to_string();
-                                                            if !name.is_empty() {
-                                                                let target_path = parent.join(&name);
-                                                                let parent_for_refresh = parent.clone();
-                                                                let ct = *creating.read();
-                                                                spawn(async move {
-                                                                    let success = match ct {
-                                                                        Some(CreatingType::File) => {
-                                                                            tokio::fs::write(&target_path, "").await.is_ok()
-                                                                        }
-                                                                        Some(CreatingType::Folder) => {
-                                                                            tokio::fs::create_dir(&target_path).await.is_ok()
-                                                                        }
-                                                                        None => false,
-                                                                    };
-                                                                    if success {
-                                                                        // Refresh just the parent folder's children
-                                                                        let parent_depth = depth; // depth of the folder we're creating in
-                                                                        let child_depth = parent_depth + 1;
-                                                                        if let Ok(new_children) = load_directory(&parent_for_refresh, child_depth).await {
-                                                                            let mut nodes_write = nodes.write();
-                                                                            // Find parent folder index
-                                                                            if let Some(parent_idx) = nodes_write.iter().position(|n| n.path == parent_for_refresh) {
-                                                                                // Remove old children (nodes after parent with greater depth)
-                                                                                let mut remove_count = 0;
-                                                                                for i in (parent_idx + 1)..nodes_write.len() {
-                                                                                    if nodes_write[i].depth > parent_depth {
-                                                                                        remove_count += 1;
-                                                                                    } else {
-                                                                                        break;
+                            // Convert path to string for data attribute
+                            let path_str = path.to_string_lossy().to_string();
+
+                            rsx! {
+                                div {
+                                    key: "{path:?}",
+                                    class: "{class}",
+                                    style: "padding-left: {indent}px;",
+                                    draggable: true,
+                                    // Data attributes for JavaScript drag-drop handling
+                                    "data-path": "{path_str}",
+                                    "data-is-dir": if is_dir { "true" } else { "false" },
+
+                                    onclick: {
+                                        let path = path.clone();
+                                        move |_| {
+                                            if is_dir {
+                                                toggle_dir(path.clone(), depth);
+                                            } else {
+                                                open_file(path.clone());
+                                            }
+                                        }
+                                    },
+
+                                    oncontextmenu: {
+                                        let path = path.clone();
+                                        move |e: Event<MouseData>| {
+                                            e.prevent_default();
+                                            e.stop_propagation(); // Don't bubble to parent container
+                                            context_menu.set(ContextMenuState {
+                                                visible: true,
+                                                x: e.client_coordinates().x as i32,
+                                                y: e.client_coordinates().y as i32,
+                                                target_path: Some(path.clone()),
+                                                is_dir,
+                                            });
+                                        }
+                                    },
+
+                                    // Note: Drag-drop is handled via JavaScript for Linux/WebKitGTK compatibility
+                                    // See the use_effect that sets up JS event listeners
+
+                                    // Expand/collapse arrow (or spacer for files)
+                                    span {
+                                        class: if is_dir {
+                                            if is_expanded { "tree-arrow expanded" } else { "tree-arrow" }
+                                        } else {
+                                            "tree-arrow hidden"
+                                        },
+                                        if is_loading {
+                                            "○"  // Loading indicator
+                                        } else if is_dir {
+                                            "▶"
+                                        }
+                                    }
+
+                                    // File/folder icon
+                                    span { class: if is_dir { "tree-icon folder" } else { "tree-icon file" },
+                                        {get_icon(&path, is_dir)}
+                                    }
+
+                                    // Name or rename input
+                                    if is_renaming {
+                                        input {
+                                            class: "tree-inline-input tree-rename-input",
+                                            r#type: "text",
+                                            value: "{rename_state.read().new_name}",
+                                            autofocus: true,
+                                            // Use onmounted for reliable focus
+                                            onmounted: move |evt| {
+                                                spawn(async move {
+                                                    let _ = evt.set_focus(true).await;
+                                                });
+                                            },
+                                            oninput: move |e| {
+                                                rename_state.write().new_name.clone_from(&e.value());
+                                            },
+                                            onkeydown: move |e| {
+                                                if e.key() == Key::Enter {
+                                                    confirm_rename(());
+                                                } else if e.key() == Key::Escape {
+                                                    cancel_rename(());
+                                                }
+                                            },
+                                            onblur: move |_| {
+                                                cancel_rename(());
+                                            },
+                                            onclick: move |e: Event<MouseData>| {
+                                                e.stop_propagation();
+                                            }
+                                        }
+                                    } else {
+                                        span { class: "tree-name", "{name}" }
+                                    }
+
+                                    // Size (files only)
+                                    if !is_dir && !is_renaming {
+                                        span { class: "tree-size", {format_size(size)} }
+                                    }
+                                }
+
+                                // Inline input for creating new file/folder (rendered inside expanded folder)
+                                if is_creating_here {
+                                    {
+                                        let parent_for_create = path.clone();
+                                        rsx! {
+                                            div {
+                                                class: "tree-item tree-input-row",
+                                                style: "padding-left: {child_indent}px;",
+                                                // Invisible arrow spacer for alignment
+                                                span { class: "tree-arrow hidden" }
+                                                // Invisible icon spacer for alignment
+                                                span { class: "tree-icon file" }
+                                                input {
+                                                    class: "tree-inline-input",
+                                                    r#type: "text",
+                                                    placeholder: if creating_type == Some(CreatingType::Folder) { "folder name" } else { "filename.rhai" },
+                                                    value: "{input_value}",
+                                                    autofocus: true,
+                                                    onmounted: move |evt| {
+                                                        spawn(async move {
+                                                            let _ = evt.set_focus(true).await;
+                                                        });
+                                                    },
+                                                    oninput: move |e| input_value.set(e.value().clone()),
+                                                    onkeydown: {
+                                                        let parent = parent_for_create.clone();
+                                                        move |e: Event<KeyboardData>| {
+                                                            if e.key() == Key::Enter {
+                                                                let name = input_value.read().trim().to_string();
+                                                                if name.is_empty() {
+                                                                    creating.set(None);
+                                                                    creating_parent.set(None);
+                                                                } else {
+                                                                    let target_path = parent.join(&name);
+                                                                    let parent_for_refresh = parent.clone();
+                                                                    let ct = *creating.read();
+                                                                    spawn(async move {
+                                                                        let success = match ct {
+                                                                            Some(CreatingType::File) => {
+                                                                                tokio::fs::write(&target_path, "").await.is_ok()
+                                                                            }
+                                                                            Some(CreatingType::Folder) => {
+                                                                                tokio::fs::create_dir(&target_path).await.is_ok()
+                                                                            }
+                                                                            None => false,
+                                                                        };
+                                                                        if success {
+                                                                            // Refresh just the parent folder's children
+                                                                            let parent_depth = depth; // depth of the folder we're creating in
+                                                                            let child_depth = parent_depth + 1;
+                                                                            if let Ok(new_children) = load_directory(&parent_for_refresh, child_depth).await {
+                                                                                let mut nodes_write = nodes.write();
+                                                                                // Find parent folder index
+                                                                                if let Some(parent_idx) = nodes_write.iter().position(|n| n.path == parent_for_refresh) {
+                                                                                    // Remove old children (nodes after parent with greater depth)
+                                                                                    let mut remove_count = 0;
+                                                                                    for i in (parent_idx + 1)..nodes_write.len() {
+                                                                                        if nodes_write[i].depth > parent_depth {
+                                                                                            remove_count += 1;
+                                                                                        } else {
+                                                                                            break;
+                                                                                        }
                                                                                     }
-                                                                                }
-                                                                                for _ in 0..remove_count {
-                                                                                    nodes_write.remove(parent_idx + 1);
-                                                                                }
-                                                                                // Insert new children
-                                                                                for (i, child) in new_children.into_iter().enumerate() {
-                                                                                    nodes_write.insert(parent_idx + 1 + i, child);
+                                                                                    for _ in 0..remove_count {
+                                                                                        nodes_write.remove(parent_idx + 1);
+                                                                                    }
+                                                                                    // Insert new children
+                                                                                    for (i, child) in new_children.into_iter().enumerate() {
+                                                                                        nodes_write.insert(parent_idx + 1 + i, child);
+                                                                                    }
                                                                                 }
                                                                             }
                                                                         }
-                                                                    }
-                                                                    creating.set(None);
-                                                                    creating_parent.set(None);
-                                                                    input_value.set(String::new());
-                                                                });
-                                                            } else {
+                                                                        creating.set(None);
+                                                                        creating_parent.set(None);
+                                                                        input_value.set(String::new());
+                                                                    });
+                                                                }
+                                                            } else if e.key() == Key::Escape {
                                                                 creating.set(None);
                                                                 creating_parent.set(None);
+                                                                input_value.set(String::new());
                                                             }
-                                                        } else if e.key() == Key::Escape {
-                                                            creating.set(None);
-                                                            creating_parent.set(None);
-                                                            input_value.set(String::new());
                                                         }
+                                                    },
+                                                    onblur: move |_| {
+                                                        creating.set(None);
+                                                        creating_parent.set(None);
+                                                        input_value.set(String::new());
                                                     }
-                                                },
-                                                onblur: move |_| {
-                                                    creating.set(None);
-                                                    creating_parent.set(None);
-                                                    input_value.set(String::new());
                                                 }
                                             }
                                         }
@@ -934,14 +946,94 @@ pub fn AssetBrowser() -> Element {
                             }
                         }
                     }
-                }
 
-                if nodes.read().is_empty() && !is_creating {
-                    div { class: "explorer-empty", "Empty folder" }
-                }
+                    // Inline input for creating at workspace root level
+                    {
+                        let is_creating_at_root = is_creating
+                            && creating_parent.read().as_ref() == Some(&workspace_dir);
+
+                        if is_creating_at_root {
+                            let parent_for_create = workspace_dir.clone();
+                            rsx! {
+                                div {
+                                    class: "tree-item tree-input-row",
+                                    style: "padding-left: 4px;",
+                                    // Invisible arrow spacer for alignment
+                                    span { class: "tree-arrow hidden" }
+                                    // Invisible icon spacer for alignment
+                                    span { class: "tree-icon file" }
+                                    input {
+                                        class: "tree-inline-input",
+                                        r#type: "text",
+                                        placeholder: if creating_type == Some(CreatingType::Folder) { "folder name" } else { "filename.rhai" },
+                                        value: "{input_value}",
+                                        autofocus: true,
+                                        onmounted: move |evt| {
+                                            spawn(async move {
+                                                let _ = evt.set_focus(true).await;
+                                            });
+                                        },
+                                        oninput: move |e| input_value.set(e.value().clone()),
+                                        onkeydown: {
+                                            let parent = parent_for_create.clone();
+                                            move |e: Event<KeyboardData>| {
+                                                if e.key() == Key::Enter {
+                                                    let name = input_value.read().trim().to_string();
+                                                    if name.is_empty() {
+                                                        creating.set(None);
+                                                        creating_parent.set(None);
+                                                    } else {
+                                                        let target_path = parent.join(&name);
+                                                        let parent_for_refresh = parent.clone();
+                                                        let ct = *creating.read();
+                                                        spawn(async move {
+                                                            let success = match ct {
+                                                                Some(CreatingType::File) => {
+                                                                    tokio::fs::write(&target_path, "").await.is_ok()
+                                                                }
+                                                                Some(CreatingType::Folder) => {
+                                                                    tokio::fs::create_dir(&target_path).await.is_ok()
+                                                                }
+                                                                None => false,
+                                                            };
+                                                            if success {
+                                                                // Refresh root level
+                                                                if let Ok(new_entries) = load_directory(&parent_for_refresh, 0).await {
+                                                                    nodes.set(new_entries);
+                                                                    expanded.write().clear();
+                                                                }
+                                                            }
+                                                            creating.set(None);
+                                                            creating_parent.set(None);
+                                                            input_value.set(String::new());
+                                                        });
+                                                    }
+                                                } else if e.key() == Key::Escape {
+                                                    creating.set(None);
+                                                    creating_parent.set(None);
+                                                    input_value.set(String::new());
+                                                }
+                                            }
+                                        },
+                                        onblur: move |_| {
+                                            creating.set(None);
+                                            creating_parent.set(None);
+                                            input_value.set(String::new());
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            rsx! {}
+                        }
+                    }
+
+                    if nodes.read().is_empty() && !is_creating {
+                        div { class: "explorer-empty", "Empty folder" }
+                    }
+                        }
                     }
                 }
-            }
 
             // Context menu (rendered at root level for proper positioning)
             if context_menu.read().visible {
@@ -955,6 +1047,9 @@ pub fn AssetBrowser() -> Element {
                 div {
                     class: "context-menu",
                     style: "left: {context_menu.read().x}px; top: {context_menu.read().y}px;",
+                    // Prevent any mouse events from reaching the backdrop
+                    onmousedown: |e| e.stop_propagation(),
+                    onclick: |e| e.stop_propagation(),
 
                     // Folder-specific actions
                     if context_menu.read().is_dir {
@@ -999,69 +1094,5 @@ pub fn AssetBrowser() -> Element {
                 }
             }
         }
-    }
-}
-
-/// Load directory contents as TreeNodes
-async fn load_directory(path: &PathBuf, depth: usize) -> anyhow::Result<Vec<TreeNode>> {
-    let mut entries = Vec::new();
-    let mut dir = tokio::fs::read_dir(path).await?;
-
-    while let Some(entry) = dir.next_entry().await? {
-        let metadata = entry.metadata().await?;
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        // Skip hidden files
-        if name.starts_with('.') {
-            continue;
-        }
-
-        entries.push(TreeNode {
-            name,
-            path: entry.path(),
-            is_dir: metadata.is_dir(),
-            size: metadata.len(),
-            depth,
-        });
-    }
-
-    // Sort: directories first, then by name (case-insensitive)
-    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
-
-    Ok(entries)
-}
-
-/// Get icon for file/folder based on type
-fn get_icon(path: &PathBuf, is_dir: bool) -> &'static str {
-    if is_dir {
-        "" // Folder icon handled by CSS
-    } else {
-        match path.extension().and_then(|e| e.to_str()) {
-            Some("rhai") => "",  // Script/code file
-            Some("rs") => "",    // Rust file
-            Some("toml") => "",  // Config file
-            Some("md") => "",    // Markdown
-            Some("glb") | Some("gltf") | Some("obj") => "", // 3D model
-            Some("png") | Some("jpg") | Some("jpeg") | Some("svg") => "", // Image
-            Some("json") => "",  // JSON
-            Some("css") => "",   // CSS
-            Some("lock") => "",  // Lock file
-            _ => "",             // Generic file
-        }
-    }
-}
-
-/// Format file size for display
-fn format_size(size: u64) -> String {
-    if size < 1024 {
-        format!("{} B", size)
-    } else if size < 1024 * 1024 {
-        format!("{:.1} KB", size as f64 / 1024.0)
-    } else {
-        format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
     }
 }
