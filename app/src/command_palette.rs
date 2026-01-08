@@ -107,6 +107,7 @@ pub fn get_all_commands() -> Vec<Command> {
 
         // Help
         Command { id: "help.cookbook", label: "Open Cookbook", shortcut: None, category: "Help" },
+        Command { id: "help.readme", label: "Open README", shortcut: None, category: "Help" },
         Command { id: "help.documentation", label: "Open Documentation", shortcut: Some("F1"), category: "Help" },
         Command { id: "help.about", label: "About Soyuz Studio", shortcut: None, category: "Help" },
     ]
@@ -132,14 +133,24 @@ fn fuzzy_match_score(query: &str, target: &str) -> i32 {
         return 95;
     }
 
-    // Contains = high score
+    // Word-start match = high score (query matches start of any word)
+    // e.g., "read" matches start of "README" in "Open README"
+    if target_lower
+        .split_whitespace()
+        .any(|word| word.starts_with(&query_lower))
+    {
+        return 90;
+    }
+
+    // Contains = good score
     if target_lower.contains(&query_lower) {
         return 80;
     }
 
-    // Jaro-Winkler similarity for typo tolerance
+    // Jaro-Winkler similarity for typo tolerance (capped to avoid false positives)
     let similarity = jaro_winkler(&query_lower, &target_lower);
-    (similarity * 100.0) as i32
+    // Cap at 75 so explicit matches always rank higher than fuzzy matches
+    ((similarity * 100.0) as i32).min(75)
 }
 
 /// Search commands with fuzzy matching
@@ -464,6 +475,7 @@ fn execute_command(id: &str, state: &mut AppState) {
         "file.new" => state.new_tab(),
         "file.closeFolder" => state.close_folder(),
         "help.cookbook" => state.open_cookbook(),
+        "help.readme" => state.open_readme(),
         _ => tracing::info!("Command not implemented: {}", id),
     }
 }
