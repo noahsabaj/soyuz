@@ -1,4 +1,10 @@
 //! Application state management
+//!
+//! This module contains the core application state and related types:
+//! - `AppState`: The global application state
+//! - `EditorTab`, `EditorPane`: Editor layout structures
+//! - `UndoHistory`: Edit history management
+//! - `ExportSettings`, `PreviewState`: Supporting state types
 
 // Separate if statements are clearer for pane traversal logic
 #![allow(clippy::collapsible_if)]
@@ -13,397 +19,26 @@
 // Owned PathBuf is intentional for storage
 #![allow(clippy::needless_pass_by_value)]
 
+mod editor;
+mod export;
+mod preview;
+mod terminal;
+mod undo;
+
+// Re-export all public types
+pub use editor::{EditorPane, EditorTab, PaneId, SplitDirection, TabId};
+pub use export::{ExportFormat, ExportSettings};
+pub use preview::PreviewState;
+pub use terminal::{TerminalBuffer, TerminalEntry, TerminalFilter, TerminalLevel};
+pub use undo::UndoHistory;
+
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use tracing::warn;
 
-// Re-export ExportFormat from soyuz-core
-pub use soyuz_core::export::ExportFormat;
-
-/// Unique identifier for editor tabs
-pub type TabId = u64;
-
-/// Unique identifier for panes
-pub type PaneId = u64;
-
-/// Direction of a split pane
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum SplitDirection {
-    /// Side-by-side (left/right columns)
-    Vertical,
-    /// Top/bottom (rows)
-    Horizontal,
-}
-
-/// Maximum number of undo steps to keep per tab
-const MAX_UNDO_HISTORY: usize = 100;
-
-/// Time window in milliseconds for grouping consecutive edits
-const EDIT_GROUP_MS: u128 = 500;
-
-/// Convert line and column (1-indexed) to byte offset
-fn line_col_to_offset(text: &str, line: usize, col: usize) -> usize {
-    let mut current_line = 1;
-    let mut offset = 0;
-
-    for (idx, ch) in text.char_indices() {
-        if current_line == line {
-            // We're on the target line, count columns
-            let line_start = idx;
-            let target_offset = line_start + col.saturating_sub(1);
-            return target_offset.min(text.len());
-        }
-        if ch == '\n' {
-            current_line += 1;
-        }
-        offset = idx + ch.len_utf8();
-    }
-
-    // If we didn't find the line, return end of text
-    offset.min(text.len())
-}
-
-/// A snapshot of editor content for undo/redo
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub struct EditSnapshot {
-    /// The content at this point
-    pub content: String,
-    /// Cursor position (byte offset)
-    pub cursor_pos: usize,
-}
-
-/// Undo/redo history for a tab
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct UndoHistory {
-    /// Stack of previous states (for undo)
-    pub undo_stack: Vec<EditSnapshot>,
-    /// Stack of undone states (for redo)
-    pub redo_stack: Vec<EditSnapshot>,
-    /// Timestamp of last edit (for grouping) - not serialized
-    #[serde(skip)]
-    last_edit_time: Option<Instant>,
-    /// Whether we're in the middle of an undo/redo operation - not serialized
-    #[serde(skip)]
-    in_undo_redo: bool,
-}
-
-impl PartialEq for UndoHistory {
-    fn eq(&self, other: &Self) -> bool {
-        // Only compare stacks, not timing info
-        self.undo_stack == other.undo_stack && self.redo_stack == other.redo_stack
-    }
-}
-
-impl UndoHistory {
-    /// Record a new edit, potentially grouping with previous edit
-    pub fn record_edit(&mut self, old_content: &str, old_cursor: usize) {
-        // Don't record if we're in an undo/redo operation
-        if self.in_undo_redo {
-            return;
-        }
-
-        let now = Instant::now();
-        let should_group = self
-            .last_edit_time
-            .map(|t| now.duration_since(t).as_millis() < EDIT_GROUP_MS)
-            .unwrap_or(false);
-
-        if !should_group {
-            // Start a new undo group - save the old state
-            self.undo_stack.push(EditSnapshot {
-                content: old_content.to_string(),
-                cursor_pos: old_cursor,
-            });
-
-            // Trim history if too long
-            while self.undo_stack.len() > MAX_UNDO_HISTORY {
-                self.undo_stack.remove(0);
-            }
-
-            // Clear redo stack on new edit
-            self.redo_stack.clear();
-        }
-
-        self.last_edit_time = Some(now);
-    }
-
-    /// Undo the last edit, returns the state to restore (if any)
-    pub fn undo(&mut self, current_content: &str, current_cursor: usize) -> Option<EditSnapshot> {
-        if let Some(snapshot) = self.undo_stack.pop() {
-            // Save current state to redo stack
-            self.redo_stack.push(EditSnapshot {
-                content: current_content.to_string(),
-                cursor_pos: current_cursor,
-            });
-            self.in_undo_redo = true;
-            Some(snapshot)
-        } else {
-            None
-        }
-    }
-
-    /// Redo the last undone edit, returns the state to restore (if any)
-    pub fn redo(&mut self, current_content: &str, current_cursor: usize) -> Option<EditSnapshot> {
-        if let Some(snapshot) = self.redo_stack.pop() {
-            // Save current state to undo stack
-            self.undo_stack.push(EditSnapshot {
-                content: current_content.to_string(),
-                cursor_pos: current_cursor,
-            });
-            self.in_undo_redo = true;
-            Some(snapshot)
-        } else {
-            None
-        }
-    }
-
-    /// Mark that an undo/redo operation is complete
-    pub fn finish_undo_redo(&mut self) {
-        self.in_undo_redo = false;
-        self.last_edit_time = None; // Reset grouping timer
-    }
-}
-
-/// A single editor tab
-#[derive(Clone, PartialEq)]
-pub struct EditorTab {
-    /// Unique identifier
-    pub id: TabId,
-    /// File path (None if untitled)
-    pub path: Option<PathBuf>,
-    /// Content of the file
-    pub content: String,
-    /// Whether the content has been modified since last save
-    pub is_dirty: bool,
-    /// Cursor line position
-    pub cursor_line: usize,
-    /// Cursor column position
-    pub cursor_col: usize,
-    /// Undo/redo history
-    pub history: UndoHistory,
-}
-
-impl EditorTab {
-    /// Create a new untitled tab with default example script
-    pub fn new_untitled(id: TabId) -> Self {
-        Self {
-            id,
-            path: None,
-            content: DEFAULT_SCRIPT.to_string(),
-            is_dirty: false,
-            cursor_line: 1,
-            cursor_col: 1,
-            history: UndoHistory::default(),
-        }
-    }
-
-    /// Create a new blank tab (empty content)
-    pub fn new_blank(id: TabId) -> Self {
-        Self {
-            id,
-            path: None,
-            content: String::new(),
-            is_dirty: false,
-            cursor_line: 1,
-            cursor_col: 1,
-            history: UndoHistory::default(),
-        }
-    }
-
-    /// Create a tab from a file
-    pub fn from_file(id: TabId, path: PathBuf, content: String) -> Self {
-        Self {
-            id,
-            path: Some(path),
-            content,
-            is_dirty: false,
-            cursor_line: 1,
-            cursor_col: 1,
-            history: UndoHistory::default(),
-        }
-    }
-
-    /// Create a tab with existing history (for session restore)
-    pub fn with_history(
-        id: TabId,
-        path: Option<PathBuf>,
-        content: String,
-        is_dirty: bool,
-        history: UndoHistory,
-    ) -> Self {
-        Self {
-            id,
-            path,
-            content,
-            is_dirty,
-            cursor_line: 1,
-            cursor_col: 1,
-            history,
-        }
-    }
-
-    /// Get display name for the tab
-    pub fn display_name(&self) -> String {
-        match &self.path {
-            Some(path) => path
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| "Untitled".to_string()),
-            None => "Untitled".to_string(),
-        }
-    }
-}
-
-/// A pane in the editor layout (recursive tree structure)
-#[derive(Clone, PartialEq)]
-pub enum EditorPane {
-    /// A single tab group with tabs
-    TabGroup {
-        /// Unique ID for this pane
-        id: PaneId,
-        tabs: Vec<EditorTab>,
-        active_tab_idx: usize,
-    },
-    /// A split container with two child panes
-    Split {
-        /// Direction of the split
-        direction: SplitDirection,
-        /// First child (left for vertical, top for horizontal)
-        first: Box<EditorPane>,
-        /// Second child (right for vertical, bottom for horizontal)
-        second: Box<EditorPane>,
-        /// Proportion of space for first pane (0.0 to 1.0, default 0.5)
-        ratio: f32,
-    },
-}
-
-impl Default for EditorPane {
-    fn default() -> Self {
-        EditorPane::TabGroup {
-            id: 1,
-            tabs: vec![EditorTab::new_untitled(1)],
-            active_tab_idx: 0,
-        }
-    }
-}
-
-impl EditorPane {
-    /// Get the active tab in the first TabGroup found (for single pane operations)
-    pub fn active_tab(&self) -> Option<&EditorTab> {
-        match self {
-            EditorPane::TabGroup {
-                tabs,
-                active_tab_idx,
-                ..
-            } => tabs.get(*active_tab_idx),
-            EditorPane::Split { first, .. } => first.active_tab(),
-        }
-    }
-
-    /// Get mutable active tab in the first TabGroup found
-    pub fn active_tab_mut(&mut self) -> Option<&mut EditorTab> {
-        match self {
-            EditorPane::TabGroup {
-                tabs,
-                active_tab_idx,
-                ..
-            } => tabs.get_mut(*active_tab_idx),
-            EditorPane::Split { first, .. } => first.active_tab_mut(),
-        }
-    }
-
-    /// Find a pane by ID and return a reference (recursive)
-    pub fn find_pane(&self, pane_id: PaneId) -> Option<&EditorPane> {
-        match self {
-            EditorPane::TabGroup { id, .. } if *id == pane_id => Some(self),
-            EditorPane::TabGroup { .. } => None,
-            EditorPane::Split { first, second, .. } => {
-                first.find_pane(pane_id).or_else(|| second.find_pane(pane_id))
-            }
-        }
-    }
-
-    /// Find a pane by ID and return a mutable reference (recursive)
-    pub fn find_pane_mut(&mut self, pane_id: PaneId) -> Option<&mut EditorPane> {
-        match self {
-            EditorPane::TabGroup { id, .. } if *id == pane_id => Some(self),
-            EditorPane::TabGroup { .. } => None,
-            EditorPane::Split { first, second, .. } => {
-                // Check first child, then second
-                if first.find_pane(pane_id).is_some() {
-                    first.find_pane_mut(pane_id)
-                } else {
-                    second.find_pane_mut(pane_id)
-                }
-            }
-        }
-    }
-
-    /// Find a tab by its file path, returns (pane_id, tab_index) (recursive)
-    pub fn find_tab_by_path(&self, path: &PathBuf) -> Option<(PaneId, usize)> {
-        match self {
-            EditorPane::TabGroup { id, tabs, .. } => {
-                for (idx, tab) in tabs.iter().enumerate() {
-                    if tab.path.as_ref() == Some(path) {
-                        return Some((*id, idx));
-                    }
-                }
-                None
-            }
-            EditorPane::Split { first, second, .. } => {
-                first.find_tab_by_path(path).or_else(|| second.find_tab_by_path(path))
-            }
-        }
-    }
-
-    /// Find which pane contains a tab by ID (recursive)
-    pub fn find_pane_containing_tab(&self, tab_id: TabId) -> Option<PaneId> {
-        match self {
-            EditorPane::TabGroup { id, tabs, .. } => {
-                if tabs.iter().any(|t| t.id == tab_id) {
-                    Some(*id)
-                } else {
-                    None
-                }
-            }
-            EditorPane::Split { first, second, .. } => {
-                first.find_pane_containing_tab(tab_id)
-                    .or_else(|| second.find_pane_containing_tab(tab_id))
-            }
-        }
-    }
-
-    /// Collect all tabs from the pane tree (recursive)
-    pub fn collect_tabs(&self) -> Vec<&EditorTab> {
-        match self {
-            EditorPane::TabGroup { tabs, .. } => tabs.iter().collect(),
-            EditorPane::Split { first, second, .. } => {
-                let mut result = first.collect_tabs();
-                result.extend(second.collect_tabs());
-                result
-            }
-        }
-    }
-
-    /// Get all TabGroup pane IDs in the tree (recursive)
-    pub fn all_pane_ids(&self) -> Vec<PaneId> {
-        match self {
-            EditorPane::TabGroup { id, .. } => vec![*id],
-            EditorPane::Split { first, second, .. } => {
-                let mut ids = first.all_pane_ids();
-                ids.extend(second.all_pane_ids());
-                ids
-            }
-        }
-    }
-
-    /// Check if this is a root pane (not inside a split) - helper for tree context
-    pub fn is_single_pane(&self) -> bool {
-        matches!(self, EditorPane::TabGroup { .. })
-    }
-}
+use crate::settings::Settings;
+use undo::line_col_to_offset;
 
 /// Global application state
 #[derive(Clone)]
@@ -422,35 +57,93 @@ pub struct AppState {
     pub recent_files: Vec<PathBuf>,
     /// Whether preview window is open
     pub is_previewing: bool,
-    /// Whether there's an error in the script
-    pub has_error: bool,
-    /// Error message if any
+    /// Error message if any (None = no error)
     pub error_message: Option<String>,
     /// Export settings
     pub export_settings: ExportSettings,
+    /// Application settings
+    pub settings: Settings,
     /// Shared state for preview communication
     pub preview_state: Arc<Mutex<PreviewState>>,
     /// Handle to the preview process (for stopping it)
-    pub preview_process: Arc<Mutex<Option<PreviewProcess>>>,
+    pub preview_process: Arc<Mutex<Option<std::process::Child>>>,
+    /// Terminal output buffer (shared with tracing subscriber)
+    pub terminal_buffer: TerminalBuffer,
+    /// Whether the terminal panel is visible
+    pub terminal_visible: bool,
+    /// Terminal panel height in pixels (for resize persistence)
+    pub terminal_height: f32,
+    /// Terminal output filter settings
+    pub terminal_filter: TerminalFilter,
 }
 
 impl AppState {
+    /// Create a new AppState with default settings
+    #[allow(dead_code)]
     pub fn new() -> Self {
+        Self::with_settings(Settings::default())
+    }
+
+    /// Create with loaded settings
+    pub fn with_settings(settings: Settings) -> Self {
         Self {
             editor_pane: EditorPane::default(),
-            next_tab_id: 2,  // 1 is used by the default tab
-            next_pane_id: 2, // 1 is used by the default pane
+            next_tab_id: 2,
+            next_pane_id: 2,
             focused_pane_id: 1,
-            workspace: None, // Start with no folder opened
+            workspace: None,
             recent_files: Vec::new(),
             is_previewing: false,
-            has_error: false,
             error_message: None,
             export_settings: ExportSettings::default(),
+            settings,
             preview_state: Arc::new(Mutex::new(PreviewState::default())),
             preview_process: Arc::new(Mutex::new(None)),
+            terminal_buffer: TerminalBuffer::new(),
+            terminal_visible: false,
+            terminal_height: 200.0,
+            terminal_filter: TerminalFilter::default(),
         }
     }
+
+    /// Check if there's an error in the script
+    pub fn has_error(&self) -> bool {
+        self.error_message.is_some()
+    }
+
+    // ========================================================================
+    // Terminal Methods
+    // ========================================================================
+
+    /// Toggle terminal panel visibility
+    pub fn toggle_terminal(&mut self) {
+        self.terminal_visible = !self.terminal_visible;
+    }
+
+    /// Set terminal panel height (clamped between 100-500px)
+    pub fn set_terminal_height(&mut self, height: f32) {
+        self.terminal_height = height.clamp(100.0, 500.0);
+    }
+
+    /// Add a message to the terminal buffer
+    pub fn terminal_log(&self, level: TerminalLevel, message: impl Into<String>) {
+        self.terminal_buffer
+            .push(TerminalEntry::new(level, message));
+    }
+
+    /// Clear the terminal buffer
+    pub fn terminal_clear(&self) {
+        self.terminal_buffer.clear();
+    }
+
+    /// Toggle a terminal filter level
+    pub fn toggle_terminal_filter(&mut self, level: TerminalLevel) {
+        self.terminal_filter.toggle(level);
+    }
+
+    // ========================================================================
+    // Workspace Methods
+    // ========================================================================
 
     /// Check if a workspace folder is currently open
     pub fn has_workspace(&self) -> bool {
@@ -470,7 +163,9 @@ impl AppState {
     /// Stop the preview process if running
     pub fn stop_preview(&mut self) {
         if let Some(ref mut process) = *self.preview_process.lock() {
-            let _ = process.kill();
+            if let Err(e) = process.kill() {
+                warn!("Failed to kill preview process: {e}");
+            }
         }
         *self.preview_process.lock() = None;
         self.is_previewing = false;
@@ -527,15 +222,61 @@ impl AppState {
         let tab = EditorTab::new_blank(self.next_tab_id);
         self.next_tab_id += 1;
 
-        if let Some(EditorPane::TabGroup { tabs, active_tab_idx, .. }) =
-            self.editor_pane.find_pane_mut(pane_id)
+        if let Some(EditorPane::TabGroup {
+            tabs, active_tab_idx, ..
+        }) = self.editor_pane.find_pane_mut(pane_id)
         {
             tabs.push(tab);
             *active_tab_idx = tabs.len() - 1;
         }
 
-        self.has_error = false;
         self.error_message = None;
+    }
+
+    /// Open the Settings tab (singleton - focuses existing if already open)
+    pub fn open_settings(&mut self) {
+        // Check if Settings tab already exists anywhere
+        if let Some((pane_id, tab_id)) = self.editor_pane.find_settings_tab() {
+            // Focus the existing Settings tab
+            self.focused_pane_id = pane_id;
+            self.switch_to_tab(tab_id);
+            return;
+        }
+
+        // Create a new Settings tab in the focused pane
+        let tab = EditorTab::new_settings(self.next_tab_id);
+        self.next_tab_id += 1;
+
+        if let Some(EditorPane::TabGroup {
+            tabs, active_tab_idx, ..
+        }) = self.editor_pane.find_pane_mut(self.focused_pane_id)
+        {
+            tabs.push(tab);
+            *active_tab_idx = tabs.len() - 1;
+        }
+    }
+
+    /// Open the Cookbook tab (singleton - focuses existing if already open)
+    pub fn open_cookbook(&mut self) {
+        // Check if Cookbook tab already exists anywhere
+        if let Some((pane_id, tab_id)) = self.editor_pane.find_cookbook_tab() {
+            // Focus the existing Cookbook tab
+            self.focused_pane_id = pane_id;
+            self.switch_to_tab(tab_id);
+            return;
+        }
+
+        // Create a new Cookbook tab in the focused pane
+        let tab = EditorTab::new_cookbook(self.next_tab_id);
+        self.next_tab_id += 1;
+
+        if let Some(EditorPane::TabGroup {
+            tabs, active_tab_idx, ..
+        }) = self.editor_pane.find_pane_mut(self.focused_pane_id)
+        {
+            tabs.push(tab);
+            *active_tab_idx = tabs.len() - 1;
+        }
     }
 
     /// Open a file in a new tab (or focus existing tab if already open)
@@ -557,8 +298,9 @@ impl AppState {
         }
 
         // Create new tab in specified pane
-        if let Some(EditorPane::TabGroup { tabs, active_tab_idx, .. }) =
-            self.editor_pane.find_pane_mut(pane_id)
+        if let Some(EditorPane::TabGroup {
+            tabs, active_tab_idx, ..
+        }) = self.editor_pane.find_pane_mut(pane_id)
         {
             let tab = EditorTab::from_file(self.next_tab_id, path.clone(), content);
             self.next_tab_id += 1;
@@ -576,7 +318,6 @@ impl AppState {
         // Add to recent files (move to front if already present)
         self.add_to_recent_files(path);
 
-        self.has_error = false;
         self.error_message = None;
     }
 
@@ -591,7 +332,8 @@ impl AppState {
     }
 
     /// Close a tab by ID in a specific pane
-    /// If closing the last tab: in root pane, create untitled; in split pane, close the pane
+    /// If closing the last tab in a split pane, close the entire pane
+    /// If closing the last tab in the root pane, show empty welcome screen (VSCode behavior)
     pub fn close_tab_in_pane(&mut self, pane_id: PaneId, tab_id: TabId) -> bool {
         // Check if this is the last tab
         let is_last_tab = {
@@ -608,21 +350,19 @@ impl AppState {
         if is_last_tab && !is_root {
             // In a split: close the entire pane
             self.close_pane(pane_id);
-        } else if let Some(EditorPane::TabGroup { tabs, active_tab_idx, .. }) =
-            self.editor_pane.find_pane_mut(pane_id)
+        } else if let Some(EditorPane::TabGroup {
+            tabs, active_tab_idx, ..
+        }) = self.editor_pane.find_pane_mut(pane_id)
         {
             if let Some(idx) = tabs.iter().position(|t| t.id == tab_id) {
-                if tabs.len() == 1 {
-                    // Root pane: replace with untitled
-                    tabs[0] = EditorTab::new_untitled(self.next_tab_id);
-                    self.next_tab_id += 1;
-                } else {
-                    tabs.remove(idx);
-                    if *active_tab_idx >= tabs.len() {
-                        *active_tab_idx = tabs.len().saturating_sub(1);
-                    } else if *active_tab_idx > idx {
-                        *active_tab_idx -= 1;
-                    }
+                tabs.remove(idx);
+                // Adjust active_tab_idx if needed
+                if tabs.is_empty() {
+                    *active_tab_idx = 0;
+                } else if *active_tab_idx >= tabs.len() {
+                    *active_tab_idx = tabs.len() - 1;
+                } else if *active_tab_idx > idx {
+                    *active_tab_idx -= 1;
                 }
             }
         }
@@ -675,8 +415,9 @@ impl AppState {
     pub fn switch_to_tab(&mut self, tab_id: TabId) {
         if let Some(pane_id) = self.editor_pane.find_pane_containing_tab(tab_id) {
             self.focused_pane_id = pane_id;
-            if let Some(EditorPane::TabGroup { tabs, active_tab_idx, .. }) =
-                self.editor_pane.find_pane_mut(pane_id)
+            if let Some(EditorPane::TabGroup {
+                tabs, active_tab_idx, ..
+            }) = self.editor_pane.find_pane_mut(pane_id)
             {
                 if let Some(idx) = tabs.iter().position(|t| t.id == tab_id) {
                     *active_tab_idx = idx;
@@ -688,15 +429,16 @@ impl AppState {
     /// Move a tab from its current pane to a target pane at a specific index
     pub fn move_tab(&mut self, tab_id: TabId, target_pane_id: PaneId, target_index: usize) {
         // Find source pane
-        let source_pane_id = match self.editor_pane.find_pane_containing_tab(tab_id) {
-            Some(id) => id,
-            None => return,
+        let Some(source_pane_id) = self.editor_pane.find_pane_containing_tab(tab_id) else {
+            return;
         };
 
         // Check if moving within the same pane (reorder)
         if source_pane_id == target_pane_id {
             // Find current index and reorder
-            if let Some(EditorPane::TabGroup { tabs, .. }) = self.editor_pane.find_pane(source_pane_id) {
+            if let Some(EditorPane::TabGroup { tabs, .. }) =
+                self.editor_pane.find_pane(source_pane_id)
+            {
                 if let Some(old_idx) = tabs.iter().position(|t| t.id == tab_id) {
                     self.reorder_tab(source_pane_id, old_idx, target_index);
                 }
@@ -706,14 +448,15 @@ impl AppState {
 
         // Remove tab from source pane
         let tab = {
-            let pane = match self.editor_pane.find_pane_mut(source_pane_id) {
-                Some(p) => p,
-                None => return,
+            let Some(pane) = self.editor_pane.find_pane_mut(source_pane_id) else {
+                return;
             };
-            if let EditorPane::TabGroup { tabs, active_tab_idx, .. } = pane {
-                let idx = match tabs.iter().position(|t| t.id == tab_id) {
-                    Some(i) => i,
-                    None => return,
+            if let EditorPane::TabGroup {
+                tabs, active_tab_idx, ..
+            } = pane
+            {
+                let Some(idx) = tabs.iter().position(|t| t.id == tab_id) else {
+                    return;
                 };
                 let tab = tabs.remove(idx);
                 // Adjust active_tab_idx
@@ -730,7 +473,9 @@ impl AppState {
 
         // Check if source pane is now empty (not root)
         let source_empty = {
-            if let Some(EditorPane::TabGroup { tabs, .. }) = self.editor_pane.find_pane(source_pane_id) {
+            if let Some(EditorPane::TabGroup { tabs, .. }) =
+                self.editor_pane.find_pane(source_pane_id)
+            {
                 tabs.is_empty()
             } else {
                 false
@@ -739,8 +484,9 @@ impl AppState {
         let is_root = self.editor_pane.is_single_pane();
 
         // Insert tab into target pane
-        if let Some(EditorPane::TabGroup { tabs, active_tab_idx, .. }) =
-            self.editor_pane.find_pane_mut(target_pane_id)
+        if let Some(EditorPane::TabGroup {
+            tabs, active_tab_idx, ..
+        }) = self.editor_pane.find_pane_mut(target_pane_id)
         {
             let insert_idx = target_index.min(tabs.len());
             tabs.insert(insert_idx, tab);
@@ -762,8 +508,9 @@ impl AppState {
             return;
         }
 
-        if let Some(EditorPane::TabGroup { tabs, active_tab_idx, .. }) =
-            self.editor_pane.find_pane_mut(pane_id)
+        if let Some(EditorPane::TabGroup {
+            tabs, active_tab_idx, ..
+        }) = self.editor_pane.find_pane_mut(pane_id)
         {
             if old_index >= tabs.len() || new_index > tabs.len() {
                 return;
@@ -793,23 +540,23 @@ impl AppState {
     pub fn split_pane(&mut self, pane_id: PaneId, direction: SplitDirection) {
         // Get the active tab content to clone into the new pane
         let cloned_tab = {
-            let pane = match self.editor_pane.find_pane(pane_id) {
-                Some(p) => p,
-                None => return,
+            let Some(pane) = self.editor_pane.find_pane(pane_id) else {
+                return;
             };
 
             match pane {
-                EditorPane::TabGroup { tabs, active_tab_idx, .. } => {
-                    tabs.get(*active_tab_idx).map(|tab| EditorTab {
-                        id: self.next_tab_id,
-                        path: tab.path.clone(),
-                        content: tab.content.clone(),
-                        is_dirty: tab.is_dirty,
-                        cursor_line: 1,
-                        cursor_col: 1,
-                        history: UndoHistory::default(),
-                    })
-                }
+                EditorPane::TabGroup {
+                    tabs, active_tab_idx, ..
+                } => tabs.get(*active_tab_idx).map(|tab| EditorTab {
+                    id: self.next_tab_id,
+                    kind: tab.kind.clone(),
+                    path: tab.path.clone(),
+                    content: tab.content.clone(),
+                    is_dirty: tab.is_dirty,
+                    cursor_line: 1,
+                    cursor_col: 1,
+                    history: UndoHistory::default(),
+                }),
                 EditorPane::Split { .. } => return, // Can't split a Split directly
             }
         };
@@ -842,9 +589,17 @@ impl AppState {
         new_pane_id: PaneId,
     ) -> EditorPane {
         match pane {
-            EditorPane::TabGroup { id, tabs, active_tab_idx } if id == target_id => {
+            EditorPane::TabGroup {
+                id,
+                tabs,
+                active_tab_idx,
+            } if id == target_id => {
                 // Found the target - create a split
-                let original = EditorPane::TabGroup { id, tabs, active_tab_idx };
+                let original = EditorPane::TabGroup {
+                    id,
+                    tabs,
+                    active_tab_idx,
+                };
                 let new_pane = EditorPane::TabGroup {
                     id: new_pane_id,
                     tabs: vec![new_tab],
@@ -867,8 +622,16 @@ impl AppState {
                 // Recurse into children
                 EditorPane::Split {
                     direction: d,
-                    first: Box::new(Self::create_split_at(*first, target_id, direction, new_tab.clone(), new_pane_id)),
-                    second: Box::new(Self::create_split_at(*second, target_id, direction, new_tab, new_pane_id)),
+                    first: Box::new(Self::create_split_at(
+                        *first,
+                        target_id,
+                        direction,
+                        new_tab.clone(),
+                        new_pane_id,
+                    )),
+                    second: Box::new(Self::create_split_at(
+                        *second, target_id, direction, new_tab, new_pane_id,
+                    )),
                     ratio,
                 }
             }
@@ -882,10 +645,7 @@ impl AppState {
             return;
         }
 
-        self.editor_pane = Self::collapse_pane(
-            std::mem::take(&mut self.editor_pane),
-            pane_id,
-        );
+        self.editor_pane = Self::collapse_pane(std::mem::take(&mut self.editor_pane), pane_id);
 
         // If focused pane was closed, focus another pane
         if self.editor_pane.find_pane(self.focused_pane_id).is_none() {
@@ -899,7 +659,12 @@ impl AppState {
     fn collapse_pane(pane: EditorPane, target_id: PaneId) -> EditorPane {
         match pane {
             EditorPane::TabGroup { .. } => pane, // Can't collapse a TabGroup
-            EditorPane::Split { first, second, direction, ratio } => {
+            EditorPane::Split {
+                first,
+                second,
+                direction,
+                ratio,
+            } => {
                 // Check if first child is the target
                 if let EditorPane::TabGroup { id, .. } = first.as_ref() {
                     if *id == target_id {
@@ -926,18 +691,20 @@ impl AppState {
     /// Set the split ratio for resizing (finds the split containing the pane)
     pub fn set_split_ratio(&mut self, pane_id: PaneId, new_ratio: f32) {
         let ratio = new_ratio.clamp(0.1, 0.9);
-        self.editor_pane = Self::update_split_ratio(
-            std::mem::take(&mut self.editor_pane),
-            pane_id,
-            ratio,
-        );
+        self.editor_pane =
+            Self::update_split_ratio(std::mem::take(&mut self.editor_pane), pane_id, ratio);
     }
 
     /// Helper: recursively find and update split ratio (standalone)
     fn update_split_ratio(pane: EditorPane, target_id: PaneId, new_ratio: f32) -> EditorPane {
         match pane {
             EditorPane::TabGroup { .. } => pane,
-            EditorPane::Split { direction, first, second, ratio } => {
+            EditorPane::Split {
+                direction,
+                first,
+                second,
+                ratio,
+            } => {
                 // Only update THIS split's ratio if target_id matches first child's first pane
                 // This ensures we only resize the exact split, not ancestors
                 let is_target_split = first.all_pane_ids().first() == Some(&target_id);
@@ -1056,11 +823,9 @@ impl AppState {
         let engine = soyuz_script::ScriptEngine::new();
         match engine.compile(&self.code()) {
             Ok(_) => {
-                self.has_error = false;
                 self.error_message = None;
             }
             Err(e) => {
-                self.has_error = true;
                 self.error_message = Some(e.to_string());
             }
         }
@@ -1076,78 +841,3 @@ impl AppState {
         self.all_tabs().iter().any(|t| t.is_dirty)
     }
 }
-
-/// State shared with the preview window
-#[derive(Default)]
-pub struct PreviewState {
-    /// Current script to render
-    pub script: String,
-    /// Whether the script has changed
-    pub needs_update: bool,
-    /// Whether to open the preview window
-    pub should_open: bool,
-}
-
-/// Handle to the preview process for stopping it
-pub struct PreviewProcess {
-    pub child: std::process::Child,
-}
-
-impl PreviewProcess {
-    pub fn new(child: std::process::Child) -> Self {
-        Self { child }
-    }
-
-    pub fn kill(&mut self) -> std::io::Result<()> {
-        self.child.kill()
-    }
-}
-
-/// Export settings
-#[derive(Clone)]
-pub struct ExportSettings {
-    /// Output format
-    pub format: ExportFormat,
-    /// Mesh resolution
-    pub resolution: u32,
-    /// Texture size for materials (reserved for future use)
-    #[allow(dead_code)]
-    pub texture_size: u32,
-    /// Whether to optimize mesh
-    pub optimize: bool,
-    /// Whether to generate LODs (reserved for future use)
-    #[allow(dead_code)]
-    pub generate_lod: bool,
-    /// Last used export directory (remembered across sessions)
-    pub last_export_dir: Option<PathBuf>,
-    /// Whether to close the export window after exporting
-    pub close_after_export: bool,
-}
-
-impl Default for ExportSettings {
-    fn default() -> Self {
-        Self {
-            format: ExportFormat::Glb,
-            resolution: 128,    // Middle of 16-256 slider range
-            texture_size: 1024, // Middle of 256-4096 slider range
-            optimize: false,
-            generate_lod: false,
-            last_export_dir: None,
-            close_after_export: true,
-        }
-    }
-}
-
-const DEFAULT_SCRIPT: &str = r#"// Welcome to Soyuz Studio!
-// Write your SDF script here and click Preview to see it.
-
-// Example: A simple barrel shape
-let body = cylinder(0.5, 1.2);
-let band_top = torus(0.5, 0.08).translate_y(0.5);
-let band_bottom = torus(0.5, 0.08).translate_y(-0.5);
-
-body
-    .smooth_union(band_top, 0.05)
-    .smooth_union(band_bottom, 0.05)
-    .hollow(0.05)
-"#;
