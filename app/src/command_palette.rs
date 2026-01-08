@@ -1,21 +1,21 @@
-//! Command Palette - VS Code style quick search and command runner
+//! Command Palette - Unified fuzzy search for files and commands
+//!
+//! Provides a single search interface that searches both files and commands
+//! simultaneously, with fuzzy matching for typo tolerance.
 
-// map_or_else is less readable for Option/Result chains
 #![allow(clippy::map_unwrap_or)]
-// Borrowed format strings are valid
 #![allow(clippy::needless_borrows_for_generic_args)]
 
 use crate::state::AppState;
-use std::path::Path;
 use dioxus::prelude::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use strsim::jaro_winkler;
 
-/// Search mode based on input prefix
+/// Search mode - only for special utility prefixes
 #[derive(Clone, Copy, PartialEq, Default)]
 pub enum PaletteMode {
     #[default]
-    Files,      // Default - search files
-    Commands,   // > prefix - run commands
+    Unified,    // Search files + commands together (default)
     GoToLine,   // : prefix - go to line number
     TextSearch, // % or # prefix - search text in files
     Symbols,    // @ prefix - search symbols in current file
@@ -36,7 +36,24 @@ pub struct FileResult {
     pub path: PathBuf,
     pub name: String,
     pub relative_path: String,
-    pub score: i32, // For sorting by relevance
+    pub score: i32,
+}
+
+/// Unified search result - can be either a file or a command
+#[derive(Clone)]
+pub enum SearchResult {
+    File(FileResult),
+    Command { cmd: Command, score: i32 },
+}
+
+impl SearchResult {
+    /// Get the relevance score for sorting
+    pub fn score(&self) -> i32 {
+        match self {
+            SearchResult::File(f) => f.score,
+            SearchResult::Command { score, .. } => *score,
+        }
+    }
 }
 
 /// Command palette state - shared via context
@@ -46,8 +63,7 @@ pub struct PaletteState {
     pub query: String,
     pub mode: PaletteMode,
     pub selected_index: usize,
-    pub file_results: Vec<FileResult>,
-    pub filtered_commands: Vec<Command>,
+    pub unified_results: Vec<SearchResult>,
 }
 
 /// All available commands in Soyuz Studio
@@ -55,10 +71,10 @@ pub fn get_all_commands() -> Vec<Command> {
     vec![
         // File operations
         Command { id: "file.new", label: "New File", shortcut: Some("Ctrl+N"), category: "File" },
-        Command { id: "file.open", label: "Open File...", shortcut: Some("Ctrl+O"), category: "File" },
+        Command { id: "file.open", label: "Open File", shortcut: Some("Ctrl+O"), category: "File" },
         Command { id: "file.save", label: "Save", shortcut: Some("Ctrl+S"), category: "File" },
-        Command { id: "file.saveAs", label: "Save As...", shortcut: Some("Ctrl+Shift+S"), category: "File" },
-        Command { id: "file.openFolder", label: "Open Folder...", shortcut: None, category: "File" },
+        Command { id: "file.saveAs", label: "Save As", shortcut: Some("Ctrl+Shift+S"), category: "File" },
+        Command { id: "file.openFolder", label: "Open Folder", shortcut: None, category: "File" },
         Command { id: "file.closeFolder", label: "Close Folder", shortcut: None, category: "File" },
 
         // Edit operations
@@ -72,7 +88,7 @@ pub fn get_all_commands() -> Vec<Command> {
         // View operations
         Command { id: "view.commandPalette", label: "Command Palette", shortcut: Some("Ctrl+Shift+P"), category: "View" },
         Command { id: "view.goToFile", label: "Go to File", shortcut: Some("Ctrl+P"), category: "View" },
-        Command { id: "view.goToLine", label: "Go to Line...", shortcut: Some("Ctrl+G"), category: "View" },
+        Command { id: "view.goToLine", label: "Go to Line", shortcut: Some("Ctrl+G"), category: "View" },
 
         // Preview operations
         Command { id: "preview.run", label: "Run Preview", shortcut: Some("F5"), category: "Preview" },
@@ -90,93 +106,85 @@ pub fn get_all_commands() -> Vec<Command> {
         Command { id: "window.close", label: "Close Window", shortcut: Some("Alt+F4"), category: "Window" },
 
         // Help
+        Command { id: "help.cookbook", label: "Open Cookbook", shortcut: None, category: "Help" },
         Command { id: "help.documentation", label: "Open Documentation", shortcut: Some("F1"), category: "Help" },
         Command { id: "help.about", label: "About Soyuz Studio", shortcut: None, category: "Help" },
     ]
 }
 
-/// Filter commands based on query
-pub fn filter_commands(query: &str) -> Vec<Command> {
-    let query_lower = query.to_lowercase();
-    let all_commands = get_all_commands();
-
-    if query_lower.is_empty() {
-        return all_commands;
+/// Compute fuzzy match score between query and target
+/// Returns 0-100 where higher is better match
+fn fuzzy_match_score(query: &str, target: &str) -> i32 {
+    if query.is_empty() {
+        return 50; // Base score for empty query
     }
 
-    all_commands
-        .into_iter()
-        .filter(|cmd| {
-            cmd.label.to_lowercase().contains(&query_lower)
-                || cmd.category.to_lowercase().contains(&query_lower)
-                || cmd.id.to_lowercase().contains(&query_lower)
-        })
-        .collect()
-}
-
-/// Fuzzy match score for file search
-fn fuzzy_score(query: &str, target: &str) -> Option<i32> {
     let query_lower = query.to_lowercase();
     let target_lower = target.to_lowercase();
 
-    if query_lower.is_empty() {
-        return Some(0);
+    // Exact match = highest score
+    if target_lower == query_lower {
+        return 100;
     }
 
-    // Simple substring match for now
+    // Starts with = very high score
+    if target_lower.starts_with(&query_lower) {
+        return 95;
+    }
+
+    // Contains = high score
     if target_lower.contains(&query_lower) {
-        // Exact match at start scores highest
-        if target_lower.starts_with(&query_lower) {
-            return Some(100);
-        }
-        // Contains match
-        return Some(50);
+        return 80;
     }
 
-    // Check if all characters appear in order (fuzzy)
-    let mut query_chars = query_lower.chars().peekable();
-    let mut score = 0;
-    let mut consecutive = 0;
-
-    for c in target_lower.chars() {
-        if query_chars.peek() == Some(&c) {
-            query_chars.next();
-            consecutive += 1;
-            score += consecutive * 10; // Bonus for consecutive matches
-        } else {
-            consecutive = 0;
-        }
-    }
-
-    if query_chars.peek().is_none() {
-        Some(score)
-    } else {
-        None // Not all characters matched
-    }
+    // Jaro-Winkler similarity for typo tolerance
+    let similarity = jaro_winkler(&query_lower, &target_lower);
+    (similarity * 100.0) as i32
 }
 
-/// Search files in workspace
+/// Search commands with fuzzy matching
+fn search_commands(query: &str) -> Vec<(Command, i32)> {
+    let all_commands = get_all_commands();
+    let threshold = if query.is_empty() { 50 } else { 55 };
+
+    all_commands
+        .into_iter()
+        .map(|cmd| {
+            // Score against label, category, and id
+            let label_score = fuzzy_match_score(query, cmd.label);
+            let category_score = fuzzy_match_score(query, cmd.category);
+            let id_score = fuzzy_match_score(query, cmd.id);
+            let best_score = label_score.max(category_score).max(id_score);
+            (cmd, best_score)
+        })
+        .filter(|(_, score)| *score >= threshold)
+        .collect()
+}
+
+/// Search files in workspace with fuzzy matching
 pub async fn search_files(workspace: &Path, query: &str) -> Vec<FileResult> {
     let mut results = Vec::new();
-    let query = query.to_lowercase();
+    let threshold = if query.is_empty() { 50 } else { 55 };
 
     // Recursively walk directory
     if let Ok(entries) = walk_directory(workspace, workspace).await {
         for (path, relative) in entries {
-            let name = path.file_name()
+            let name = path
+                .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
 
             // Score against filename and path
-            let name_score = fuzzy_score(&query, &name);
-            let path_score = fuzzy_score(&query, &relative);
+            let name_score = fuzzy_match_score(query, &name);
+            let path_score = fuzzy_match_score(query, &relative);
+            let best_score = name_score.max(path_score);
 
-            if name_score.or(path_score).is_some() {
+            if best_score >= threshold {
                 results.push(FileResult {
                     path,
                     name,
                     relative_path: relative,
-                    score: name_score.unwrap_or(0).max(path_score.unwrap_or(0)),
+                    score: best_score,
                 });
             }
         }
@@ -186,7 +194,7 @@ pub async fn search_files(workspace: &Path, query: &str) -> Vec<FileResult> {
     results.sort_by(|a, b| b.score.cmp(&a.score));
 
     // Limit results
-    results.truncate(50);
+    results.truncate(30);
 
     results
 }
@@ -210,7 +218,8 @@ async fn walk_directory(root: &Path, base: &Path) -> anyhow::Result<Vec<(PathBuf
                 if path.is_dir() {
                     stack.push(path);
                 } else {
-                    let relative = path.strip_prefix(base)
+                    let relative = path
+                        .strip_prefix(base)
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_else(|_| path.to_string_lossy().to_string());
                     results.push((path, relative));
@@ -220,6 +229,33 @@ async fn walk_directory(root: &Path, base: &Path) -> anyhow::Result<Vec<(PathBuf
     }
 
     Ok(results)
+}
+
+/// Unified search - searches both files and commands, returns sorted results
+pub async fn unified_search(workspace: Option<&Path>, query: &str) -> Vec<SearchResult> {
+    let mut results = Vec::new();
+
+    // Search commands (sync, fast)
+    let cmd_results = search_commands(query);
+    for (cmd, score) in cmd_results {
+        results.push(SearchResult::Command { cmd, score });
+    }
+
+    // Search files (async)
+    if let Some(ws) = workspace {
+        let file_results = search_files(ws, query).await;
+        for file_result in file_results {
+            results.push(SearchResult::File(file_result));
+        }
+    }
+
+    // Sort by score descending
+    results.sort_by_key(|r| std::cmp::Reverse(r.score()));
+
+    // Limit total results
+    results.truncate(50);
+
+    results
 }
 
 /// Command Palette component
@@ -262,23 +298,14 @@ pub fn CommandPalette() -> Element {
         let (mode, search_term) = parse_query(&new_query);
         palette.write().mode = mode;
 
-        // Trigger search based on mode
-        match mode {
-            PaletteMode::Commands => {
-                palette.write().filtered_commands = filter_commands(search_term);
-            }
-            PaletteMode::Files => {
-                // File search is async, handled separately
-                let workspace = state.read().workspace.clone();
-                if let Some(ws) = workspace {
-                    let search_term = search_term.to_string();
-                    spawn(async move {
-                        let results = search_files(&ws, &search_term).await;
-                        palette.write().file_results = results;
-                    });
-                }
-            }
-            _ => {}
+        // Trigger search in unified mode
+        if mode == PaletteMode::Unified {
+            let workspace = state.read().workspace.clone();
+            let search_term = search_term.to_string();
+            spawn(async move {
+                let results = unified_search(workspace.as_deref(), &search_term).await;
+                palette.write().unified_results = results;
+            });
         }
     };
 
@@ -302,7 +329,11 @@ pub fn CommandPalette() -> Element {
                 let max_items = get_result_count(&palette.read());
                 if max_items > 0 {
                     let current = palette.read().selected_index;
-                    palette.write().selected_index = if current == 0 { max_items - 1 } else { current - 1 };
+                    palette.write().selected_index = if current == 0 {
+                        max_items - 1
+                    } else {
+                        current - 1
+                    };
                 }
             }
             Key::Enter => {
@@ -318,8 +349,7 @@ pub fn CommandPalette() -> Element {
 
     // Get placeholder text based on mode
     let placeholder = match effective_mode {
-        PaletteMode::Files => "Search files by name (prefix: > commands, : line, % text, @ symbols)",
-        PaletteMode::Commands => "Type command name...",
+        PaletteMode::Unified => "Search files and commands...",
         PaletteMode::GoToLine => "Enter line number...",
         PaletteMode::TextSearch => "Search text in files...",
         PaletteMode::Symbols => "Search symbols in current file...",
@@ -345,7 +375,6 @@ pub fn CommandPalette() -> Element {
                     placeholder: "{placeholder}",
                     value: "{query}",
                     autofocus: true,
-                    // Use onmounted for reliable focus when palette opens
                     onmounted: move |evt| {
                         spawn(async move {
                             let _ = evt.set_focus(true).await;
@@ -356,35 +385,21 @@ pub fn CommandPalette() -> Element {
                 }
             }
 
-            // Quick actions (only in file mode with empty query)
-            if effective_mode == PaletteMode::Files && search_query.is_empty() {
-                div { class: "palette-quick-actions",
-                    QuickAction { label: "Go to File", shortcut: "Ctrl+P", selected: selected_index == 0 }
-                    QuickAction { label: "Show and Run Commands", shortcut: "Ctrl+Shift+P", prefix: ">", selected: selected_index == 1 }
-                    QuickAction { label: "Go to Line", shortcut: "Ctrl+G", prefix: ":", selected: selected_index == 2 }
-                    QuickAction { label: "Search for Text", prefix: "%", selected: selected_index == 3 }
-                    QuickAction { label: "Go to Symbol in Editor", shortcut: "Ctrl+Shift+O", prefix: "@", selected: selected_index == 4 }
-                }
-            }
-
             // Results list
             div { class: "palette-results",
                 match effective_mode {
-                    PaletteMode::Files if !search_query.is_empty() => rsx! {
-                        FileResults { selected_index }
-                    },
-                    PaletteMode::Commands => rsx! {
-                        CommandResults { selected_index }
+                    PaletteMode::Unified => rsx! {
+                        UnifiedResults { selected_index }
                     },
                     PaletteMode::GoToLine => rsx! {
                         GoToLineHint { query: search_query.to_string() }
                     },
                     PaletteMode::TextSearch => rsx! {
-                        TextSearchResults { query: search_query.to_string(), selected_index }
+                        TextSearchResults { query: search_query.to_string() }
                     },
-                    _ => rsx! {
-                        RecentFiles { selected_index, offset: 5 }
-                    }
+                    PaletteMode::Symbols => rsx! {
+                        div { class: "palette-hint", "Symbol search coming soon..." }
+                    },
                 }
             }
         }
@@ -393,9 +408,7 @@ pub fn CommandPalette() -> Element {
 
 /// Parse query to determine mode and extract search term
 fn parse_query(query: &str) -> (PaletteMode, &str) {
-    if let Some(rest) = query.strip_prefix('>') {
-        (PaletteMode::Commands, rest.trim())
-    } else if let Some(rest) = query.strip_prefix(':') {
+    if let Some(rest) = query.strip_prefix(':') {
         (PaletteMode::GoToLine, rest.trim())
     } else if let Some(rest) = query.strip_prefix('%') {
         (PaletteMode::TextSearch, rest.trim())
@@ -404,16 +417,14 @@ fn parse_query(query: &str) -> (PaletteMode, &str) {
     } else if let Some(rest) = query.strip_prefix('@') {
         (PaletteMode::Symbols, rest.trim())
     } else {
-        (PaletteMode::Files, query.trim())
+        (PaletteMode::Unified, query.trim())
     }
 }
 
 /// Get total result count for keyboard navigation
 fn get_result_count(palette: &PaletteState) -> usize {
     match palette.mode {
-        PaletteMode::Files if palette.query.is_empty() => 5, // Quick actions
-        PaletteMode::Files => palette.file_results.len(),
-        PaletteMode::Commands => palette.filtered_commands.len(),
+        PaletteMode::Unified => palette.unified_results.len(),
         _ => 0,
     }
 }
@@ -421,27 +432,25 @@ fn get_result_count(palette: &PaletteState) -> usize {
 /// Execute the selected item
 fn execute_selected(palette: &PaletteState, mut state: Signal<AppState>) {
     match palette.mode {
-        PaletteMode::Files if palette.query.is_empty() => {
-            // Quick action selected - this is handled by updating the query
-        }
-        PaletteMode::Files => {
-            if let Some(file) = palette.file_results.get(palette.selected_index) {
-                let path = file.path.clone();
-                spawn(async move {
-                    if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                        state.write().open_file(path, content);
+        PaletteMode::Unified => {
+            if let Some(result) = palette.unified_results.get(palette.selected_index) {
+                match result {
+                    SearchResult::File(file) => {
+                        let path = file.path.clone();
+                        spawn(async move {
+                            if let Ok(content) = tokio::fs::read_to_string(&path).await {
+                                state.write().open_file(path, content);
+                            }
+                        });
                     }
-                });
-            }
-        }
-        PaletteMode::Commands => {
-            if let Some(cmd) = palette.filtered_commands.get(palette.selected_index) {
-                execute_command(cmd.id, &mut state.write());
+                    SearchResult::Command { cmd, .. } => {
+                        execute_command(cmd.id, &mut state.write());
+                    }
+                }
             }
         }
         PaletteMode::GoToLine => {
             if let Ok(line) = palette.query.trim_start_matches(':').trim().parse::<usize>() {
-                // Go to line - this would need editor integration
                 tracing::info!("Go to line: {}", line);
             }
         }
@@ -454,163 +463,82 @@ fn execute_command(id: &str, state: &mut AppState) {
     match id {
         "file.new" => state.new_tab(),
         "file.closeFolder" => state.close_folder(),
-        // Add more command implementations as needed
+        "help.cookbook" => state.open_cookbook(),
         _ => tracing::info!("Command not implemented: {}", id),
     }
 }
 
-/// Quick action item
+/// Unified search results - displays both files and commands
 #[component]
-fn QuickAction(label: String, shortcut: Option<String>, prefix: Option<String>, selected: bool) -> Element {
-    let class = if selected { "palette-item selected" } else { "palette-item" };
-
-    rsx! {
-        div { class: "{class}",
-            span { class: "palette-item-label",
-                if let Some(p) = prefix {
-                    span { class: "palette-prefix", "{p} " }
-                }
-                "{label}"
-            }
-            if let Some(s) = shortcut {
-                span { class: "palette-shortcut", "{s}" }
-            }
-        }
-    }
-}
-
-/// File search results
-#[component]
-fn FileResults(selected_index: usize) -> Element {
+fn UnifiedResults(selected_index: usize) -> Element {
     let mut palette = use_context::<Signal<PaletteState>>();
     let mut state = use_context::<Signal<AppState>>();
-    let results = palette.read().file_results.clone();
+    let results = palette.read().unified_results.clone();
 
     if results.is_empty() {
         return rsx! {
-            div { class: "palette-empty", "No files found" }
+            div { class: "palette-empty", "No results found" }
         };
     }
 
     rsx! {
-        for (idx, file) in results.iter().enumerate() {
+        for (idx, result) in results.iter().enumerate() {
             {
-                let class = if idx == selected_index { "palette-item selected" } else { "palette-item" };
-                let path = file.path.clone();
-                let name = file.name.clone();
-                let relative = file.relative_path.clone();
+                let class = if idx == selected_index {
+                    "palette-item selected"
+                } else {
+                    "palette-item"
+                };
 
-                rsx! {
-                    div {
-                        key: "{path:?}",
-                        class: "{class}",
-                        onclick: move |_| {
-                            let p = path.clone();
-                            spawn(async move {
-                                if let Ok(content) = tokio::fs::read_to_string(&p).await {
-                                    state.write().open_file(p, content);
-                                }
-                            });
-                            palette.write().visible = false;
-                        },
+                match result {
+                    SearchResult::File(file) => {
+                        let path = file.path.clone();
+                        let name = file.name.clone();
+                        let relative = file.relative_path.clone();
 
-                        span { class: "palette-file-icon", "" }
-                        span { class: "palette-item-label", "{name}" }
-                        span { class: "palette-item-path", "{relative}" }
-                    }
-                }
-            }
-        }
-    }
-}
+                        rsx! {
+                            div {
+                                key: "{path:?}",
+                                class: "{class}",
+                                onclick: move |_| {
+                                    let p = path.clone();
+                                    spawn(async move {
+                                        if let Ok(content) = tokio::fs::read_to_string(&p).await {
+                                            state.write().open_file(p, content);
+                                        }
+                                    });
+                                    palette.write().visible = false;
+                                },
 
-/// Command search results
-#[component]
-fn CommandResults(selected_index: usize) -> Element {
-    let mut palette = use_context::<Signal<PaletteState>>();
-    let mut state = use_context::<Signal<AppState>>();
-    let commands = palette.read().filtered_commands.clone();
-
-    if commands.is_empty() {
-        return rsx! {
-            div { class: "palette-empty", "No commands found" }
-        };
-    }
-
-    rsx! {
-        for (idx, cmd) in commands.iter().enumerate() {
-            {
-                let class = if idx == selected_index { "palette-item selected" } else { "palette-item" };
-                let cmd_id = cmd.id;
-                let label = cmd.label;
-                let category = cmd.category;
-                let shortcut = cmd.shortcut;
-
-                rsx! {
-                    div {
-                        key: "{cmd_id}",
-                        class: "{class}",
-                        onclick: move |_| {
-                            execute_command(cmd_id, &mut state.write());
-                            palette.write().visible = false;
-                        },
-
-                        span { class: "palette-item-label", "{label}" }
-                        span { class: "palette-item-category", "{category}" }
-                        if let Some(s) = shortcut {
-                            span { class: "palette-shortcut", "{s}" }
+                                span { class: "palette-file-icon", "" }
+                                span { class: "palette-item-label", "{name}" }
+                                span { class: "palette-item-path", "{relative}" }
+                            }
                         }
                     }
-                }
-            }
-        }
-    }
-}
+                    SearchResult::Command { cmd, .. } => {
+                        let cmd_id = cmd.id;
+                        let label = cmd.label;
+                        let category = cmd.category;
+                        let shortcut = cmd.shortcut;
 
-/// Recent files list
-#[component]
-fn RecentFiles(selected_index: usize, offset: usize) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
-    let mut palette = use_context::<Signal<PaletteState>>();
+                        rsx! {
+                            div {
+                                key: "{cmd_id}",
+                                class: "{class}",
+                                onclick: move |_| {
+                                    execute_command(cmd_id, &mut state.write());
+                                    palette.write().visible = false;
+                                },
 
-    let recent = state.read().recent_files.clone();
-
-    if recent.is_empty() {
-        return rsx! {
-            div { class: "palette-section-header", "recently opened" }
-            div { class: "palette-empty", "No recent files" }
-        };
-    }
-
-    rsx! {
-        div { class: "palette-section-header", "recently opened" }
-        for (idx, path) in recent.iter().enumerate() {
-            {
-                let adjusted_idx = idx + offset;
-                let class = if adjusted_idx == selected_index { "palette-item selected" } else { "palette-item" };
-                let p = path.clone();
-                let name = path.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.to_string_lossy().to_string());
-                let display_path = path.to_string_lossy().to_string();
-
-                rsx! {
-                    div {
-                        key: "{display_path}",
-                        class: "{class}",
-                        onclick: move |_| {
-                            let path = p.clone();
-                            spawn(async move {
-                                if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                                    state.write().open_file(path, content);
+                                span { class: "palette-cmd-icon", ">" }
+                                span { class: "palette-item-label", "{label}" }
+                                span { class: "palette-item-category", "{category}" }
+                                if let Some(s) = shortcut {
+                                    span { class: "palette-shortcut", "{s}" }
                                 }
-                            });
-                            palette.write().visible = false;
-                        },
-
-                        span { class: "palette-file-icon", "" }
-                        span { class: "palette-item-label", "{name}" }
-                        span { class: "palette-item-path", "{display_path}" }
+                            }
+                        }
                     }
                 }
             }
@@ -638,7 +566,7 @@ fn GoToLineHint(query: String) -> Element {
 
 /// Text search results (placeholder)
 #[component]
-fn TextSearchResults(query: String, selected_index: usize) -> Element {
+fn TextSearchResults(query: String) -> Element {
     rsx! {
         div { class: "palette-hint",
             if query.is_empty() {
