@@ -51,14 +51,14 @@ cargo build --release
 
 # The binaries are:
 # ./target/release/soyuz-studio  (desktop IDE)
-# ./target/release/soyuz         (CLI tool)
+# ./target/release/soyuz-preview (preview window)
 ```
 
 ---
 
 ## Quick Start
 
-### Option 1: Soyuz Studio (Desktop IDE)
+### Soyuz Studio (Desktop IDE)
 
 ```bash
 cargo run --release -p app
@@ -75,19 +75,6 @@ This opens the full IDE with:
 2. Type: `sphere(0.5)`
 3. Press `Ctrl+Enter` to preview
 4. A window opens showing your sphere rendered in real-time
-
-### Option 2: Command Line
-
-```bash
-# Preview a script file
-cargo run --release -p soyuz-cli -- preview --script examples/gear.rhai
-
-# Export to mesh
-cargo run --release -p soyuz-cli -- generate --script examples/gear.rhai --output gear.glb
-
-# Interactive REPL
-cargo run --release -p soyuz-cli -- repl
-```
 
 ---
 
@@ -226,35 +213,6 @@ body.union(teeth).subtract(hole).subtract(spokes)
 
 ---
 
-## CLI Reference
-
-```bash
-soyuz <COMMAND>
-
-Commands:
-  preview    Open a live preview window for a script
-  generate   Export a script to a mesh file
-  render     Render a script to an image (headless)
-  repl       Interactive scripting shell
-  watch      Watch a file and auto-refresh preview on changes
-  demo       Generate demo assets
-```
-
-### Examples
-
-```bash
-# Live preview with hot-reload
-soyuz watch --script mymodel.rhai
-
-# Export to GLB at high resolution
-soyuz generate --script mymodel.rhai --output mymodel.glb --resolution 128
-
-# Render to PNG
-soyuz render --script mymodel.rhai --output render.png --width 1920 --height 1080
-```
-
----
-
 ## Environment and Lighting
 
 Configure the rendering environment in your script:
@@ -287,7 +245,7 @@ soyuz/
     soyuz-core/           # SDF engine, mesh generation, export
     soyuz-render/         # GPU raymarching renderer
     soyuz-script/         # Rhai scripting integration
-    soyuz-cli/            # Command-line interface
+    soyuz-engine/         # High-level orchestration (render + script)
   examples/               # Sample scripts
   SOYUZ_COOKBOOK.md       # Complete scripting reference
 ```
