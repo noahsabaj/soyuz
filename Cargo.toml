@@ -9,6 +9,7 @@ members = [
     "crates/soyuz-script",
     "crates/soyuz-engine",
     "crates/soyuz-wasm",
+    "crates/soyuz-mcp",
     "app",
 ]
 
