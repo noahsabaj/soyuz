@@ -8,6 +8,7 @@
 
 use crate::state::PaneId;
 use dioxus::prelude::document;
+use tracing::debug;
 
 /// Get the current cursor position from a textarea element
 pub async fn get_cursor_position(editor_id: &str) -> Option<usize> {
@@ -45,7 +46,9 @@ pub async fn set_editor_content(pane_id: PaneId, content: &str, cursor_pos: usiz
         pane_id, content_json, cursor_pos
     );
 
-    let _ = document::eval(&js).await;
+    if let Err(e) = document::eval(&js).await {
+        debug!("JS eval for set_editor_content failed: {e:?}");
+    }
 }
 
 /// Insert indentation or indent selected lines
@@ -90,7 +93,9 @@ pub async fn insert_indent(pane_id: PaneId) {
         pane_id
     );
 
-    let _ = document::eval(&js).await;
+    if let Err(e) = document::eval(&js).await {
+        debug!("JS eval for insert_indent failed: {e:?}");
+    }
 }
 
 /// Convert character position to (line, col) coordinates (1-indexed)

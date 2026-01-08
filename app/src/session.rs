@@ -7,6 +7,24 @@ use crate::state::{AppState, EditorPane, EditorTab, PaneId, SplitDirection, Undo
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Load tab content from stored content or file path
+///
+/// Priority:
+/// 1. Use stored content if available
+/// 2. Read from file path if stored content is missing
+/// 3. Return default (empty string) if neither is available
+fn load_tab_content(path: Option<&PathBuf>, stored_content: Option<&String>) -> String {
+    match (path, stored_content) {
+        // Stored content takes priority
+        (_, Some(content)) => content.clone(),
+        // No stored content, try to read from file
+        (Some(p), None) => std::fs::read_to_string(p)
+            .unwrap_or_else(|_| format!("// Error: Could not load file: {}", p.display())),
+        // No path and no stored content
+        (None, None) => String::new(),
+    }
+}
+
 /// Serializable pane state (recursive tree structure)
 #[derive(Serialize, Deserialize)]
 pub enum PaneSession {
@@ -106,12 +124,29 @@ impl Session {
 }
 
 /// Convert EditorPane to PaneSession (recursive)
+/// Note: Settings tabs are skipped - they should not be persisted
 fn pane_to_session(pane: &EditorPane) -> PaneSession {
     match pane {
         EditorPane::TabGroup { id, tabs, active_tab_idx } => {
+            // Filter out Settings tabs - they shouldn't be persisted
+            let file_tabs: Vec<_> = tabs.iter()
+                .filter(|tab| !tab.is_settings())
+                .collect();
+
+            // Adjust active_tab_idx to account for filtered tabs
+            let adjusted_active_idx = if file_tabs.is_empty() {
+                0
+            } else {
+                // Find the new index of the previously active tab
+                let active_tab_id = tabs.get(*active_tab_idx).map(|t| t.id);
+                file_tabs.iter()
+                    .position(|t| Some(t.id) == active_tab_id)
+                    .unwrap_or(0)
+            };
+
             PaneSession::TabGroup {
                 id: *id,
-                tabs: tabs.iter().map(|tab| TabSession {
+                tabs: file_tabs.iter().map(|tab| TabSession {
                     path: tab.path.clone(),
                     content: if tab.path.is_none() || tab.is_dirty {
                         Some(tab.content.clone())
@@ -121,7 +156,7 @@ fn pane_to_session(pane: &EditorPane) -> PaneSession {
                     is_dirty: tab.is_dirty,
                     history: Some(tab.history.clone()),
                 }).collect(),
-                active_tab_idx: *active_tab_idx,
+                active_tab_idx: adjusted_active_idx,
             }
         }
         EditorPane::Split { direction, first, second, ratio } => {
@@ -159,17 +194,10 @@ fn session_to_pane(session: &PaneSession, next_tab_id: &mut u64, max_pane_id: &m
 
             let mut restored_tabs = Vec::new();
             for tab_session in tabs {
-                let content = if let Some(path) = &tab_session.path {
-                    if let Some(stored_content) = &tab_session.content {
-                        stored_content.clone()
-                    } else {
-                        std::fs::read_to_string(path).unwrap_or_else(|_| {
-                            format!("// Error: Could not load file: {}", path.display())
-                        })
-                    }
-                } else {
-                    tab_session.content.clone().unwrap_or_default()
-                };
+                let content = load_tab_content(
+                    tab_session.path.as_ref(),
+                    tab_session.content.as_ref(),
+                );
 
                 let history = tab_session.history.clone().unwrap_or_default();
                 restored_tabs.push(EditorTab::with_history(
@@ -211,17 +239,10 @@ pub fn restore_session(state: &mut AppState, session: Session) {
         // Legacy: restore from flat tabs list
         let mut tabs = Vec::new();
         for tab_session in session.tabs {
-            let content = if let Some(path) = &tab_session.path {
-                if let Some(stored_content) = tab_session.content {
-                    stored_content
-                } else {
-                    std::fs::read_to_string(path).unwrap_or_else(|_| {
-                        format!("// Error: Could not load file: {}", path.display())
-                    })
-                }
-            } else {
-                tab_session.content.unwrap_or_default()
-            };
+            let content = load_tab_content(
+                tab_session.path.as_ref(),
+                tab_session.content.as_ref(),
+            );
 
             let history = tab_session.history.unwrap_or_default();
             tabs.push(EditorTab::with_history(

@@ -7,10 +7,11 @@
 // Borrowed format strings are valid for file dialogs
 #![allow(clippy::needless_borrows_for_generic_args)]
 
-use crate::state::{AppState, ExportFormat, ExportSettings};
+use crate::state::{AppState, ExportFormat, ExportSettings, TerminalLevel};
 use dioxus::desktop::{window, Config, LogicalSize, WindowBuilder};
 use dioxus::prelude::*;
 use std::path::PathBuf;
+use tracing::warn;
 
 /// Open the export window
 pub fn open_export_window(state: Signal<AppState>) {
@@ -27,10 +28,10 @@ pub fn open_export_window(state: Signal<AppState>) {
     drop(initial_state);
 
     // Compute default path
-    let default_path = compute_default_path(&last_export_dir, &current_file);
+    let default_path = compute_default_path(last_export_dir.as_ref(), current_file.as_ref());
 
     // Compute default filename
-    let default_filename = compute_default_filename(&current_file, format);
+    let default_filename = compute_default_filename(current_file.as_ref(), format);
 
     // Create the export window component with captured values
     let dom = VirtualDom::new_with_props(
@@ -60,19 +61,19 @@ pub fn open_export_window(state: Signal<AppState>) {
 }
 
 /// Compute the default export path
-fn compute_default_path(last_export_dir: &Option<PathBuf>, current_file: &Option<PathBuf>) -> PathBuf {
+fn compute_default_path(last_export_dir: Option<&PathBuf>, current_file: Option<&PathBuf>) -> PathBuf {
     // 1. Check last_export_dir
-    if let Some(dir) = last_export_dir {
-        if dir.exists() {
-            return dir.clone();
-        }
+    if let Some(dir) = last_export_dir
+        && dir.exists()
+    {
+        return dir.clone();
     }
 
     // 2. Fall back to script's directory
-    if let Some(path) = current_file {
-        if let Some(parent) = path.parent() {
-            return parent.to_path_buf();
-        }
+    if let Some(path) = current_file
+        && let Some(parent) = path.parent()
+    {
+        return parent.to_path_buf();
     }
 
     // 3. Fall back to home/documents directory
@@ -80,12 +81,10 @@ fn compute_default_path(last_export_dir: &Option<PathBuf>, current_file: &Option
 }
 
 /// Compute the default filename (without path)
-fn compute_default_filename(current_file: &Option<PathBuf>, format: ExportFormat) -> String {
+fn compute_default_filename(current_file: Option<&PathBuf>, format: ExportFormat) -> String {
     let stem = current_file
-        .as_ref()
         .and_then(|p| p.file_stem())
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "untitled".to_string());
+        .map_or_else(|| "untitled".to_string(), |s| s.to_string_lossy().to_string());
 
     format!("{}.{}", stem, format.extension())
 }
@@ -171,9 +170,7 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
         let settings = ExportSettings {
             format: export_format,
             resolution: export_resolution,
-            texture_size: 1024,
             optimize: export_optimize,
-            generate_lod: false,
             last_export_dir: Some(path.clone()),
             close_after_export: *close_after_export.read(),
         };
@@ -188,6 +185,12 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
             is_exporting.set(true);
             status_message.set(Some("Generating mesh...".to_string()));
 
+            // Log to terminal
+            main_state.read().terminal_log(
+                TerminalLevel::Info,
+                format!("Exporting to {}...", name),
+            );
+
             let result = tokio::task::spawn_blocking(move || {
                 export_mesh(&export_code, &full_path, &settings)
             })
@@ -195,6 +198,11 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
 
             match result {
                 Ok(Ok(info)) => {
+                    // Log success to terminal
+                    main_state.read().terminal_log(
+                        TerminalLevel::Info,
+                        format!("Export complete: {}", info),
+                    );
                     status_message.set(Some(format!("Exported: {}", info)));
 
                     // Update main state with last export directory
@@ -226,9 +234,19 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
                     }
                 }
                 Ok(Err(e)) => {
+                    // Log error to terminal
+                    main_state.read().terminal_log(
+                        TerminalLevel::Error,
+                        format!("Export failed: {}", e),
+                    );
                     status_message.set(Some(format!("Error: {}", e)));
                 }
                 Err(e) => {
+                    // Log error to terminal
+                    main_state.read().terminal_log(
+                        TerminalLevel::Error,
+                        format!("Export task failed: {}", e),
+                    );
                     status_message.set(Some(format!("Error: {}", e)));
                 }
             }
@@ -424,17 +442,23 @@ fn FormatButton(
 fn open_folder(path: &std::path::Path) {
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+        if let Err(e) = std::process::Command::new("xdg-open").arg(path).spawn() {
+            warn!("Failed to open folder with xdg-open: {e}");
+        }
     }
 
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("explorer").arg(path).spawn();
+        if let Err(e) = std::process::Command::new("explorer").arg(path).spawn() {
+            warn!("Failed to open folder with explorer: {e}");
+        }
     }
 
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open").arg(path).spawn();
+        if let Err(e) = std::process::Command::new("open").arg(path).spawn() {
+            warn!("Failed to open folder: {e}");
+        }
     }
 }
 
@@ -442,19 +466,26 @@ fn open_folder(path: &std::path::Path) {
 fn open_file(path: &std::path::Path) {
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+        if let Err(e) = std::process::Command::new("xdg-open").arg(path).spawn() {
+            warn!("Failed to open file with xdg-open: {e}");
+        }
     }
 
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("cmd")
+        if let Err(e) = std::process::Command::new("cmd")
             .args(["/C", "start", "", &path.to_string_lossy()])
-            .spawn();
+            .spawn()
+        {
+            warn!("Failed to open file with cmd: {e}");
+        }
     }
 
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open").arg(path).spawn();
+        if let Err(e) = std::process::Command::new("open").arg(path).spawn() {
+            warn!("Failed to open file: {e}");
+        }
     }
 }
 
@@ -467,41 +498,21 @@ pub fn export_mesh(
     output_path: &std::path::Path,
     settings: &ExportSettings,
 ) -> anyhow::Result<String> {
-    use soyuz_core::export::MeshExport;
-    use soyuz_core::mesh::{MeshConfig, OptimizeConfig, SdfToMesh};
-    use soyuz_core::sdf::Sdf;
-    use soyuz_script::{CpuSdf, ScriptEngine};
+    use soyuz_engine::{Engine, ExportOptions};
 
-    // Evaluate script to get SDF
-    let engine = ScriptEngine::new();
-    let rhai_sdf = engine.eval_sdf(code)?;
+    // Create engine and run script
+    let mut engine = Engine::new();
+    engine.run_script(code)?;
 
-    // Wrap in CpuSdf which implements the Sdf trait for CPU evaluation
-    let cpu_sdf = CpuSdf::from_arc(rhai_sdf.op);
-
-    // Use the SDF's bounds for mesh generation, or default if unbounded
-    let bounds = cpu_sdf.bounds();
-
-    // Generate mesh using parallel marching cubes
-    let config = MeshConfig::default()
+    // Export using Engine API
+    let options = ExportOptions::new(output_path)
         .with_resolution(settings.resolution)
-        .with_bounds(bounds);
+        .with_optimize(settings.optimize);
 
-    let mut mesh = cpu_sdf.to_mesh(config)?;
-
-    // Optimize if requested
-    if settings.optimize {
-        mesh.optimize(&OptimizeConfig::default());
-    }
-
-    let vertex_count = mesh.vertex_count();
-    let triangle_count = mesh.triangle_count();
-
-    // Export
-    mesh.export(output_path)?;
+    let result = engine.export(&options)?;
 
     Ok(format!(
         "{} vertices, {} triangles",
-        vertex_count, triangle_count
+        result.vertex_count, result.triangle_count
     ))
 }

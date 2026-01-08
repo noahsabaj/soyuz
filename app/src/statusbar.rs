@@ -13,7 +13,7 @@ pub fn StatusBar() -> Element {
 
     let (status_text, cursor_info, has_unsaved) = {
         let s = state.read();
-        let status = if s.has_error {
+        let status = if s.has_error() {
             "Error in script"
         } else if s.is_previewing {
             "Preview running"

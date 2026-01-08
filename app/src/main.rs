@@ -2,19 +2,27 @@
 
 mod browser;
 mod command_palette;
+mod cookbook_panel;
 mod export;
 mod js_interop;
 mod pane;
 mod preview;
 mod session;
+mod settings;
+mod settings_panel;
 mod state;
 mod statusbar;
+mod terminal;
+mod terminal_layer;
 mod toolbar;
 
 use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
-use state::AppState;
+use state::{AppState, TerminalBuffer};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 /// Panel-level error fallback component
 #[component]
@@ -32,8 +40,27 @@ fn PanelError(panel_name: String, error_msg: String) -> Element {
 /// Whether to start fresh (skip session restore)
 static FRESH_START: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
+/// Global terminal buffer shared between tracing and AppState
+static TERMINAL_BUFFER: std::sync::OnceLock<TerminalBuffer> = std::sync::OnceLock::new();
+
 fn main() {
-    tracing_subscriber::fmt::init();
+    // Create a shared terminal buffer for capturing logs
+    let terminal_buffer = TerminalBuffer::new();
+    TERMINAL_BUFFER.set(terminal_buffer.clone()).ok();
+
+    // Build layered tracing subscriber: terminal layer + filtered console output
+    let terminal_layer = terminal_layer::TerminalLayer::new(terminal_buffer);
+
+    // Console layer with filter: only show WARN+ from soyuz, INFO+ for others
+    let fmt_layer = tracing_subscriber::fmt::layer();
+    let filter = tracing_subscriber::EnvFilter::new(
+        "warn,soyuz_studio=info,soyuz_engine=info,soyuz_script=info,soyuz_render=info",
+    );
+
+    tracing_subscriber::registry()
+        .with(terminal_layer)
+        .with(fmt_layer.with_filter(filter))
+        .init();
 
     // Check for --fresh flag (used by New Window)
     let args: Vec<String> = std::env::args().collect();
@@ -69,9 +96,16 @@ fn load_window_icon() -> Option<Icon> {
 
 #[component]
 fn App() -> Element {
-    // Global app state - load from session if available (unless --fresh flag)
+    // Global app state - load settings and session (unless --fresh flag)
     use_context_provider(|| {
-        let mut state = AppState::new();
+        // Load settings from config file
+        let loaded_settings = settings::load_settings();
+        let mut state = AppState::with_settings(loaded_settings);
+
+        // Use the shared terminal buffer from the tracing subscriber
+        if let Some(buffer) = TERMINAL_BUFFER.get() {
+            state.terminal_buffer = buffer.clone();
+        }
 
         // Only restore session if not starting fresh
         let fresh = FRESH_START.get().copied().unwrap_or(false);
@@ -88,7 +122,7 @@ fn App() -> Element {
     // Command palette state
     use_context_provider(|| Signal::new(command_palette::PaletteState::default()));
 
-    let state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<Signal<AppState>>();
     let mut palette = use_context::<Signal<command_palette::PaletteState>>();
 
     // Auto-save session every 30 seconds using use_future for background tasks
@@ -108,20 +142,18 @@ fn App() -> Element {
         let ctrl = e.modifiers().ctrl();
         let shift = e.modifiers().shift();
 
-        // Ctrl+P - Open file search
-        if ctrl && !shift && key == Key::Character("p".to_string()) {
+        // Ctrl+P or Ctrl+Shift+P - Open unified search
+        if ctrl && (key == Key::Character("p".to_string()) || key == Key::Character("P".to_string())) {
             e.prevent_default();
             palette.write().visible = true;
             palette.write().query.clear();
-            palette.write().mode = command_palette::PaletteMode::Files;
-        }
-        // Ctrl+Shift+P - Open command palette
-        else if ctrl && shift && key == Key::Character("P".to_string()) {
-            e.prevent_default();
-            palette.write().visible = true;
-            palette.write().query = ">".to_string();
-            palette.write().mode = command_palette::PaletteMode::Commands;
-            palette.write().filtered_commands = command_palette::get_all_commands();
+            palette.write().mode = command_palette::PaletteMode::Unified;
+            // Trigger initial search to show all commands
+            let workspace = state.read().workspace.clone();
+            spawn(async move {
+                let results = command_palette::unified_search(workspace.as_deref(), "").await;
+                palette.write().unified_results = results;
+            });
         }
         // Ctrl+G - Go to line
         else if ctrl && !shift && key == Key::Character("g".to_string()) {
@@ -129,6 +161,11 @@ fn App() -> Element {
             palette.write().visible = true;
             palette.write().query = ":".to_string();
             palette.write().mode = command_palette::PaletteMode::GoToLine;
+        }
+        // Ctrl+` - Toggle terminal
+        else if ctrl && !shift && key == Key::Character("`".to_string()) {
+            e.prevent_default();
+            state.write().toggle_terminal();
         }
     };
 
@@ -140,8 +177,7 @@ fn App() -> Element {
                 .path
                 .as_ref()
                 .and_then(|p| p.file_name())
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| tab.display_name());
+                .map_or_else(|| tab.display_name(), |n| n.to_string_lossy().to_string());
             let dirty = if tab.is_dirty { " *" } else { "" };
             format!("{}{} - Soyuz Studio", name, dirty)
         } else {
@@ -184,9 +220,15 @@ fn App() -> Element {
                     button {
                         onclick: move |_| {
                             // Reload the application
-                            if let Ok(exe) = std::env::current_exe() {
-                                let _ = std::process::Command::new(exe).spawn();
-                                std::process::exit(0);
+                            match std::env::current_exe() {
+                                Ok(exe) => {
+                                    if let Err(e) = std::process::Command::new(exe).spawn() {
+                                        tracing::error!("Failed to restart application: {e}");
+                                    } else {
+                                        std::process::exit(0);
+                                    }
+                                }
+                                Err(e) => tracing::error!("Failed to get current executable: {e}"),
                             }
                         },
                         "Restart Application"
@@ -202,32 +244,38 @@ fn App() -> Element {
                 // Top toolbar
                 toolbar::Toolbar {}
 
-                div { class: "main-content",
-                    // Left sidebar: Explorer (file browser) with error boundary
-                    div { class: "panel explorer-panel",
-                        ErrorBoundary {
-                            handle_error: |error| rsx! {
-                                PanelError {
-                                    panel_name: "File Explorer".to_string(),
-                                    error_msg: format!("{error:?}")
-                                }
-                            },
-                            browser::AssetBrowser {}
+                // Content area with terminal
+                div { class: "content-with-terminal",
+                    div { class: "main-content",
+                        // Left sidebar: Explorer (file browser) with error boundary
+                        div { class: "panel explorer-panel",
+                            ErrorBoundary {
+                                handle_error: |error| rsx! {
+                                    PanelError {
+                                        panel_name: "File Explorer".to_string(),
+                                        error_msg: format!("{error:?}")
+                                    }
+                                },
+                                browser::AssetBrowser {}
+                            }
+                        }
+
+                        // Center: Code editor with tabs and splits
+                        div { class: "panel editor-panel",
+                            ErrorBoundary {
+                                handle_error: |error| rsx! {
+                                    PanelError {
+                                        panel_name: "Editor".to_string(),
+                                        error_msg: format!("{error:?}")
+                                    }
+                                },
+                                pane::PaneTree {}
+                            }
                         }
                     }
 
-                    // Center: Code editor with tabs and splits
-                    div { class: "panel editor-panel",
-                        ErrorBoundary {
-                            handle_error: |error| rsx! {
-                                PanelError {
-                                    panel_name: "Editor".to_string(),
-                                    error_msg: format!("{error:?}")
-                                }
-                            },
-                            pane::PaneTree {}
-                        }
-                    }
+                    // Terminal panel (bottom-docked, collapsible)
+                    terminal::TerminalPanel {}
                 }
 
                 // Status bar

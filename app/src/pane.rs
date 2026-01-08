@@ -5,7 +5,9 @@
 // map_or is less readable for optional values
 #![allow(clippy::map_unwrap_or)]
 
+use crate::cookbook_panel::CookbookPanel;
 use crate::js_interop::{self, position_to_line_col};
+use crate::settings_panel::SettingsPanel;
 use crate::state::{AppState, EditorPane, EditorTab, PaneId, SplitDirection, TabId};
 use dioxus::prelude::*;
 
@@ -18,18 +20,63 @@ pub struct TabDragState {
     pub target: Option<(PaneId, usize, bool)>,
 }
 
+/// Welcome screen shown when no tabs are open (VSCode-style)
+#[component]
+fn WelcomeScreen() -> Element {
+    rsx! {
+        div { class: "welcome-screen",
+            // Logo (grayed out like VSCode)
+            div { class: "welcome-logo",
+                // Using the Soyuz icon character or a simple placeholder
+                div { class: "welcome-logo-icon", "S" }
+            }
+
+            // Keyboard shortcuts
+            div { class: "welcome-shortcuts",
+                div { class: "welcome-shortcut",
+                    span { class: "welcome-shortcut-label", "New File" }
+                    span { class: "welcome-shortcut-keys",
+                        kbd { "Ctrl" }
+                        span { class: "welcome-shortcut-plus", "+" }
+                        kbd { "N" }
+                    }
+                }
+                div { class: "welcome-shortcut",
+                    span { class: "welcome-shortcut-label", "Open File" }
+                    span { class: "welcome-shortcut-keys",
+                        kbd { "Ctrl" }
+                        span { class: "welcome-shortcut-plus", "+" }
+                        kbd { "O" }
+                    }
+                }
+                div { class: "welcome-shortcut",
+                    span { class: "welcome-shortcut-label", "Command Palette" }
+                    span { class: "welcome-shortcut-keys",
+                        kbd { "Ctrl" }
+                        span { class: "welcome-shortcut-plus", "+" }
+                        kbd { "P" }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Render the entire pane tree recursively
 #[component]
 pub fn PaneTree() -> Element {
     let state = use_context::<Signal<AppState>>();
-    let pane = state.read().editor_pane.clone();
+
+    // Memoize the pane tree clone to avoid cloning on every render
+    // Only re-clones when the pane structure actually changes
+    let pane = use_memo(move || state.read().editor_pane.clone());
 
     // Provide drag state context for all child components
     let _drag_state: Signal<TabDragState> = use_context_provider(|| Signal::new(TabDragState::default()));
 
     rsx! {
         div { class: "pane-tree",
-            PaneView { pane }
+            PaneView { pane: pane() }
         }
     }
 }
@@ -126,8 +173,8 @@ fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, r
                 onmousedown: move |evt| {
                     evt.prevent_default();
                     let start_pos = match direction {
-                        SplitDirection::Vertical => evt.client_coordinates().x as f64,
-                        SplitDirection::Horizontal => evt.client_coordinates().y as f64,
+                        SplitDirection::Vertical => evt.client_coordinates().x,
+                        SplitDirection::Horizontal => evt.client_coordinates().y,
                     };
                     // Estimate container size from click position and current ratio
                     // For vertical: click_x = explorer_width + container_width * ratio
@@ -166,8 +213,8 @@ fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, r
                         let rs = *resize_state.read();
                         if rs.active {
                             let current_pos = match direction {
-                                SplitDirection::Vertical => evt.client_coordinates().x as f64,
-                                SplitDirection::Horizontal => evt.client_coordinates().y as f64,
+                                SplitDirection::Vertical => evt.client_coordinates().x,
+                                SplitDirection::Horizontal => evt.client_coordinates().y,
                             };
                             // Delta in pixels from start position
                             let delta_px = current_pos - rs.start_mouse_pos;
@@ -194,16 +241,41 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
     let tabs_len = tabs.len();
 
     let is_focused = state.read().focused_pane_id == pane_id;
+
+    // If no tabs, show welcome screen (VSCode behavior)
+    if tabs.is_empty() {
+        let pane_class = if is_focused { "editor-pane focused" } else { "editor-pane" };
+        return rsx! {
+            div {
+                class: "{pane_class}",
+                onclick: move |_| { state.write().focus_pane(pane_id); },
+
+                // Empty tab bar (just shows the + button)
+                TabBar {
+                    pane_id,
+                    tabs: Vec::new(),
+                    active_tab_id: 0,
+                    is_focused,
+                }
+
+                // Welcome screen instead of editor
+                WelcomeScreen {}
+            }
+        };
+    }
+
     let active_tab = tabs.get(active_tab_idx);
     let code = active_tab.map(|t| t.content.clone()).unwrap_or_default();
     let active_tab_id = active_tab.map(|t| t.id).unwrap_or(0);
+    let is_settings_tab = active_tab.map(|t| t.is_settings()).unwrap_or(false);
+    let is_cookbook_tab = active_tab.map(|t| t.is_cookbook()).unwrap_or(false);
 
     // Check if editor content is a drop target
     let is_content_drop_target = drag_state.read().target
         .map(|t| t.0 == pane_id && t.2)  // t.2 = is_content_area
         .unwrap_or(false);
 
-    // Memoize syntax highlighting - only recalculate when code changes
+    // Memoize syntax highlighting - only recalculate when code changes (skip for Settings tab)
     let code_for_highlight = code.clone();
     let highlighted_html = use_memo(use_reactive!(|code_for_highlight| {
         highlight_rhai(&code_for_highlight)
@@ -247,12 +319,18 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
                     drag_state.set(TabDragState::default());
                 },
 
-                // Editor content
-                EditorArea {
-                    pane_id,
-                    code,
-                    active_tab_id,
-                    highlighted_html,
+                // Render panel based on tab type
+                if is_settings_tab {
+                    SettingsPanel {}
+                } else if is_cookbook_tab {
+                    CookbookPanel {}
+                } else {
+                    EditorArea {
+                        pane_id,
+                        code,
+                        active_tab_id,
+                        highlighted_html,
+                    }
                 }
             }
         }
@@ -294,6 +372,8 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                     let name = tab.display_name();
                     let is_dirty = tab.is_dirty;
                     let is_active = tab_id == active_tab_id;
+                    let is_settings = tab.is_settings();
+                    let is_cookbook = tab.is_cookbook();
 
                     // Determine CSS classes based on drag state
                     let ds = drag_state.read();
@@ -306,6 +386,8 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                     if is_dragging { class.push_str(" dragging"); }
                     if is_drop_target { class.push_str(" drop-before"); }
                     if is_drop_after { class.push_str(" drop-after"); }
+                    if is_settings { class.push_str(" settings-tab"); }
+                    if is_cookbook { class.push_str(" cookbook-tab"); }
 
                     rsx! {
                         div {
@@ -363,6 +445,20 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                             onclick: move |_| { state.write().switch_to_tab(tab_id); },
 
                             span { class: "tab-name",
+                                // Gear icon for Settings tab
+                                if is_settings {
+                                    span {
+                                        class: "tab-icon settings-icon",
+                                        dangerous_inner_html: include_str!("../assets/gear.svg")
+                                    }
+                                }
+                                // Book icon for Cookbook tab
+                                if is_cookbook {
+                                    span {
+                                        class: "tab-icon cookbook-icon",
+                                        dangerous_inner_html: include_str!("../assets/book.svg")
+                                    }
+                                }
                                 if is_dirty {
                                     span { class: "dirty-indicator", "*" }
                                 }

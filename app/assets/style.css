@@ -123,23 +123,34 @@ body {
     -webkit-app-region: no-drag;
 }
 
-.toolbar-button {
-    padding: 6px 12px;
+/* ===== Titlebar Button Base =====
+ * Shared foundation for all titlebar buttons (toolbar + window controls).
+ * Single source of truth for height, alignment, hover behavior.
+ */
+.titlebar-btn {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     border: none;
-    border-radius: 4px;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 13px;
-    transition: all 0.15s;
-    white-space: nowrap;
-    flex-shrink: 0;
+    transition: background 0.1s, color 0.1s;
     -webkit-app-region: no-drag;
 }
 
-.toolbar-button:hover {
+.titlebar-btn:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);
+}
+
+/* Toolbar buttons - text-based, flexible width */
+.toolbar-button {
+    padding: 0 12px;
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .toolbar-button.stop {
@@ -166,24 +177,9 @@ body {
     -webkit-app-region: no-drag;
 }
 
+/* Window control buttons - icon-based, fixed width */
 .window-button {
     width: 46px;
-    height: 38px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 16px;
-    transition: background 0.1s;
-    -webkit-app-region: no-drag;
-}
-
-.window-button:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
 }
 
 .window-button.close:hover {
@@ -578,10 +574,46 @@ body {
     margin: 8px 0;
 }
 
+/* Custom checkbox styling for export options - consistent dark theme */
 .export-option input[type="checkbox"] {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
     width: 16px;
     height: 16px;
-    accent-color: var(--accent);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.export-option input[type="checkbox"]:hover {
+    border-color: var(--accent);
+}
+
+.export-option input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.export-option input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -60%) rotate(45deg);
+}
+
+.export-option input[type="checkbox"]:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(82, 139, 255, 0.3);
 }
 
 .export-option label {
@@ -1993,4 +2025,727 @@ body {
 .loading-text {
     color: var(--text-muted);
     font-size: 13px;
+}
+
+/* ==================== Welcome Screen (VSCode-style empty state) ==================== */
+
+.welcome-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    padding: 40px;
+    background: var(--bg-primary);
+    user-select: none;
+}
+
+.welcome-logo {
+    margin-bottom: 32px;
+}
+
+.welcome-logo-icon {
+    font-size: 96px;
+    font-weight: 700;
+    color: var(--text-muted);
+    opacity: 0.15;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1;
+}
+
+.welcome-shortcuts {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.welcome-shortcut {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 32px;
+    min-width: 220px;
+}
+
+.welcome-shortcut-label {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.welcome-shortcut-keys {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.welcome-shortcut-plus {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.welcome-screen kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 6px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-family: inherit;
+}
+
+/* ==================== Settings Panel ==================== */
+
+.settings-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    background: var(--bg-primary);
+    overflow: hidden;
+}
+
+.settings-search {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-search-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.settings-search-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.settings-search-input::placeholder {
+    color: var(--text-muted);
+}
+
+.settings-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
+}
+
+.settings-no-results {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 20px 0;
+    text-align: center;
+}
+
+.settings-section {
+    margin-bottom: 24px;
+}
+
+.settings-section-header {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    gap: 24px;
+}
+
+.setting-row:last-child {
+    border-bottom: none;
+}
+
+.setting-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.setting-label {
+    font-size: 13px;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.setting-description {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.setting-control {
+    flex-shrink: 0;
+}
+
+/* Settings controls */
+.settings-input {
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    min-width: 200px;
+    box-sizing: border-box;
+}
+
+.settings-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Number inputs - hide spinner arrows for clean look (VSCode style) */
+.settings-number {
+    width: 80px;
+    min-width: 80px;
+    text-align: center;
+    -moz-appearance: textfield; /* Firefox */
+}
+
+.settings-number::-webkit-outer-spin-button,
+.settings-number::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Custom checkbox styling for consistent dark theme */
+.settings-checkbox {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.settings-checkbox:hover {
+    border-color: var(--accent);
+}
+
+.settings-checkbox:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.settings-checkbox:checked::after {
+    content: '';
+    position: absolute;
+    width: 5px;
+    height: 9px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -60%) rotate(45deg);
+}
+
+.settings-checkbox:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(82, 139, 255, 0.3);
+}
+
+/* Select/Dropdown - dark theme styling */
+.settings-select {
+    padding: 6px 32px 6px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    min-width: 180px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.settings-select:hover {
+    border-color: var(--text-muted);
+}
+
+.settings-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Style the dropdown options */
+.settings-select option {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 8px;
+}
+
+/* When dropdown is open, ensure options have proper styling */
+.settings-select:focus option:checked,
+.settings-select option:hover {
+    background: var(--accent);
+    color: white;
+}
+
+/* Settings button in toolbar */
+.settings-button {
+    padding: 6px 8px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settings-button svg {
+    width: 16px;
+    height: 16px;
+    fill: var(--text-secondary);
+}
+
+.settings-button:hover svg {
+    fill: var(--text-primary);
+}
+
+/* Settings icon in tab */
+.tab-icon.settings-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 4px;
+}
+
+.tab-icon.settings-icon svg {
+    width: 12px;
+    height: 12px;
+    fill: var(--text-secondary);
+}
+
+.editor-tab.active .tab-icon.settings-icon svg {
+    fill: var(--text-primary);
+}
+
+/* ==================== Terminal Panel ==================== */
+
+/* Container that holds main-content + terminal */
+.content-with-terminal {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Resize handle at top of terminal */
+.terminal-resize-handle {
+    height: 4px;
+    background: var(--border);
+    cursor: row-resize;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.terminal-resize-handle:hover {
+    background: var(--accent);
+}
+
+/* Resize overlay during drag */
+.resize-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    cursor: row-resize;
+}
+
+/* Terminal panel container */
+.terminal-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+/* Terminal header bar */
+.terminal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    height: 30px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.terminal-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.terminal-header-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.terminal-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+}
+
+/* Terminal action buttons */
+.terminal-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.terminal-action-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+/* Terminal content area */
+.terminal-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    font-family: 'Monaco', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* Terminal entry row */
+.terminal-entry {
+    display: flex;
+    gap: 8px;
+    padding: 2px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.terminal-entry:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Timestamp */
+.terminal-timestamp {
+    color: var(--text-muted);
+    flex-shrink: 0;
+    font-size: 11px;
+}
+
+/* Log level prefix */
+.terminal-level {
+    flex-shrink: 0;
+    font-weight: 600;
+    width: 50px;
+}
+
+/* Level-specific colors */
+.terminal-trace .terminal-level { color: var(--text-muted); }
+.terminal-debug .terminal-level { color: var(--text-secondary); }
+.terminal-info .terminal-level { color: var(--accent); }
+.terminal-warn .terminal-level { color: var(--warning, #f9e2af); }
+.terminal-error .terminal-level { color: var(--error, #f38ba8); }
+
+/* Message content */
+.terminal-message {
+    color: var(--text-primary);
+    flex: 1;
+}
+
+/* Error entries have subtle background */
+.terminal-entry.terminal-error {
+    background: rgba(243, 139, 168, 0.05);
+}
+
+.terminal-entry.terminal-warn {
+    background: rgba(249, 226, 175, 0.03);
+}
+
+/* Toolbar button active state for Terminal toggle */
+.toolbar-button.active {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* ============================================================
+   Terminal Filter Dropdown
+   ============================================================ */
+
+/* Container for filter button and dropdown */
+.terminal-filter-container {
+    position: relative;
+}
+
+/* Active state for filter button */
+.terminal-action-btn.active {
+    background: var(--bg-tertiary);
+    color: var(--accent);
+}
+
+/* Dropdown wrapper */
+.terminal-filter-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 1000;
+}
+
+/* Invisible backdrop to catch clicks outside */
+.terminal-filter-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: -1;
+}
+
+/* Dropdown menu */
+.terminal-filter-menu {
+    margin-top: 4px;
+    min-width: 120px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Individual filter item */
+.terminal-filter-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.terminal-filter-item:hover {
+    background: var(--bg-secondary);
+}
+
+/* Checkbox styling */
+.terminal-filter-item input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+/* Filter label with level-specific colors */
+.terminal-filter-label {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.terminal-filter-label.terminal-info {
+    color: var(--accent);
+}
+
+.terminal-filter-label.terminal-warn {
+    color: var(--warning, #f9e2af);
+}
+
+.terminal-filter-label.terminal-error {
+    color: var(--error, #f38ba8);
+}
+
+/* ============================================================================
+ * Cookbook Panel - Markdown Documentation Viewer
+ * ============================================================================ */
+
+.cookbook-panel {
+    height: 100%;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    scroll-behavior: smooth;
+}
+
+.cookbook-content {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 24px 32px;
+    color: var(--text-primary);
+}
+
+/* Markdown body styling */
+.markdown-body h1 {
+    font-size: 2em;
+    font-weight: 600;
+    margin: 0.67em 0;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border);
+}
+
+.markdown-body h2 {
+    font-size: 1.5em;
+    font-weight: 600;
+    margin: 1em 0 0.5em 0;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border);
+}
+
+.markdown-body h3 {
+    font-size: 1.25em;
+    font-weight: 600;
+    margin: 1em 0 0.5em 0;
+}
+
+.markdown-body h4 {
+    font-size: 1em;
+    font-weight: 600;
+    margin: 1em 0 0.5em 0;
+}
+
+.markdown-body p {
+    margin: 1em 0;
+    line-height: 1.6;
+}
+
+.markdown-body code {
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+}
+
+.markdown-body pre {
+    background: var(--bg-secondary);
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 1em 0;
+    border: 1px solid var(--border);
+}
+
+.markdown-body pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+    padding-left: 2em;
+    margin: 1em 0;
+}
+
+.markdown-body li {
+    margin: 0.5em 0;
+    line-height: 1.6;
+}
+
+.markdown-body table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+}
+
+.markdown-body th,
+.markdown-body td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.markdown-body th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+}
+
+.markdown-body tr:nth-child(even) {
+    background: var(--bg-secondary);
+}
+
+.markdown-body a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.markdown-body a:hover {
+    text-decoration: underline;
+}
+
+.markdown-body blockquote {
+    border-left: 4px solid var(--accent);
+    margin: 1em 0;
+    padding: 0.5em 0 0.5em 16px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+}
+
+.markdown-body hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2em 0;
+}
+
+.markdown-body img {
+    max-width: 100%;
+    height: auto;
+}
+
+.markdown-body strong {
+    font-weight: 600;
+}
+
+.markdown-body em {
+    font-style: italic;
+}
+
+/* Cookbook tab icon styling */
+.cookbook-tab .tab-icon.cookbook-icon {
+    width: 14px;
+    height: 14px;
+    margin-right: 4px;
+    opacity: 0.8;
+}
+
+.cookbook-tab .tab-icon.cookbook-icon svg {
+    width: 14px;
+    height: 14px;
 }

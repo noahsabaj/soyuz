@@ -11,6 +11,7 @@ use crate::command_palette::PaletteState;
 use crate::preview::spawn_preview;
 use crate::state::AppState;
 use dioxus::prelude::*;
+use tracing::warn;
 
 /// Application logo in the toolbar
 #[component]
@@ -63,7 +64,7 @@ pub fn Toolbar() -> Element {
             // Right side: Window controls
             div { class: "titlebar-right window-controls",
                 button {
-                    class: "window-button minimize",
+                    class: "titlebar-btn window-button minimize",
                     title: "Minimize",
                     onclick: move |_| window_min.set_minimized(true),
                     onmousedown: |e| e.stop_propagation(),
@@ -80,7 +81,7 @@ pub fn Toolbar() -> Element {
                     }
                 }
                 button {
-                    class: "window-button maximize",
+                    class: "titlebar-btn window-button maximize",
                     title: "Maximize",
                     onclick: {
                         let window_max = window_max.clone();
@@ -104,7 +105,7 @@ pub fn Toolbar() -> Element {
                     }
                 }
                 button {
-                    class: "window-button close",
+                    class: "titlebar-btn window-button close",
                     title: "Close",
                     onclick: move |_| window_close.close(),
                     onmousedown: |e| e.stop_propagation(),
@@ -180,10 +181,13 @@ fn FileOperations(state: Signal<AppState>) -> Element {
 
 /// Spawn a new Soyuz Studio window (fresh session)
 fn spawn_new_window() {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe)
-            .arg("--fresh")
-            .spawn();
+    match std::env::current_exe() {
+        Ok(exe) => {
+            if let Err(e) = std::process::Command::new(exe).arg("--fresh").spawn() {
+                warn!("Failed to spawn new window: {e}");
+            }
+        }
+        Err(e) => warn!("Failed to get current executable: {e}"),
     }
 }
 
@@ -192,6 +196,7 @@ fn spawn_new_window() {
 fn PreviewControls(state: Signal<AppState>) -> Element {
     let mut state = state;
     let is_previewing = state.read().is_previewing;
+    let terminal_visible = state.read().terminal_visible;
 
     rsx! {
         div { class: "toolbar-group",
@@ -213,6 +218,22 @@ fn PreviewControls(state: Signal<AppState>) -> Element {
                 title: "Export mesh",
                 label: "Export",
                 onclick: move |_| { crate::export::open_export_window(state); }
+            }
+            // Terminal toggle button
+            button {
+                class: if terminal_visible { "titlebar-btn toolbar-button active" } else { "titlebar-btn toolbar-button" },
+                title: if terminal_visible { "Hide Terminal (Ctrl+`)" } else { "Show Terminal (Ctrl+`)" },
+                onclick: move |_| { state.write().toggle_terminal(); },
+                onmousedown: |e| e.stop_propagation(),
+                "Terminal"
+            }
+            // Settings button (gear icon)
+            button {
+                class: "titlebar-btn toolbar-button settings-button",
+                title: "Settings",
+                onmousedown: |e| e.stop_propagation(),
+                onclick: move |_| { state.write().open_settings(); },
+                dangerous_inner_html: include_str!("../assets/gear.svg")
             }
         }
     }
@@ -258,9 +279,9 @@ fn ToolbarButton(
     #[props(default = "")] class: &'static str,
 ) -> Element {
     let button_class = if class.is_empty() {
-        "toolbar-button".to_string()
+        "titlebar-btn toolbar-button".to_string()
     } else {
-        format!("toolbar-button {}", class)
+        format!("titlebar-btn toolbar-button {}", class)
     };
 
     rsx! {
