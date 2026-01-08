@@ -27,13 +27,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build release
-        run: cargo build --release -p soyuz-app -p soyuz-cli
+        run: cargo build --release -p soyuz-app
 
       - name: Create archive
         run: |
           mkdir -p soyuz-linux
           cp target/release/soyuz-studio soyuz-linux/
-          cp target/release/soyuz soyuz-linux/
+          cp target/release/soyuz-preview soyuz-linux/
           cp assets/icons/icon-256.png soyuz-linux/soyuz.png
           cp README.md LICENSE-MIT LICENSE-APACHE soyuz-linux/
           tar -czvf soyuz-${{ github.ref_name }}-linux-x86_64.tar.gz soyuz-linux
@@ -42,7 +42,6 @@ jobs:
         run: |
           cargo install cargo-deb --locked
           cargo deb -p soyuz-app --no-build
-          cargo deb -p soyuz-cli --no-build
           mv target/debian/*.deb .
 
       - name: Create AppImage
@@ -58,7 +57,7 @@ jobs:
 
           # Copy binaries
           cp target/release/soyuz-studio AppDir/usr/bin/
-          cp target/release/soyuz AppDir/usr/bin/
+          cp target/release/soyuz-preview AppDir/usr/bin/
 
           # Copy icon
           cp assets/icons/icon-256.png AppDir/usr/share/icons/hicolor/256x256/apps/soyuz-studio.png
@@ -94,7 +93,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build release
-        run: cargo build --release -p soyuz-app -p soyuz-cli
+        run: cargo build --release -p soyuz-app
 
       - name: Create .icns icon
         run: |
@@ -165,7 +164,7 @@ jobs:
         run: |
           mkdir -p dmg-contents
           cp -r "Soyuz Studio.app" dmg-contents/
-          cp target/release/soyuz dmg-contents/
+          cp target/release/soyuz-preview dmg-contents/
           ln -s /Applications dmg-contents/Applications
           hdiutil create -volname "Soyuz" -srcfolder dmg-contents -ov -format UDZO soyuz-${{ github.ref_name }}-macos-universal.dmg
 
@@ -184,14 +183,14 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build release
-        run: cargo build --release -p soyuz-app -p soyuz-cli
+        run: cargo build --release -p soyuz-app
 
       - name: Create archive
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path soyuz-windows
           Copy-Item target/release/soyuz-studio.exe soyuz-windows/
-          Copy-Item target/release/soyuz.exe soyuz-windows/
+          Copy-Item target/release/soyuz-preview.exe soyuz-windows/
           Copy-Item assets/icons/icon.ico soyuz-windows/soyuz.ico
           Copy-Item README.md soyuz-windows/
           Copy-Item LICENSE-MIT soyuz-windows/
