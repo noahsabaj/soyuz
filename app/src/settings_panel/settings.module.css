@@ -3,7 +3,7 @@
  * Scoped CSS module for the SettingsPanel component.
  */
 
-.panel {
+.settings-panel-content {
     display: flex;
     flex-direction: column;
     flex: 1;

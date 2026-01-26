@@ -82,7 +82,7 @@ pub fn TerminalPanel() -> Element {
 
         // Terminal panel container
         div {
-            class: "panel",
+            class: "terminal-panel",
             style: "height: {height}px;",
 
             // Header bar

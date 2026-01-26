@@ -186,9 +186,11 @@ fn App() -> Element {
 
     rsx! {
         document::Title { "{title}" }
-        document::Stylesheet { href: asset!("/assets/theme.css") }
-        document::Stylesheet { href: asset!("/assets/base.css") }
-        document::Stylesheet { href: asset!("/assets/style.css") }
+
+        // Global CSS - must use include_str!() for desktop WebView compatibility
+        style { {include_str!("../assets/theme.css")} }
+        style { {include_str!("../assets/base.css")} }
+        style { {include_str!("../assets/style.css")} }
 
         // Component CSS - inline loading for desktop compatibility
         style { {include_str!("toolbar/toolbar.module.css")} }

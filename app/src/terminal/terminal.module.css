@@ -28,7 +28,7 @@
 }
 
 /* Terminal panel container */
-.panel {
+.terminal-panel {
     display: flex;
     flex-direction: column;
     background: var(--bg-secondary);

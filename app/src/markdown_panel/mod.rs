@@ -141,7 +141,7 @@ pub fn MarkdownPanel(doc: MarkdownDoc) -> Element {
     let html_content = get_html_content(doc);
 
     rsx! {
-        div { class: "panel",
+        div { class: "markdown-panel",
             // Intercept anchor link clicks and scroll instead of navigating
             script {
                 dangerous_inner_html: "

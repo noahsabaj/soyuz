@@ -38,7 +38,7 @@ pub fn SettingsPanel() -> Element {
     let categories = SettingCategory::all();
 
     rsx! {
-        div { class: "panel",
+        div { class: "settings-panel-content",
             // Search bar
             div { class: "search",
                 input {
