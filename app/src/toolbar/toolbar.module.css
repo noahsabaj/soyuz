@@ -1,0 +1,216 @@
+/*
+ * Toolbar - Top toolbar component styles
+ * Scoped CSS module for the Toolbar component.
+ */
+
+/* Titlebar (unified toolbar + window controls) */
+.titlebar {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    padding: 0;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    height: 38px;
+    min-height: 38px;
+    max-height: 38px;
+    user-select: none;
+    -webkit-app-region: drag;
+    overflow: hidden;
+}
+
+.titlebar_left {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding-left: 8px;
+    white-space: nowrap;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 8px 4px 4px;
+    -webkit-app-region: no-drag;
+}
+
+.logo img {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+
+.titlebar_center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    padding: 0 8px;
+}
+
+.titlebar_right {
+    /* Default grid positioning */
+}
+
+/* Large screens: use overlapping grid for TRUE center */
+@media (min-width: 1100px) {
+    .titlebar {
+        grid-template-columns: 1fr;
+    }
+
+    .titlebar > * {
+        grid-row: 1;
+        grid-column: 1;
+    }
+
+    .titlebar_left {
+        justify-self: start;
+        z-index: 2;
+        background: var(--bg-secondary);
+    }
+
+    .titlebar_center {
+        justify-self: center;
+        z-index: 1;
+        width: 280px;
+        padding: 0;
+    }
+
+    .titlebar_right {
+        justify-self: end;
+        z-index: 2;
+        background: var(--bg-secondary);
+    }
+}
+
+.group {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    -webkit-app-region: no-drag;
+}
+
+/* Base button style for all titlebar buttons */
+.btn {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    -webkit-app-region: no-drag;
+}
+
+.btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* Toolbar buttons - text-based, flexible width */
+.button {
+    padding: 0 12px;
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.stop {
+    background: #c53030;
+    color: white;
+}
+
+.stop:hover {
+    background: #e53e3e;
+}
+
+.active {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.title {
+    flex: 1;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+    pointer-events: none;
+}
+
+/* Window controls */
+.window_controls {
+    display: flex;
+    gap: 0;
+    -webkit-app-region: no-drag;
+}
+
+/* Window control buttons - icon-based, fixed width */
+.window_btn {
+    width: 46px;
+}
+
+.close:hover {
+    background: #e81123;
+    color: white;
+}
+
+/* Search bar styles */
+.search_bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 4px 16px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    width: 100%;
+    max-width: 280px;
+    min-width: 120px;
+    height: 26px;
+    box-sizing: border-box;
+    -webkit-app-region: no-drag;
+}
+
+.search_bar:hover {
+    border-color: var(--text-muted);
+    background: var(--bg-secondary);
+}
+
+.search_icon {
+    color: var(--text-muted);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.search_placeholder {
+    color: var(--text-muted);
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Settings button special styling */
+.settings_btn {
+    padding: 6px 8px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settings_btn svg {
+    width: 16px;
+    height: 16px;
+    fill: var(--text-secondary);
+}
+
+.settings_btn:hover svg {
+    fill: var(--text-primary);
+}

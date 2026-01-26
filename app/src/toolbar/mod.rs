@@ -19,9 +19,12 @@ const LOGO_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAA
 /// Application logo in the toolbar
 #[component]
 fn AppLogo() -> Element {
+    #[css_module("/src/toolbar/toolbar.module.css")]
+    struct Styles;
+
     rsx! {
         div {
-            class: "app-logo",
+            class: Styles::logo,
             onmousedown: |e| e.stop_propagation(),
             img {
                 src: LOGO_DATA_URL,
@@ -36,6 +39,9 @@ fn AppLogo() -> Element {
 /// Top toolbar with file operations and window controls
 #[component]
 pub fn Toolbar() -> Element {
+    #[css_module("/src/toolbar/toolbar.module.css")]
+    struct Styles;
+
     let state = use_context::<Signal<AppState>>();
     let window = dioxus::desktop::use_window();
 
@@ -46,28 +52,34 @@ pub fn Toolbar() -> Element {
     let window_max = window.clone();
     let window_close = window.clone();
 
+    // Pre-compute combined class strings
+    let titlebar_right_class = format!("{} {}", Styles::titlebar_right, Styles::window_controls);
+    let minimize_class = format!("{} {} {}", Styles::btn, Styles::window_btn, Styles::window_btn);
+    let maximize_class = format!("{} {} {}", Styles::btn, Styles::window_btn, Styles::window_btn);
+    let close_class = format!("{} {} {}", Styles::btn, Styles::window_btn, Styles::close);
+
     rsx! {
         div {
-            class: "titlebar",
+            class: Styles::titlebar,
             onmousedown: move |_| { window_drag.drag(); },
             ondoubleclick: move |_| { window_dblclick.set_maximized(!window_dblclick.is_maximized()); },
 
             // Left side: Logo, file operations and preview controls
-            div { class: "titlebar-left",
+            div { class: Styles::titlebar_left,
                 AppLogo {}
                 FileOperations { state }
                 PreviewControls { state }
             }
 
             // Center: Search bar (fills available space, centers content)
-            div { class: "titlebar-center",
+            div { class: Styles::titlebar_center,
                 WindowTitle { state }
             }
 
             // Right side: Window controls
-            div { class: "titlebar-right window-controls",
+            div { class: "{titlebar_right_class}",
                 button {
-                    class: "titlebar-btn window-button minimize",
+                    class: "{minimize_class}",
                     title: "Minimize",
                     onclick: move |_| window_min.set_minimized(true),
                     onmousedown: |e| e.stop_propagation(),
@@ -84,7 +96,7 @@ pub fn Toolbar() -> Element {
                     }
                 }
                 button {
-                    class: "titlebar-btn window-button maximize",
+                    class: "{maximize_class}",
                     title: "Maximize",
                     onclick: {
                         let window_max = window_max.clone();
@@ -108,7 +120,7 @@ pub fn Toolbar() -> Element {
                     }
                 }
                 button {
-                    class: "titlebar-btn window-button close",
+                    class: "{close_class}",
                     title: "Close",
                     onclick: move |_| window_close.close(),
                     onmousedown: |e| e.stop_propagation(),
@@ -132,11 +144,14 @@ pub fn Toolbar() -> Element {
 /// File operation buttons (New, Open, Save, etc.)
 #[component]
 fn FileOperations(state: Signal<AppState>) -> Element {
+    #[css_module("/src/toolbar/toolbar.module.css")]
+    struct Styles;
+
     let mut state = state;
     let has_workspace = state.read().has_workspace();
 
     rsx! {
-        div { class: "toolbar-group",
+        div { class: Styles::group,
             ToolbarButton {
                 title: "New file (Ctrl+N)",
                 label: "New",
@@ -165,7 +180,7 @@ fn FileOperations(state: Signal<AppState>) -> Element {
                 onclick: move |_| { save_current_file(state); }
             }
         }
-        div { class: "toolbar-group",
+        div { class: Styles::group,
             ToolbarButton {
                 title: "Open a new window",
                 label: "New Window",
@@ -197,12 +212,20 @@ fn spawn_new_window() {
 /// Preview and export controls
 #[component]
 fn PreviewControls(state: Signal<AppState>) -> Element {
+    #[css_module("/src/toolbar/toolbar.module.css")]
+    struct Styles;
+
     let mut state = state;
     let is_previewing = state.read().is_previewing;
     let terminal_visible = state.read().terminal_visible;
 
+    // Pre-compute combined class strings
+    let btn_class = format!("{} {}", Styles::btn, Styles::button);
+    let btn_active_class = format!("{} {} {}", Styles::btn, Styles::button, Styles::active);
+    let settings_class = format!("{} {} {}", Styles::btn, Styles::button, Styles::settings_btn);
+
     rsx! {
-        div { class: "toolbar-group",
+        div { class: Styles::group,
             if is_previewing {
                 ToolbarButton {
                     title: "Stop preview",
@@ -224,7 +247,7 @@ fn PreviewControls(state: Signal<AppState>) -> Element {
             }
             // Terminal toggle button
             button {
-                class: if terminal_visible { "titlebar-btn toolbar-button active" } else { "titlebar-btn toolbar-button" },
+                class: if terminal_visible { "{btn_active_class}" } else { "{btn_class}" },
                 title: if terminal_visible { "Hide Terminal (Ctrl+`)" } else { "Show Terminal (Ctrl+`)" },
                 onclick: move |_| { state.write().toggle_terminal(); },
                 onmousedown: |e| e.stop_propagation(),
@@ -232,11 +255,11 @@ fn PreviewControls(state: Signal<AppState>) -> Element {
             }
             // Settings button (gear icon)
             button {
-                class: "titlebar-btn toolbar-button settings-button",
+                class: "{settings_class}",
                 title: "Settings",
                 onmousedown: |e| e.stop_propagation(),
                 onclick: move |_| { state.write().open_settings(); },
-                dangerous_inner_html: include_str!("../assets/gear.svg")
+                dangerous_inner_html: include_str!("../../assets/gear.svg")
             }
         }
     }
@@ -245,6 +268,9 @@ fn PreviewControls(state: Signal<AppState>) -> Element {
 /// Search bar in toolbar - opens command palette when clicked
 #[component]
 fn WindowTitle(state: Signal<AppState>) -> Element {
+    #[css_module("/src/toolbar/toolbar.module.css")]
+    struct Styles;
+
     let mut palette = use_context::<Signal<PaletteState>>();
 
     // Get workspace name for display
@@ -263,12 +289,12 @@ fn WindowTitle(state: Signal<AppState>) -> Element {
 
     rsx! {
         div {
-            class: "toolbar-search-bar",
+            class: Styles::search_bar,
             onclick: open_palette,
             onmousedown: |e| e.stop_propagation(), // Don't drag window
 
-            span { class: "search-icon", "" }
-            span { class: "search-placeholder", "{workspace_name}" }
+            span { class: Styles::search_icon, "" }
+            span { class: Styles::search_placeholder, "{workspace_name}" }
         }
     }
 }
@@ -281,10 +307,14 @@ fn ToolbarButton(
     onclick: EventHandler<MouseEvent>,
     #[props(default = "")] class: &'static str,
 ) -> Element {
-    let button_class = if class.is_empty() {
-        "titlebar-btn toolbar-button".to_string()
+    #[css_module("/src/toolbar/toolbar.module.css")]
+    struct Styles;
+
+    // Build class string based on variant
+    let button_class = if class == "stop" {
+        format!("{} {} {}", Styles::btn, Styles::button, Styles::stop)
     } else {
-        format!("titlebar-btn toolbar-button {}", class)
+        format!("{} {}", Styles::btn, Styles::button)
     };
 
     rsx! {
@@ -325,4 +355,3 @@ fn save_current_file(mut state: Signal<AppState>) {
         });
     }
 }
-
