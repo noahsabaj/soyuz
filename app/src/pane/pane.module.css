@@ -5,12 +5,12 @@
 
 /* ==================== Pane Tree Structure ==================== */
 
-.pane_tree {
+.pane-tree {
     width: 100%;
     height: 100%;
 }
 
-.editor_pane {
+.editor-pane {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -23,50 +23,50 @@
 
 /* ==================== Split Containers ==================== */
 
-.split_container {
+.split-container {
     display: flex;
     width: 100%;
     height: 100%;
 }
 
-.split_horizontal {
+.split-horizontal {
     flex-direction: column;
 }
 
-.split_vertical {
+.split-vertical {
     flex-direction: row;
 }
 
-.split_pane {
+.split-pane {
     flex: 1;
     min-width: 200px;
     min-height: 100px;
     overflow: hidden;
 }
 
-.split_handle {
+.split-handle {
     background: var(--border);
     flex-shrink: 0;
     transition: background 0.15s;
 }
 
-.split_handle:hover {
+.split-handle:hover {
     background: var(--accent);
 }
 
-.split_handle_vertical {
+.split-handle-vertical {
     width: 4px;
     cursor: col-resize;
 }
 
-.split_handle_horizontal {
+.split-handle-horizontal {
     height: 4px;
     cursor: row-resize;
 }
 
 /* ==================== Editor Tabs ==================== */
 
-.editor_tabs {
+.editor-tabs {
     display: flex;
     align-items: stretch;
     gap: 0;
@@ -77,7 +77,7 @@
     height: 35px;
 }
 
-.editor_tab {
+.editor-tab {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -94,43 +94,43 @@
     position: relative;
 }
 
-.editor_tab:hover {
+.editor-tab:hover {
     background: var(--bg-secondary);
 }
 
-.editor_tab.active {
+.editor-tab.active {
     background: var(--bg-primary);
 }
 
 /* Blue bar only on active tab in FOCUSED pane */
-.editor_pane.focused .editor_tab.active {
+.editor-pane.focused .editor-tab.active {
     border-top-color: var(--accent);
 }
 
 /* Active tab text: white in focused pane, muted in unfocused */
-.editor_pane.focused .editor_tab.active .tab_name {
+.editor-pane.focused .editor-tab.active .tab-name {
     color: var(--text-primary);
 }
 
-.editor_pane:not(.focused) .editor_tab.active .tab_name {
+.editor-pane:not(.focused) .editor-tab.active .tab-name {
     color: var(--text-secondary);
 }
 
 /* Tab drag states */
-.editor_tab.dragging {
+.editor-tab.dragging {
     opacity: 0.5;
 }
 
-.editor_tab[draggable="true"] {
+.editor-tab[draggable="true"] {
     cursor: grab;
 }
 
-.editor_tab[draggable="true"]:active {
+.editor-tab[draggable="true"]:active {
     cursor: grabbing;
 }
 
 /* Drop indicator - line before tab */
-.editor_tab.drop_before::before {
+.editor-tab.drop-before::before {
     content: '';
     position: absolute;
     left: -1px;
@@ -143,7 +143,7 @@
 }
 
 /* Drop indicator - line after tab */
-.editor_tab.drop_after::after {
+.editor-tab.drop-after::after {
     content: '';
     position: absolute;
     right: -1px;
@@ -156,7 +156,7 @@
 }
 
 /* New tab button */
-.new_tab {
+.new-tab {
     padding: 0 12px;
     background: transparent;
     border: none;
@@ -168,29 +168,29 @@
     box-shadow: none;
 }
 
-.new_tab:hover {
+.new-tab:hover {
     background: var(--bg-secondary);
     color: var(--text-primary);
 }
 
-.new_tab:focus {
+.new-tab:focus {
     outline: none;
     box-shadow: none;
 }
 
-.tab_name {
+.tab-name {
     display: flex;
     align-items: center;
     gap: 6px;
     color: var(--text-secondary);
 }
 
-.dirty_indicator {
+.dirty-indicator {
     color: var(--accent);
     font-size: 10px;
 }
 
-.tab_close {
+.tab-close {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -208,18 +208,18 @@
     transition: all 0.15s;
 }
 
-.editor_tab:hover .tab_close,
-.editor_tab.active .tab_close {
+.editor-tab:hover .tab-close,
+.editor-tab.active .tab-close {
     opacity: 1;
 }
 
-.tab_close:hover {
+.tab-close:hover {
     background: var(--error);
     color: var(--bg-primary);
 }
 
 /* Tab bar actions (split buttons) */
-.tab_actions {
+.tab-actions {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -227,7 +227,7 @@
     padding: 0 8px;
 }
 
-.tab_action_btn {
+.tab-action-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -243,7 +243,7 @@
     transition: all 0.15s;
 }
 
-.tab_action_btn:hover {
+.tab-action-btn:hover {
     background: var(--bg-secondary);
     border-color: var(--border);
     color: var(--text-primary);
@@ -251,7 +251,7 @@
 
 /* ==================== Editor Content ==================== */
 
-.editor_content_wrapper {
+.editor-content-wrapper {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -259,18 +259,18 @@
     overflow: hidden;
 }
 
-.editor_content_wrapper.drop_target {
+.editor-content-wrapper.drop-target {
     background: rgba(137, 180, 250, 0.15);
     border: 2px dashed var(--accent);
 }
 
-.editor_content {
+.editor-content {
     display: flex;
     flex: 1;
     overflow: hidden;
 }
 
-.line_numbers {
+.line-numbers {
     padding: 8px;
     background: var(--bg-primary);
     color: var(--text-muted);
@@ -284,18 +284,18 @@
     min-width: 40px;
 }
 
-.line_number {
+.line-number {
     height: 21px;
 }
 
-.code_area {
+.code-area {
     flex: 1;
     position: relative;
     overflow: hidden;
     background: var(--bg-primary);
 }
 
-.syntax_highlight {
+.syntax-highlight {
     position: absolute;
     top: 0;
     left: 0;
@@ -310,7 +310,7 @@
     min-width: 100%;
 }
 
-.code_input {
+.code-input {
     position: absolute;
     top: 0;
     left: 0;
@@ -334,7 +334,7 @@
 
 /* ==================== Tab Icon Styles ==================== */
 
-.tab_icon {
+.tab-icon {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -342,22 +342,22 @@
     height: 16px;
 }
 
-.settings_icon svg {
+.settings-icon svg {
     width: 14px;
     height: 14px;
     fill: var(--text-muted);
 }
 
-.editor_tab.active .settings_icon svg {
+.editor-tab.active .settings-icon svg {
     fill: var(--text-primary);
 }
 
-.markdown_icon {
+.markdown-icon {
     color: var(--text-muted);
     font-size: 14px;
 }
 
-.markdown_icon svg {
+.markdown-icon svg {
     width: 14px;
     height: 14px;
     fill: var(--text-muted);
@@ -365,7 +365,7 @@
 
 /* ==================== Welcome Screen ==================== */
 
-.welcome_screen {
+.welcome-screen {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -376,11 +376,11 @@
     user-select: none;
 }
 
-.welcome_logo {
+.welcome-logo {
     margin-bottom: 32px;
 }
 
-.welcome_logo_icon {
+.welcome-logo-icon {
     font-size: 96px;
     font-weight: 700;
     color: var(--text-muted);
@@ -389,13 +389,13 @@
     line-height: 1;
 }
 
-.welcome_shortcuts {
+.welcome-shortcuts {
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
 
-.welcome_shortcut {
+.welcome-shortcut {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -403,23 +403,23 @@
     min-width: 220px;
 }
 
-.welcome_shortcut_label {
+.welcome-shortcut-label {
     color: var(--text-secondary);
     font-size: 13px;
 }
 
-.welcome_shortcut_keys {
+.welcome-shortcut-keys {
     display: flex;
     align-items: center;
     gap: 4px;
 }
 
-.welcome_shortcut_plus {
+.welcome-shortcut-plus {
     color: var(--text-muted);
     font-size: 11px;
 }
 
-.welcome_screen kbd {
+.welcome-screen kbd {
     display: inline-flex;
     align-items: center;
     justify-content: center;

@@ -9,9 +9,6 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Bottom status bar showing application state
 #[component]
 pub fn StatusBar() -> Element {
-    #[css_module("/src/statusbar/statusbar.module.css")]
-    struct Styles;
-
     let state = use_context::<Signal<AppState>>();
 
     let (status_text, cursor_info, has_unsaved) = {
@@ -29,18 +26,14 @@ pub fn StatusBar() -> Element {
         (status, cursor, unsaved)
     };
 
-    // Pre-compute combined class strings
-    let unsaved_class = format!("{} {}", Styles::item, Styles::unsaved);
-    let version_class = format!("{} {}", Styles::item, Styles::version);
-
     rsx! {
-        div { class: Styles::bar,
-            span { class: Styles::item, "{status_text}" }
-            span { class: Styles::item, "{cursor_info}" }
+        div { class: "bar",
+            span { class: "item", "{status_text}" }
+            span { class: "item", "{cursor_info}" }
             if has_unsaved {
-                span { class: "{unsaved_class}", "Unsaved changes" }
+                span { class: "item unsaved", "Unsaved changes" }
             }
-            span { class: "{version_class}", "v{VERSION}" }
+            span { class: "item version", "v{VERSION}" }
         }
     }
 }

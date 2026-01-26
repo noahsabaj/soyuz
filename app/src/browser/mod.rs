@@ -47,9 +47,6 @@ struct RenameState {
 /// Empty state component shown when no folder is opened
 #[component]
 fn EmptyExplorerState() -> Element {
-    #[css_module("/src/browser/browser.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
 
     let open_folder = move |_| {
@@ -61,17 +58,17 @@ fn EmptyExplorerState() -> Element {
     };
 
     rsx! {
-        div { class: Styles::container,
-            div { class: Styles::header,
-                span { class: Styles::title, "Explorer" }
+        div { class: "explorer-container",
+            div { class: "explorer-header",
+                span { class: "explorer-title", "Explorer" }
             }
-            div { class: Styles::empty_state,
-                p { class: Styles::empty_title, "No Folder Opened" }
-                p { class: Styles::empty_subtitle,
+            div { class: "empty-state",
+                p { class: "empty-title", "No Folder Opened" }
+                p { class: "empty-subtitle",
                     "You have not yet opened a folder."
                 }
                 button {
-                    class: Styles::empty_button,
+                    class: "empty-button",
                     onclick: open_folder,
                     "Open Folder"
                 }
@@ -83,9 +80,6 @@ fn EmptyExplorerState() -> Element {
 /// Explorer component - VSCode style expandable file tree
 #[component]
 pub fn AssetBrowser() -> Element {
-    #[css_module("/src/browser/browser.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
 
     // Check if workspace is set - if not, show empty state
@@ -664,36 +658,36 @@ pub fn AssetBrowser() -> Element {
     let creating_type = *creating.read();
 
     rsx! {
-        div { class: Styles::container,
+        div { class: "explorer-container",
             // Header with title
-            div { class: Styles::header,
-                span { class: Styles::title, "Explorer" }
+            div { class: "explorer-header",
+                span { class: "explorer-title", "Explorer" }
             }
 
             // Folder name row with action buttons
-            div { class: Styles::folder_row,
-                span { class: Styles::path, "{root_name}" }
-                div { class: Styles::actions,
+            div { class: "folder-row",
+                span { class: "explorer-path", "{root_name}" }
+                div { class: "explorer-actions",
                     button {
-                        class: Styles::action_btn,
+                        class: "action-btn",
                         title: "New File",
                         onclick: start_new_file,
                         "+"
                     }
                     button {
-                        class: Styles::action_btn,
+                        class: "action-btn",
                         title: "New Folder",
                         onclick: start_new_folder,
                         "+/"
                     }
                     button {
-                        class: Styles::action_btn,
+                        class: "action-btn",
                         title: "Refresh Explorer",
                         onclick: refresh,
                         "↻"
                     }
                     button {
-                        class: Styles::action_btn,
+                        class: "action-btn",
                         title: "Collapse All",
                         onclick: collapse_all,
                         "⊟"
@@ -801,13 +795,9 @@ pub fn AssetBrowser() -> Element {
                                     // Expand/collapse arrow (or spacer for files)
                                     {
                                         let arrow_class = if is_dir {
-                                            if is_expanded {
-                                                format!("{} {}", Styles::arrow, Styles::arrow_expanded)
-                                            } else {
-                                                Styles::arrow.to_string()
-                                            }
+                                            if is_expanded { "tree-arrow expanded" } else { "tree-arrow" }
                                         } else {
-                                            format!("{} {}", Styles::arrow, Styles::arrow_hidden)
+                                            "tree-arrow hidden"
                                         };
                                         rsx! {
                                             span {
@@ -822,61 +812,48 @@ pub fn AssetBrowser() -> Element {
                                     }
 
                                     // File/folder icon
-                                    {
-                                        let icon_class = if is_dir {
-                                            format!("{} {}", Styles::icon, Styles::icon_folder)
-                                        } else {
-                                            format!("{} {}", Styles::icon, Styles::icon_file)
-                                        };
-                                        rsx! {
-                                            span { class: "{icon_class}",
-                                                {get_icon(&path, is_dir)}
-                                            }
-                                        }
+                                    span {
+                                        class: if is_dir { "tree-icon folder" } else { "tree-icon file" },
+                                        {get_icon(&path, is_dir)}
                                     }
 
                                     // Name or rename input
                                     if is_renaming {
-                                        {
-                                            let input_class = format!("{} {}", Styles::inline_input, Styles::rename_input);
-                                            rsx! {
-                                                input {
-                                                    class: "{input_class}",
-                                                    r#type: "text",
-                                                    value: "{rename_state.read().new_name}",
-                                                    autofocus: true,
-                                                    // Use onmounted for reliable focus
-                                                    onmounted: move |evt| {
-                                                        spawn(async move {
-                                                            let _ = evt.set_focus(true).await;
-                                                        });
-                                                    },
-                                                    oninput: move |e| {
-                                                        rename_state.write().new_name.clone_from(&e.value());
-                                                    },
-                                                    onkeydown: move |e| {
-                                                        if e.key() == Key::Enter {
-                                                            confirm_rename(());
-                                                        } else if e.key() == Key::Escape {
-                                                            cancel_rename(());
-                                                        }
-                                                    },
-                                                    onblur: move |_| {
-                                                        cancel_rename(());
-                                                    },
-                                                    onclick: move |e: Event<MouseData>| {
-                                                        e.stop_propagation();
-                                                    }
+                                        input {
+                                            class: "inline-input rename-input",
+                                            r#type: "text",
+                                            value: "{rename_state.read().new_name}",
+                                            autofocus: true,
+                                            // Use onmounted for reliable focus
+                                            onmounted: move |evt| {
+                                                spawn(async move {
+                                                    let _ = evt.set_focus(true).await;
+                                                });
+                                            },
+                                            oninput: move |e| {
+                                                rename_state.write().new_name.clone_from(&e.value());
+                                            },
+                                            onkeydown: move |e| {
+                                                if e.key() == Key::Enter {
+                                                    confirm_rename(());
+                                                } else if e.key() == Key::Escape {
+                                                    cancel_rename(());
                                                 }
+                                            },
+                                            onblur: move |_| {
+                                                cancel_rename(());
+                                            },
+                                            onclick: move |e: Event<MouseData>| {
+                                                e.stop_propagation();
                                             }
                                         }
                                     } else {
-                                        span { class: Styles::name, "{name}" }
+                                        span { class: "tree-name", "{name}" }
                                     }
 
                                     // Size (files only)
                                     if !is_dir && !is_renaming {
-                                        span { class: Styles::size, {format_size(size)} }
+                                        span { class: "tree-size", {format_size(size)} }
                                     }
                                 }
 
@@ -884,19 +861,16 @@ pub fn AssetBrowser() -> Element {
                                 if is_creating_here {
                                     {
                                         let parent_for_create = path.clone();
-                                        let input_row_class = format!("tree-item {}", Styles::input_row);
-                                        let arrow_hidden_class = format!("{} {}", Styles::arrow, Styles::arrow_hidden);
-                                        let icon_file_class = format!("{} {}", Styles::icon, Styles::icon_file);
                                         rsx! {
                                             div {
-                                                class: "{input_row_class}",
+                                                class: "tree-item input-row",
                                                 style: "padding-left: {child_indent}px;",
                                                 // Invisible arrow spacer for alignment
-                                                span { class: "{arrow_hidden_class}" }
+                                                span { class: "tree-arrow hidden" }
                                                 // Invisible icon spacer for alignment
-                                                span { class: "{icon_file_class}" }
+                                                span { class: "tree-icon file" }
                                                 input {
-                                                    class: Styles::inline_input,
+                                                    class: "inline-input",
                                                     r#type: "text",
                                                     placeholder: if creating_type == Some(CreatingType::Folder) { "folder name" } else { "filename.rhai" },
                                                     value: "{input_value}",
@@ -989,19 +963,16 @@ pub fn AssetBrowser() -> Element {
 
                         if is_creating_at_root {
                             let parent_for_create = workspace_dir.clone();
-                            let input_row_class = format!("tree-item {}", Styles::input_row);
-                            let arrow_hidden_class = format!("{} {}", Styles::arrow, Styles::arrow_hidden);
-                            let icon_file_class = format!("{} {}", Styles::icon, Styles::icon_file);
                             rsx! {
                                 div {
-                                    class: "{input_row_class}",
+                                    class: "tree-item input-row",
                                     style: "padding-left: 4px;",
                                     // Invisible arrow spacer for alignment
-                                    span { class: "{arrow_hidden_class}" }
+                                    span { class: "tree-arrow hidden" }
                                     // Invisible icon spacer for alignment
-                                    span { class: "{icon_file_class}" }
+                                    span { class: "tree-icon file" }
                                     input {
-                                        class: Styles::inline_input,
+                                        class: "inline-input",
                                         r#type: "text",
                                         placeholder: if creating_type == Some(CreatingType::Folder) { "folder name" } else { "filename.rhai" },
                                         value: "{input_value}",
@@ -1067,7 +1038,7 @@ pub fn AssetBrowser() -> Element {
                     }
 
                     if nodes.read().is_empty() && !is_creating {
-                        div { class: Styles::empty, "Empty folder" }
+                        div { class: "tree-empty", "Empty folder" }
                     }
                         }
                     }
@@ -1077,13 +1048,13 @@ pub fn AssetBrowser() -> Element {
             if context_menu.read().visible {
                 // Backdrop to close menu on click outside
                 div {
-                    class: Styles::context_menu_backdrop,
+                    class: "context-menu-backdrop",
                     onclick: close_context_menu
                 }
 
                 // The actual context menu
                 div {
-                    class: Styles::context_menu,
+                    class: "context-menu",
                     style: "left: {context_menu.read().x}px; top: {context_menu.read().y}px;",
                     // Prevent any mouse events from reaching the backdrop
                     onmousedown: |e| e.stop_propagation(),
@@ -1092,47 +1063,42 @@ pub fn AssetBrowser() -> Element {
                     // Folder-specific actions
                     if context_menu.read().is_dir {
                         button {
-                            class: Styles::context_menu_item,
+                            class: "context-menu-item",
                             onclick: ctx_new_file,
-                            span { class: Styles::context_menu_icon, "+" }
+                            span { class: "context-menu-icon", "+" }
                             span { "New File" }
                         }
                         button {
-                            class: Styles::context_menu_item,
+                            class: "context-menu-item",
                             onclick: ctx_new_folder,
-                            span { class: Styles::context_menu_icon, "" }
+                            span { class: "context-menu-icon", "" }
                             span { "New Folder" }
                         }
-                        div { class: Styles::context_menu_separator }
+                        div { class: "context-menu-separator" }
                     }
 
                     // Common actions
                     button {
-                        class: Styles::context_menu_item,
+                        class: "context-menu-item",
                         onclick: ctx_copy_path,
-                        span { class: Styles::context_menu_icon, "" }
+                        span { class: "context-menu-icon", "" }
                         span { "Copy Path" }
                     }
 
-                    div { class: Styles::context_menu_separator }
+                    div { class: "context-menu-separator" }
 
                     button {
-                        class: Styles::context_menu_item,
+                        class: "context-menu-item",
                         onclick: ctx_rename,
-                        span { class: Styles::context_menu_icon, "" }
+                        span { class: "context-menu-icon", "" }
                         span { "Rename" }
                     }
 
-                    {
-                        let danger_class = format!("{} {}", Styles::context_menu_item, Styles::context_menu_item_danger);
-                        rsx! {
-                            button {
-                                class: "{danger_class}",
-                                onclick: ctx_delete,
-                                span { class: Styles::context_menu_icon, "" }
-                                span { "Delete" }
-                            }
-                        }
+                    button {
+                        class: "context-menu-item danger",
+                        onclick: ctx_delete,
+                        span { class: "context-menu-icon", "" }
+                        span { "Delete" }
                     }
                 }
             }

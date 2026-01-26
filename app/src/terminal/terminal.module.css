@@ -4,7 +4,7 @@
  */
 
 /* Resize handle at top of terminal */
-.resize_handle {
+.resize-handle {
     height: 4px;
     background: var(--border);
     cursor: row-resize;
@@ -12,12 +12,12 @@
     transition: background 0.15s;
 }
 
-.resize_handle:hover {
+.resize-handle:hover {
     background: var(--accent);
 }
 
 /* Resize overlay during drag */
-.resize_overlay {
+.resize-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -49,13 +49,13 @@
     flex-shrink: 0;
 }
 
-.header_left {
+.header-left {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.header_right {
+.header-right {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -70,7 +70,7 @@
 }
 
 /* Terminal action buttons */
-.action_btn {
+.action-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -85,12 +85,12 @@
     transition: all 0.15s;
 }
 
-.action_btn:hover {
+.action-btn:hover {
     background: var(--bg-secondary);
     color: var(--text-primary);
 }
 
-.action_btn_active {
+.action-btn.active {
     background: var(--bg-tertiary);
     color: var(--accent);
 }
@@ -155,12 +155,12 @@
 }
 
 /* Filter container */
-.filter_container {
+.filter-container {
     position: relative;
 }
 
 /* Dropdown wrapper */
-.filter_dropdown {
+.filter-dropdown {
     position: absolute;
     top: 100%;
     right: 0;
@@ -168,7 +168,7 @@
 }
 
 /* Invisible backdrop to catch clicks outside */
-.filter_backdrop {
+.filter-backdrop {
     position: fixed;
     top: 0;
     left: 0;
@@ -178,7 +178,7 @@
 }
 
 /* Dropdown menu */
-.filter_menu {
+.filter-menu {
     margin-top: 4px;
     min-width: 120px;
     background: var(--bg-primary);
@@ -189,7 +189,7 @@
 }
 
 /* Individual filter item */
-.filter_item {
+.filter-item {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -198,12 +198,12 @@
     transition: background 0.15s ease;
 }
 
-.filter_item:hover {
+.filter-item:hover {
     background: var(--bg-secondary);
 }
 
 /* Checkbox styling */
-.filter_item input[type="checkbox"] {
+.filter-item input[type="checkbox"] {
     width: 14px;
     height: 14px;
     accent-color: var(--accent);
@@ -211,19 +211,19 @@
 }
 
 /* Filter label with level-specific colors */
-.filter_label {
+.filter-label {
     font-size: 12px;
     font-weight: 500;
 }
 
-.filter_label.info {
+.filter-label.info {
     color: var(--accent);
 }
 
-.filter_label.warn {
+.filter-label.warn {
     color: var(--warning, #f9e2af);
 }
 
-.filter_label.error {
+.filter-label.error {
     color: var(--error, #f38ba8);
 }

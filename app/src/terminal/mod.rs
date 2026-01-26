@@ -29,9 +29,6 @@ struct FilterDropdownState {
 /// Terminal panel component
 #[component]
 pub fn TerminalPanel() -> Element {
-    #[css_module("/src/terminal/terminal.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
     let mut resize_state = use_signal(TerminalResizeState::default);
 
@@ -54,7 +51,7 @@ pub fn TerminalPanel() -> Element {
     rsx! {
         // Resize handle at top of terminal
         div {
-            class: Styles::resize_handle,
+            class: "resize-handle",
             onmousedown: move |evt| {
                 evt.prevent_default();
                 resize_state.set(TerminalResizeState {
@@ -68,7 +65,7 @@ pub fn TerminalPanel() -> Element {
         // Resize overlay during drag
         if resize_state.read().active {
             div {
-                class: Styles::resize_overlay,
+                class: "resize-overlay",
                 onmousemove: move |evt| {
                     let rs = *resize_state.read();
                     if rs.active {
@@ -85,7 +82,7 @@ pub fn TerminalPanel() -> Element {
 
         // Terminal panel container
         div {
-            class: Styles::panel,
+            class: "panel",
             style: "height: {height}px;",
 
             // Header bar
@@ -93,7 +90,7 @@ pub fn TerminalPanel() -> Element {
 
             // Output content
             div {
-                class: Styles::content,
+                class: "content",
                 for (idx, entry) in filtered_entries.iter().enumerate() {
                     TerminalEntryRow { key: "{idx}", entry: entry.clone() }
                 }
@@ -105,35 +102,25 @@ pub fn TerminalPanel() -> Element {
 /// Terminal header bar with title and actions
 #[component]
 fn TerminalHeader() -> Element {
-    #[css_module("/src/terminal/terminal.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
     let mut filter_dropdown = use_signal(FilterDropdownState::default);
 
     let filter = state.read().terminal_filter.clone();
     let dropdown_open = filter_dropdown.read().open;
 
-    // Pre-compute combined class strings for action button states
-    let action_btn = Styles::action_btn.to_string();
-    let action_btn_active = format!("{} {}", Styles::action_btn, Styles::action_btn_active);
-    let filter_label_info = format!("{} {}", Styles::filter_label, Styles::info);
-    let filter_label_warn = format!("{} {}", Styles::filter_label, Styles::warn);
-    let filter_label_error = format!("{} {}", Styles::filter_label, Styles::error);
-
     rsx! {
-        div { class: Styles::header,
+        div { class: "header",
             // Left: Title
-            div { class: Styles::header_left,
-                span { class: Styles::title, "OUTPUT" }
+            div { class: "header-left",
+                span { class: "title", "OUTPUT" }
             }
 
             // Right: Action buttons
-            div { class: Styles::header_right,
+            div { class: "header-right",
                 // Filter button with dropdown
-                div { class: Styles::filter_container,
+                div { class: "filter-container",
                     button {
-                        class: if dropdown_open { "{action_btn_active}" } else { "{action_btn}" },
+                        class: if dropdown_open { "action-btn active" } else { "action-btn" },
                         title: "Filter Output",
                         onclick: move |_| {
                             let current = filter_dropdown.read().open;
@@ -153,17 +140,17 @@ fn TerminalHeader() -> Element {
 
                     // Dropdown menu
                     if dropdown_open {
-                        div { class: Styles::filter_dropdown,
+                        div { class: "filter-dropdown",
                             // Click outside to close
                             div {
-                                class: Styles::filter_backdrop,
+                                class: "filter-backdrop",
                                 onclick: move |_| {
                                     filter_dropdown.write().open = false;
                                 }
                             }
-                            div { class: Styles::filter_menu,
+                            div { class: "filter-menu",
                                 // Info checkbox
-                                label { class: Styles::filter_item,
+                                label { class: "filter-item",
                                     input {
                                         r#type: "checkbox",
                                         checked: filter.show_info,
@@ -171,10 +158,10 @@ fn TerminalHeader() -> Element {
                                             state.write().toggle_terminal_filter(TerminalLevel::Info);
                                         }
                                     }
-                                    span { class: "{filter_label_info}", "Info" }
+                                    span { class: "filter-label info", "Info" }
                                 }
                                 // Warn checkbox
-                                label { class: Styles::filter_item,
+                                label { class: "filter-item",
                                     input {
                                         r#type: "checkbox",
                                         checked: filter.show_warn,
@@ -182,10 +169,10 @@ fn TerminalHeader() -> Element {
                                             state.write().toggle_terminal_filter(TerminalLevel::Warn);
                                         }
                                     }
-                                    span { class: "{filter_label_warn}", "Warning" }
+                                    span { class: "filter-label warn", "Warning" }
                                 }
                                 // Error checkbox
-                                label { class: Styles::filter_item,
+                                label { class: "filter-item",
                                     input {
                                         r#type: "checkbox",
                                         checked: filter.show_error,
@@ -193,7 +180,7 @@ fn TerminalHeader() -> Element {
                                             state.write().toggle_terminal_filter(TerminalLevel::Error);
                                         }
                                     }
-                                    span { class: "{filter_label_error}", "Error" }
+                                    span { class: "filter-label error", "Error" }
                                 }
                             }
                         }
@@ -202,7 +189,7 @@ fn TerminalHeader() -> Element {
 
                 // Clear button
                 button {
-                    class: Styles::action_btn,
+                    class: "action-btn",
                     title: "Clear Output",
                     onclick: move |_| { state.read().terminal_clear(); },
                     // Trash icon (inline SVG)
@@ -218,7 +205,7 @@ fn TerminalHeader() -> Element {
                 }
                 // Collapse button
                 button {
-                    class: Styles::action_btn,
+                    class: "action-btn",
                     title: "Close Panel",
                     onclick: move |_| { state.write().toggle_terminal(); },
                     // Chevron down icon (inline SVG)
@@ -240,9 +227,6 @@ fn TerminalHeader() -> Element {
 /// Single terminal entry row
 #[component]
 fn TerminalEntryRow(entry: TerminalEntry) -> Element {
-    #[css_module("/src/terminal/terminal.module.css")]
-    struct Styles;
-
     let state = use_context::<Signal<AppState>>();
 
     // Get time settings
@@ -254,23 +238,23 @@ fn TerminalEntryRow(entry: TerminalEntry) -> Element {
     let level_prefix = entry.level.prefix();
     let message = &entry.message;
 
-    // Map level to CSS module class
+    // Map level to CSS class
     let level_class = match entry.level {
-        TerminalLevel::Trace => Styles::trace,
-        TerminalLevel::Debug => Styles::debug,
-        TerminalLevel::Info => Styles::info,
-        TerminalLevel::Warn => Styles::warn,
-        TerminalLevel::Error => Styles::error,
+        TerminalLevel::Trace => "trace",
+        TerminalLevel::Debug => "debug",
+        TerminalLevel::Info => "info",
+        TerminalLevel::Warn => "warn",
+        TerminalLevel::Error => "error",
     };
 
     // Pre-compute combined entry class
-    let entry_class = format!("{} {}", Styles::entry, level_class);
+    let entry_class = format!("entry {}", level_class);
 
     rsx! {
         div { class: "{entry_class}",
-            span { class: Styles::timestamp, "[{timestamp}]" }
-            span { class: Styles::level, "{level_prefix}" }
-            span { class: Styles::message, "{message}" }
+            span { class: "timestamp", "[{timestamp}]" }
+            span { class: "level", "{level_prefix}" }
+            span { class: "message", "{message}" }
         }
     }
 }

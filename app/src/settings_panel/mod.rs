@@ -14,9 +14,6 @@ use soyuz_core::export::ExportFormat;
 /// Main settings panel component
 #[component]
 pub fn SettingsPanel() -> Element {
-    #[css_module("/src/settings_panel/settings.module.css")]
-    struct Styles;
-
     let mut search_query = use_signal(String::new);
 
     // Get all settings metadata
@@ -41,11 +38,11 @@ pub fn SettingsPanel() -> Element {
     let categories = SettingCategory::all();
 
     rsx! {
-        div { class: Styles::panel,
+        div { class: "panel",
             // Search bar
-            div { class: Styles::search,
+            div { class: "search",
                 input {
-                    class: Styles::search_input,
+                    class: "search-input",
                     r#type: "text",
                     placeholder: "Search settings...",
                     value: "{search_query}",
@@ -54,10 +51,10 @@ pub fn SettingsPanel() -> Element {
             }
 
             // Settings content
-            div { class: Styles::content,
+            div { class: "content",
                 // Show "no results" if search has no matches
                 if filtered_meta.is_empty() && !query.is_empty() {
-                    div { class: Styles::no_results,
+                    div { class: "no-results",
                         "No settings found for \"{query}\""
                     }
                 }
@@ -74,8 +71,8 @@ pub fn SettingsPanel() -> Element {
                             rsx! {}
                         } else {
                             rsx! {
-                                div { class: Styles::section,
-                                    div { class: Styles::section_header, "{category.label()}" }
+                                div { class: "section",
+                                    div { class: "section-header", "{category.label()}" }
 
                                     for setting in category_settings {
                                         SettingRow {
@@ -104,16 +101,13 @@ fn SettingRow(
     description: &'static str,
     control_type: ControlType,
 ) -> Element {
-    #[css_module("/src/settings_panel/settings.module.css")]
-    struct Styles;
-
     rsx! {
-        div { class: Styles::row,
-            div { class: Styles::info,
-                div { class: Styles::label, "{label}" }
-                div { class: Styles::description, "{description}" }
+        div { class: "row",
+            div { class: "info",
+                div { class: "label", "{label}" }
+                div { class: "description", "{description}" }
             }
-            div { class: Styles::control,
+            div { class: "control",
                 match control_type {
                     ControlType::Text => {
                         rsx! {
@@ -144,9 +138,6 @@ fn SettingRow(
 /// Text input control
 #[component]
 fn TextControl(id: &'static str) -> Element {
-    #[css_module("/src/settings_panel/settings.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
 
     let value = {
@@ -159,7 +150,7 @@ fn TextControl(id: &'static str) -> Element {
 
     rsx! {
         input {
-            class: Styles::input,
+            class: "input",
             r#type: "text",
             value: "{value}",
             onchange: move |evt| {
@@ -181,9 +172,6 @@ fn TextControl(id: &'static str) -> Element {
 /// Number input control
 #[component]
 fn NumberControl(id: &'static str, min: u32, max: u32) -> Element {
-    #[css_module("/src/settings_panel/settings.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
 
     let value = {
@@ -198,12 +186,9 @@ fn NumberControl(id: &'static str, min: u32, max: u32) -> Element {
         }
     };
 
-    // Pre-compute combined class string
-    let input_class = format!("{} {}", Styles::input, Styles::number);
-
     rsx! {
         input {
-            class: "{input_class}",
+            class: "input number",
             r#type: "number",
             min: "{min}",
             max: "{max}",
@@ -234,9 +219,6 @@ fn NumberControl(id: &'static str, min: u32, max: u32) -> Element {
 /// Checkbox control
 #[component]
 fn CheckboxControl(id: &'static str) -> Element {
-    #[css_module("/src/settings_panel/settings.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
 
     let checked = {
@@ -254,7 +236,7 @@ fn CheckboxControl(id: &'static str) -> Element {
 
     rsx! {
         input {
-            class: Styles::checkbox,
+            class: "checkbox",
             r#type: "checkbox",
             checked: "{checked}",
             onchange: move |evt| {
@@ -282,9 +264,6 @@ fn CheckboxControl(id: &'static str) -> Element {
 /// Dropdown control
 #[component]
 fn DropdownControl(id: &'static str, options: Vec<(&'static str, &'static str)>) -> Element {
-    #[css_module("/src/settings_panel/settings.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
 
     let current_value = {
@@ -309,7 +288,7 @@ fn DropdownControl(id: &'static str, options: Vec<(&'static str, &'static str)>)
 
     rsx! {
         select {
-            class: Styles::select,
+            class: "select",
             value: "{current_value}",
             onchange: move |evt| {
                 let new_value = evt.value();

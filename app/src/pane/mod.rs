@@ -25,40 +25,37 @@ pub struct TabDragState {
 /// Welcome screen shown when no tabs are open (VSCode-style)
 #[component]
 fn WelcomeScreen() -> Element {
-    #[css_module("/src/pane/pane.module.css")]
-    struct Styles;
-
     rsx! {
-        div { class: Styles::welcome_screen,
+        div { class: "welcome-screen",
             // Logo (grayed out like VSCode)
-            div { class: Styles::welcome_logo,
+            div { class: "welcome-logo",
                 // Using the Soyuz icon character or a simple placeholder
-                div { class: Styles::welcome_logo_icon, "S" }
+                div { class: "welcome-logo-icon", "S" }
             }
 
             // Keyboard shortcuts
-            div { class: Styles::welcome_shortcuts,
-                div { class: Styles::welcome_shortcut,
-                    span { class: Styles::welcome_shortcut_label, "New File" }
-                    span { class: Styles::welcome_shortcut_keys,
+            div { class: "welcome-shortcuts",
+                div { class: "welcome-shortcut",
+                    span { class: "welcome-shortcut-label", "New File" }
+                    span { class: "welcome-shortcut-keys",
                         kbd { "Ctrl" }
-                        span { class: Styles::welcome_shortcut_plus, "+" }
+                        span { class: "welcome-shortcut-plus", "+" }
                         kbd { "N" }
                     }
                 }
-                div { class: Styles::welcome_shortcut,
-                    span { class: Styles::welcome_shortcut_label, "Open File" }
-                    span { class: Styles::welcome_shortcut_keys,
+                div { class: "welcome-shortcut",
+                    span { class: "welcome-shortcut-label", "Open File" }
+                    span { class: "welcome-shortcut-keys",
                         kbd { "Ctrl" }
-                        span { class: Styles::welcome_shortcut_plus, "+" }
+                        span { class: "welcome-shortcut-plus", "+" }
                         kbd { "O" }
                     }
                 }
-                div { class: Styles::welcome_shortcut,
-                    span { class: Styles::welcome_shortcut_label, "Command Palette" }
-                    span { class: Styles::welcome_shortcut_keys,
+                div { class: "welcome-shortcut",
+                    span { class: "welcome-shortcut-label", "Command Palette" }
+                    span { class: "welcome-shortcut-keys",
                         kbd { "Ctrl" }
-                        span { class: Styles::welcome_shortcut_plus, "+" }
+                        span { class: "welcome-shortcut-plus", "+" }
                         kbd { "P" }
                     }
                 }
@@ -70,9 +67,6 @@ fn WelcomeScreen() -> Element {
 /// Render the entire pane tree recursively
 #[component]
 pub fn PaneTree() -> Element {
-    #[css_module("/src/pane/pane.module.css")]
-    struct Styles;
-
     let state = use_context::<Signal<AppState>>();
 
     // Memoize the pane tree clone to avoid cloning on every render
@@ -83,7 +77,7 @@ pub fn PaneTree() -> Element {
     let _drag_state: Signal<TabDragState> = use_context_provider(|| Signal::new(TabDragState::default()));
 
     rsx! {
-        div { class: Styles::pane_tree,
+        div { class: "pane-tree",
             PaneView { pane: pane() }
         }
     }
@@ -136,9 +130,6 @@ struct ResizeState {
 /// A split container with two child panes and a resizable handle
 #[component]
 fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, ratio: f32) -> Element {
-    #[css_module("/src/pane/pane.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
     let mut resize_state = use_signal(ResizeState::default);
 
@@ -147,13 +138,13 @@ fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, r
     let container_id = format!("split-{}", target_pane_id);
 
     let container_class = match direction {
-        SplitDirection::Vertical => format!("{} {}", Styles::split_container, Styles::split_vertical),
-        SplitDirection::Horizontal => format!("{} {}", Styles::split_container, Styles::split_horizontal),
+        SplitDirection::Vertical => "split-container split-vertical",
+        SplitDirection::Horizontal => "split-container split-horizontal",
     };
 
     let handle_class = match direction {
-        SplitDirection::Vertical => format!("{} {}", Styles::split_handle, Styles::split_handle_vertical),
-        SplitDirection::Horizontal => format!("{} {}", Styles::split_handle, Styles::split_handle_horizontal),
+        SplitDirection::Vertical => "split-handle split-handle-vertical",
+        SplitDirection::Horizontal => "split-handle split-handle-horizontal",
     };
 
     // Calculate flex values based on ratio
@@ -169,18 +160,18 @@ fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, r
     rsx! {
         div {
             id: "{container_id}",
-            class: "{container_class}",
+            class: container_class,
 
             // First pane
             div {
-                class: Styles::split_pane,
+                class: "split-pane",
                 style: "flex: {first_flex};",
                 PaneView { pane: first }
             }
 
             // Resizable handle
             div {
-                class: "{handle_class}",
+                class: handle_class,
                 onmousedown: move |evt| {
                     evt.prevent_default();
                     let start_pos = match direction {
@@ -210,7 +201,7 @@ fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, r
 
             // Second pane
             div {
-                class: Styles::split_pane,
+                class: "split-pane",
                 style: "flex: {second_flex};",
                 PaneView { pane: second }
             }
@@ -247,9 +238,6 @@ fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, r
 /// A single tab group pane with tabs and editor
 #[component]
 fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) -> Element {
-    #[css_module("/src/pane/pane.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
     let mut drag_state = use_context::<Signal<TabDragState>>();
     let tabs_len = tabs.len();
@@ -258,14 +246,10 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
 
     // If no tabs, show welcome screen (VSCode behavior)
     if tabs.is_empty() {
-        let pane_class = if is_focused {
-            format!("{} {}", Styles::editor_pane, Styles::focused)
-        } else {
-            Styles::editor_pane.to_string()
-        };
+        let pane_class = if is_focused { "editor-pane focused" } else { "editor-pane" };
         return rsx! {
             div {
-                class: "{pane_class}",
+                class: pane_class,
                 onclick: move |_| { state.write().focus_pane(pane_id); },
 
                 // Empty tab bar (just shows the + button)
@@ -299,21 +283,17 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
         highlight_rhai(&code_for_highlight)
     }));
 
-    let pane_class = if is_focused {
-        format!("{} {}", Styles::editor_pane, Styles::focused)
-    } else {
-        Styles::editor_pane.to_string()
-    };
+    let pane_class = if is_focused { "editor-pane focused" } else { "editor-pane" };
 
     let content_wrapper_class = if is_content_drop_target {
-        format!("{} {}", Styles::editor_content_wrapper, Styles::drop_target)
+        "editor-content-wrapper drop-target"
     } else {
-        Styles::editor_content_wrapper.to_string()
+        "editor-content-wrapper"
     };
 
     rsx! {
         div {
-            class: "{pane_class}",
+            class: pane_class,
             onclick: move |_| { state.write().focus_pane(pane_id); },
 
             // Tab bar
@@ -326,7 +306,7 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
 
             // Editor content wrapper (drop zone for content area)
             div {
-                class: "{content_wrapper_class}",
+                class: content_wrapper_class,
                 ondragover: move |evt| {
                     evt.prevent_default();
                     drag_state.write().target = Some((pane_id, tabs_len, true)); // is_content_area = true
@@ -368,16 +348,13 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
 /// Tab bar with tabs and action buttons
 #[component]
 fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused: bool) -> Element {
-    #[css_module("/src/pane/pane.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
     let mut drag_state = use_context::<Signal<TabDragState>>();
     let tabs_len = tabs.len();
 
     rsx! {
         div {
-            class: Styles::editor_tabs,
+            class: "editor-tabs",
             // Drop zone for end of tab bar (when not over a specific tab)
             ondragover: move |evt| {
                 evt.prevent_default();
@@ -412,11 +389,11 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                     let is_drop_target = ds.target.map(|t| t.0 == pane_id && t.1 == tab_index && !t.2).unwrap_or(false);
                     let is_drop_after = ds.target.map(|t| t.0 == pane_id && t.1 == tab_index + 1 && !t.2).unwrap_or(false);
 
-                    let mut class = Styles::editor_tab.to_string();
-                    if is_active { class.push(' '); class.push_str(&Styles::active); }
-                    if is_dragging { class.push(' '); class.push_str(&Styles::dragging); }
-                    if is_drop_target { class.push(' '); class.push_str(&Styles::drop_before); }
-                    if is_drop_after { class.push(' '); class.push_str(&Styles::drop_after); }
+                    let mut class = String::from("editor-tab");
+                    if is_active { class.push_str(" active"); }
+                    if is_dragging { class.push_str(" dragging"); }
+                    if is_drop_target { class.push_str(" drop-before"); }
+                    if is_drop_after { class.push_str(" drop-after"); }
 
                     rsx! {
                         div {
@@ -473,28 +450,28 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                             // Left-click to switch tab
                             onclick: move |_| { state.write().switch_to_tab(tab_id); },
 
-                            span { class: Styles::tab_name,
+                            span { class: "tab-name",
                                 // Gear icon for Settings tab
                                 if is_settings {
                                     span {
-                                        class: format!("{} {}", Styles::tab_icon, Styles::settings_icon),
+                                        class: "tab-icon settings-icon",
                                         dangerous_inner_html: include_str!("../../assets/gear.svg")
                                     }
                                 }
                                 // Book icon for markdown tabs (Cookbook, README, etc.)
                                 if is_markdown {
                                     span {
-                                        class: format!("{} {}", Styles::tab_icon, Styles::markdown_icon),
+                                        class: "tab-icon markdown-icon",
                                         dangerous_inner_html: include_str!("../../assets/book.svg")
                                     }
                                 }
                                 if is_dirty {
-                                    span { class: Styles::dirty_indicator, "*" }
+                                    span { class: "dirty-indicator", "*" }
                                 }
                                 "{name}"
                             }
                             button {
-                                class: Styles::tab_close,
+                                class: "tab-close",
                                 onclick: move |evt| {
                                     evt.stop_propagation();
                                     state.write().close_tab_in_pane(pane_id, tab_id);
@@ -507,16 +484,16 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
             }
             // New tab button
             button {
-                class: Styles::new_tab,
+                class: "new-tab",
                 onclick: move |_| { state.write().new_tab_in_pane(pane_id); },
                 "+"
             }
 
             // Split action buttons (right side)
-            div { class: Styles::tab_actions,
+            div { class: "tab-actions",
                 // Vertical split (side-by-side)
                 button {
-                    class: Styles::tab_action_btn,
+                    class: "tab-action-btn",
                     title: "Split Right",
                     onclick: move |_| {
                         state.write().split_pane(pane_id, SplitDirection::Vertical);
@@ -535,7 +512,7 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                 }
                 // Horizontal split (top/bottom)
                 button {
-                    class: Styles::tab_action_btn,
+                    class: "tab-action-btn",
                     title: "Split Down",
                     onclick: move |_| {
                         state.write().split_pane(pane_id, SplitDirection::Horizontal);
@@ -565,32 +542,29 @@ fn EditorArea(
     active_tab_id: u64,
     highlighted_html: String,
 ) -> Element {
-    #[css_module("/src/pane/pane.module.css")]
-    struct Styles;
-
     let mut state = use_context::<Signal<AppState>>();
     let editor_id = format!("editor-{}", pane_id);
 
     rsx! {
-        div { class: Styles::editor_content,
+        div { class: "editor-content",
             // Line numbers
             div {
                 id: "line-numbers-{pane_id}",
-                class: Styles::line_numbers,
+                class: "line-numbers",
                 LineNumbers { code: code.clone() }
             }
             // Code area
             div {
                 id: "code-area-{pane_id}",
-                class: Styles::code_area,
+                class: "code-area",
                 pre {
                     id: "syntax-{pane_id}",
-                    class: Styles::syntax_highlight,
+                    class: "syntax-highlight",
                     dangerous_inner_html: "{highlighted_html}"
                 }
                 textarea {
                     id: "{editor_id}",
-                    class: Styles::code_input,
+                    class: "code-input",
                     // Data attribute for JS scroll sync (CSS module class names are hashed)
                     "data-editor-pane": "{pane_id}",
                     spellcheck: false,
@@ -705,9 +679,6 @@ fn handle_editor_keydown(
 /// Render line numbers for the editor
 #[component]
 fn LineNumbers(code: String) -> Element {
-    #[css_module("/src/pane/pane.module.css")]
-    struct Styles;
-
     let line_count = if code.is_empty() {
         1
     } else if code.ends_with('\n') {
@@ -718,7 +689,7 @@ fn LineNumbers(code: String) -> Element {
 
     rsx! {
         for i in 1..=line_count {
-            div { key: "{i}", class: Styles::line_number, "{i}" }
+            div { key: "{i}", class: "line-number", "{i}" }
         }
     }
 }

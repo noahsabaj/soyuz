@@ -137,17 +137,11 @@ fn markdown_to_html(markdown: &str) -> String {
 /// Markdown panel component - displays formatted markdown documentation
 #[component]
 pub fn MarkdownPanel(doc: MarkdownDoc) -> Element {
-    #[css_module("/src/markdown_panel/markdown.module.css")]
-    struct Styles;
-
     // Get cached HTML content for this document type
     let html_content = get_html_content(doc);
 
-    // Pre-compute combined class string for content div
-    let content_class = format!("{} {}", Styles::content, Styles::body);
-
     rsx! {
-        div { class: Styles::panel,
+        div { class: "panel",
             // Intercept anchor link clicks and scroll instead of navigating
             script {
                 dangerous_inner_html: "
@@ -173,7 +167,7 @@ pub fn MarkdownPanel(doc: MarkdownDoc) -> Element {
                     }})();
                 "
             }
-            div { class: "{content_class}",
+            div { class: "content body",
                 dangerous_inner_html: "{html_content}"
             }
         }

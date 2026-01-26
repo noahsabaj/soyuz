@@ -1,6 +1,5 @@
 /*
  * Toolbar - Top toolbar component styles
- * Scoped CSS module for the Toolbar component.
  */
 
 /* Titlebar (unified toolbar + window controls) */
@@ -19,7 +18,7 @@
     overflow: hidden;
 }
 
-.titlebar_left {
+.titlebar-left {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -27,7 +26,7 @@
     white-space: nowrap;
 }
 
-.logo {
+.app-logo {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -35,13 +34,13 @@
     -webkit-app-region: no-drag;
 }
 
-.logo img {
+.app-logo img {
     width: 20px;
     height: 20px;
     object-fit: contain;
 }
 
-.titlebar_center {
+.titlebar-center {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -49,7 +48,7 @@
     padding: 0 8px;
 }
 
-.titlebar_right {
+.titlebar-right {
     /* Default grid positioning */
 }
 
@@ -64,27 +63,27 @@
         grid-column: 1;
     }
 
-    .titlebar_left {
+    .titlebar-left {
         justify-self: start;
         z-index: 2;
         background: var(--bg-secondary);
     }
 
-    .titlebar_center {
+    .titlebar-center {
         justify-self: center;
         z-index: 1;
         width: 280px;
         padding: 0;
     }
 
-    .titlebar_right {
+    .titlebar-right {
         justify-self: end;
         z-index: 2;
         background: var(--bg-secondary);
     }
 }
 
-.group {
+.toolbar-group {
     display: flex;
     gap: 2px;
     flex-shrink: 0;
@@ -93,7 +92,7 @@
 }
 
 /* Base button style for all titlebar buttons */
-.btn {
+.titlebar-btn {
     height: 38px;
     display: flex;
     align-items: center;
@@ -106,60 +105,52 @@
     -webkit-app-region: no-drag;
 }
 
-.btn:hover {
+.titlebar-btn:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);
 }
 
 /* Toolbar buttons - text-based, flexible width */
-.button {
+.toolbar-button {
     padding: 0 12px;
     font-size: 13px;
     white-space: nowrap;
     flex-shrink: 0;
 }
 
-.stop {
+.toolbar-button.stop {
     background: #c53030;
     color: white;
 }
 
-.stop:hover {
+.toolbar-button.stop:hover {
     background: #e53e3e;
 }
 
-.active {
+.toolbar-button.active {
     background: var(--bg-tertiary);
     color: var(--text-primary);
 }
 
-.title {
-    flex: 1;
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 13px;
-    pointer-events: none;
-}
-
 /* Window controls */
-.window_controls {
+.window-controls {
     display: flex;
     gap: 0;
     -webkit-app-region: no-drag;
 }
 
 /* Window control buttons - icon-based, fixed width */
-.window_btn {
+.window-button {
     width: 46px;
 }
 
-.close:hover {
+.window-button.close:hover {
     background: #e81123;
     color: white;
 }
 
 /* Search bar styles */
-.search_bar {
+.search-bar {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -178,18 +169,18 @@
     -webkit-app-region: no-drag;
 }
 
-.search_bar:hover {
+.search-bar:hover {
     border-color: var(--text-muted);
     background: var(--bg-secondary);
 }
 
-.search_icon {
+.search-icon {
     color: var(--text-muted);
     font-size: 12px;
     flex-shrink: 0;
 }
 
-.search_placeholder {
+.search-placeholder {
     color: var(--text-muted);
     font-size: 13px;
     white-space: nowrap;
@@ -198,19 +189,19 @@
 }
 
 /* Settings button special styling */
-.settings_btn {
+.settings-btn {
     padding: 6px 8px !important;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-.settings_btn svg {
+.settings-btn svg {
     width: 16px;
     height: 16px;
     fill: var(--text-secondary);
 }
 
-.settings_btn:hover svg {
+.settings-btn:hover svg {
     fill: var(--text-primary);
 }

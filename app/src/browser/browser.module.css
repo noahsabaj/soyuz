@@ -1,30 +1,19 @@
 /*
  * AssetBrowser - Explorer panel component styles
- * Scoped CSS module for the AssetBrowser component.
  *
  * Note: Some classes are kept global (via :global) because they are
  * accessed by JavaScript for drag-drop functionality.
  */
 
-/* Explorer panel (left sidebar) */
-.panel {
-    width: 220px;
-    min-width: 180px;
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    user-select: none;
-    -webkit-user-select: none;
-}
-
-.container {
+/* Explorer container */
+.explorer-container {
     display: flex;
     flex-direction: column;
     height: 100%;
     user-select: none;
 }
 
-.header {
+.explorer-header {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -34,7 +23,7 @@
     border-bottom: 1px solid var(--border);
 }
 
-.title {
+.explorer-title {
     flex: 1;
     font-weight: 600;
     font-size: 11px;
@@ -43,26 +32,7 @@
     color: var(--text-secondary);
 }
 
-.button {
-    width: 22px;
-    height: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 14px;
-}
-
-.button:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-}
-
-.path {
+.explorer-path {
     font-size: 12px;
     font-weight: 500;
     color: var(--text-primary);
@@ -72,7 +42,7 @@
 }
 
 /* Folder row with name and action buttons */
-.folder_row {
+.folder-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -82,18 +52,18 @@
     gap: 8px;
 }
 
-.folder_row:hover .actions {
+.folder-row:hover .explorer-actions {
     opacity: 1;
 }
 
-.actions {
+.explorer-actions {
     display: flex;
     gap: 2px;
     opacity: 0;
     transition: opacity 0.15s;
 }
 
-.action_btn {
+.action-btn {
     width: 22px;
     height: 22px;
     display: flex;
@@ -108,29 +78,29 @@
     transition: background 0.1s, color 0.1s;
 }
 
-.action_btn:hover {
+.action-btn:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);
 }
 
-/* Explorer content area - GLOBAL for JavaScript drag-drop access */
-:global(.explorer-content) {
+/* Explorer content area */
+.explorer-content {
     flex: 1;
     overflow-y: auto;
     padding: 4px 0;
 }
 
-/* Highlight empty space as drop target for moving to root - GLOBAL for JS */
-:global(.explorer-content.drop-target-root) {
+/* Highlight empty space as drop target for moving to root */
+.explorer-content.drop-target-root {
     background: rgba(255, 255, 255, 0.04);
 }
 
 /* Inline input for creating files/folders */
-.input_row {
+.input-row {
     background: var(--bg-secondary);
 }
 
-.inline_input {
+.inline-input {
     flex: 1;
     background: var(--bg-primary);
     border: 1px solid var(--accent);
@@ -142,12 +112,12 @@
     min-width: 0;
 }
 
-.inline_input::placeholder {
+.inline-input::placeholder {
     color: var(--text-muted);
 }
 
-/* Tree view styles - GLOBAL for JavaScript drag-drop access */
-:global(.tree-item) {
+/* Tree view styles */
+.tree-item {
     display: flex;
     align-items: center;
     gap: 2px;
@@ -157,33 +127,33 @@
     user-select: none;
 }
 
-:global(.tree-item:hover) {
+.tree-item:hover {
     background: rgba(255, 255, 255, 0.05);
 }
 
-:global(.tree-item.selected) {
+.tree-item.selected {
     background: rgba(0, 122, 204, 0.3);
 }
 
-:global(.tree-item.selected:hover) {
+.tree-item.selected:hover {
     background: rgba(0, 122, 204, 0.4);
 }
 
-:global(.tree-item.drop-target) {
+.tree-item.drop-target {
     background: rgba(255, 255, 255, 0.08);
 }
 
-:global(.tree-item.dragging) {
+.tree-item.dragging {
     opacity: 0.5;
 }
 
 /* Rename input in tree */
-.rename_input {
+.rename-input {
     flex: 1;
     min-width: 50px;
 }
 
-.arrow {
+.tree-arrow {
     width: 12px;
     height: 16px;
     display: flex;
@@ -195,15 +165,15 @@
     transition: transform 0.15s ease;
 }
 
-.arrow_expanded {
+.tree-arrow.expanded {
     transform: rotate(90deg);
 }
 
-.arrow_hidden {
+.tree-arrow.hidden {
     visibility: hidden;
 }
 
-.icon {
+.tree-icon {
     width: 14px;
     height: 16px;
     display: flex;
@@ -214,28 +184,28 @@
     color: var(--text-muted);
 }
 
-.icon_file {
+.tree-icon.file {
     visibility: hidden;
 }
 
-.icon_folder {
+.tree-icon.folder {
     color: var(--accent);
 }
 
-.name {
+.tree-name {
     flex: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.size {
+.tree-size {
     font-size: 11px;
     color: var(--text-muted);
     margin-left: 8px;
 }
 
-.empty {
+.tree-empty {
     padding: 20px;
     text-align: center;
     color: var(--text-muted);
@@ -243,7 +213,7 @@
 }
 
 /* Empty explorer state - shown when no folder is opened */
-.empty_state {
+.empty-state {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -253,20 +223,20 @@
     text-align: center;
 }
 
-.empty_title {
+.empty-title {
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0 0 8px 0;
 }
 
-.empty_subtitle {
+.empty-subtitle {
     font-size: 12px;
     color: var(--text-secondary);
     margin: 0 0 16px 0;
 }
 
-.empty_button {
+.empty-button {
     padding: 8px 16px;
     background: var(--accent);
     color: white;
@@ -276,12 +246,12 @@
     transition: background 0.15s;
 }
 
-.empty_button:hover {
+.empty-button:hover {
     background: var(--accent-hover);
 }
 
 /* Context menu styles */
-.context_menu_backdrop {
+.context-menu-backdrop {
     position: fixed;
     top: 0;
     left: 0;
@@ -290,7 +260,7 @@
     z-index: 999;
 }
 
-.context_menu {
+.context-menu {
     position: fixed;
     z-index: 1000;
     min-width: 160px;
@@ -301,7 +271,7 @@
     padding: 4px 0;
 }
 
-.context_menu_item {
+.context-menu-item {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -315,23 +285,23 @@
     text-align: left;
 }
 
-.context_menu_item:hover {
+.context-menu-item:hover {
     background: var(--bg-tertiary);
 }
 
-.context_menu_item_danger:hover {
+.context-menu-item.danger:hover {
     background: rgba(220, 50, 50, 0.2);
     color: #f87171;
 }
 
-.context_menu_icon {
+.context-menu-icon {
     width: 16px;
     text-align: center;
     color: var(--text-muted);
     font-size: 12px;
 }
 
-.context_menu_separator {
+.context-menu-separator {
     height: 1px;
     background: var(--border);
     margin: 4px 0;
