@@ -26,7 +26,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # For file dialogs - use xdg-portal backend (works better with Dioxus)
-rfd = { version = "0.15", default-features = false, features = ["tokio", "xdg-portal"] }
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 
 # For shared state between UI and preview
 parking_lot = { workspace = true }
