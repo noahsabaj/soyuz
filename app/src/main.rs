@@ -190,6 +190,16 @@ fn App() -> Element {
         document::Stylesheet { href: asset!("/assets/base.css") }
         document::Stylesheet { href: asset!("/assets/style.css") }
 
+        // Component CSS - inline loading for desktop compatibility
+        style { {include_str!("toolbar/toolbar.module.css")} }
+        style { {include_str!("browser/browser.module.css")} }
+        style { {include_str!("pane/pane.module.css")} }
+        style { {include_str!("terminal/terminal.module.css")} }
+        style { {include_str!("statusbar/statusbar.module.css")} }
+        style { {include_str!("command_palette/palette.module.css")} }
+        style { {include_str!("settings_panel/settings.module.css")} }
+        style { {include_str!("markdown_panel/markdown.module.css")} }
+
         // Native scroll sync - handles scroll without Rust async overhead
         // Uses data-editor-pane attribute since CSS module class names are hashed
         script {
