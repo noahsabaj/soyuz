@@ -7,6 +7,8 @@
 //! - Colored log levels with timestamps
 //! - Filter dropdown for level-based filtering
 
+pub mod layer;
+
 use crate::state::{AppState, TerminalEntry, TerminalLevel};
 use dioxus::prelude::*;
 
@@ -27,6 +29,9 @@ struct FilterDropdownState {
 /// Terminal panel component
 #[component]
 pub fn TerminalPanel() -> Element {
+    #[css_module("/src/terminal/terminal.module.css")]
+    struct Styles;
+
     let mut state = use_context::<Signal<AppState>>();
     let mut resize_state = use_signal(TerminalResizeState::default);
 
@@ -49,7 +54,7 @@ pub fn TerminalPanel() -> Element {
     rsx! {
         // Resize handle at top of terminal
         div {
-            class: "terminal-resize-handle",
+            class: Styles::resize_handle,
             onmousedown: move |evt| {
                 evt.prevent_default();
                 resize_state.set(TerminalResizeState {
@@ -63,7 +68,7 @@ pub fn TerminalPanel() -> Element {
         // Resize overlay during drag
         if resize_state.read().active {
             div {
-                class: "resize-overlay",
+                class: Styles::resize_overlay,
                 onmousemove: move |evt| {
                     let rs = *resize_state.read();
                     if rs.active {
@@ -80,7 +85,7 @@ pub fn TerminalPanel() -> Element {
 
         // Terminal panel container
         div {
-            class: "terminal-panel",
+            class: Styles::panel,
             style: "height: {height}px;",
 
             // Header bar
@@ -88,7 +93,7 @@ pub fn TerminalPanel() -> Element {
 
             // Output content
             div {
-                class: "terminal-content",
+                class: Styles::content,
                 for (idx, entry) in filtered_entries.iter().enumerate() {
                     TerminalEntryRow { key: "{idx}", entry: entry.clone() }
                 }
@@ -100,25 +105,35 @@ pub fn TerminalPanel() -> Element {
 /// Terminal header bar with title and actions
 #[component]
 fn TerminalHeader() -> Element {
+    #[css_module("/src/terminal/terminal.module.css")]
+    struct Styles;
+
     let mut state = use_context::<Signal<AppState>>();
     let mut filter_dropdown = use_signal(FilterDropdownState::default);
 
     let filter = state.read().terminal_filter.clone();
     let dropdown_open = filter_dropdown.read().open;
 
+    // Pre-compute combined class strings for action button states
+    let action_btn = Styles::action_btn.to_string();
+    let action_btn_active = format!("{} {}", Styles::action_btn, Styles::action_btn_active);
+    let filter_label_info = format!("{} {}", Styles::filter_label, Styles::info);
+    let filter_label_warn = format!("{} {}", Styles::filter_label, Styles::warn);
+    let filter_label_error = format!("{} {}", Styles::filter_label, Styles::error);
+
     rsx! {
-        div { class: "terminal-header",
+        div { class: Styles::header,
             // Left: Title
-            div { class: "terminal-header-left",
-                span { class: "terminal-title", "OUTPUT" }
+            div { class: Styles::header_left,
+                span { class: Styles::title, "OUTPUT" }
             }
 
             // Right: Action buttons
-            div { class: "terminal-header-right",
+            div { class: Styles::header_right,
                 // Filter button with dropdown
-                div { class: "terminal-filter-container",
+                div { class: Styles::filter_container,
                     button {
-                        class: if dropdown_open { "terminal-action-btn active" } else { "terminal-action-btn" },
+                        class: if dropdown_open { "{action_btn_active}" } else { "{action_btn}" },
                         title: "Filter Output",
                         onclick: move |_| {
                             let current = filter_dropdown.read().open;
@@ -138,17 +153,17 @@ fn TerminalHeader() -> Element {
 
                     // Dropdown menu
                     if dropdown_open {
-                        div { class: "terminal-filter-dropdown",
+                        div { class: Styles::filter_dropdown,
                             // Click outside to close
                             div {
-                                class: "terminal-filter-backdrop",
+                                class: Styles::filter_backdrop,
                                 onclick: move |_| {
                                     filter_dropdown.write().open = false;
                                 }
                             }
-                            div { class: "terminal-filter-menu",
+                            div { class: Styles::filter_menu,
                                 // Info checkbox
-                                label { class: "terminal-filter-item",
+                                label { class: Styles::filter_item,
                                     input {
                                         r#type: "checkbox",
                                         checked: filter.show_info,
@@ -156,10 +171,10 @@ fn TerminalHeader() -> Element {
                                             state.write().toggle_terminal_filter(TerminalLevel::Info);
                                         }
                                     }
-                                    span { class: "terminal-filter-label terminal-info", "Info" }
+                                    span { class: "{filter_label_info}", "Info" }
                                 }
                                 // Warn checkbox
-                                label { class: "terminal-filter-item",
+                                label { class: Styles::filter_item,
                                     input {
                                         r#type: "checkbox",
                                         checked: filter.show_warn,
@@ -167,10 +182,10 @@ fn TerminalHeader() -> Element {
                                             state.write().toggle_terminal_filter(TerminalLevel::Warn);
                                         }
                                     }
-                                    span { class: "terminal-filter-label terminal-warn", "Warning" }
+                                    span { class: "{filter_label_warn}", "Warning" }
                                 }
                                 // Error checkbox
-                                label { class: "terminal-filter-item",
+                                label { class: Styles::filter_item,
                                     input {
                                         r#type: "checkbox",
                                         checked: filter.show_error,
@@ -178,7 +193,7 @@ fn TerminalHeader() -> Element {
                                             state.write().toggle_terminal_filter(TerminalLevel::Error);
                                         }
                                     }
-                                    span { class: "terminal-filter-label terminal-error", "Error" }
+                                    span { class: "{filter_label_error}", "Error" }
                                 }
                             }
                         }
@@ -187,7 +202,7 @@ fn TerminalHeader() -> Element {
 
                 // Clear button
                 button {
-                    class: "terminal-action-btn",
+                    class: Styles::action_btn,
                     title: "Clear Output",
                     onclick: move |_| { state.read().terminal_clear(); },
                     // Trash icon (inline SVG)
@@ -203,7 +218,7 @@ fn TerminalHeader() -> Element {
                 }
                 // Collapse button
                 button {
-                    class: "terminal-action-btn",
+                    class: Styles::action_btn,
                     title: "Close Panel",
                     onclick: move |_| { state.write().toggle_terminal(); },
                     // Chevron down icon (inline SVG)
@@ -225,6 +240,9 @@ fn TerminalHeader() -> Element {
 /// Single terminal entry row
 #[component]
 fn TerminalEntryRow(entry: TerminalEntry) -> Element {
+    #[css_module("/src/terminal/terminal.module.css")]
+    struct Styles;
+
     let state = use_context::<Signal<AppState>>();
 
     // Get time settings
@@ -233,15 +251,26 @@ fn TerminalEntryRow(entry: TerminalEntry) -> Element {
 
     // Format timestamp using settings
     let timestamp = entry.format_timestamp(timezone_offset, use_24h);
-    let level_class = entry.level.css_class();
     let level_prefix = entry.level.prefix();
     let message = &entry.message;
 
+    // Map level to CSS module class
+    let level_class = match entry.level {
+        TerminalLevel::Trace => Styles::trace,
+        TerminalLevel::Debug => Styles::debug,
+        TerminalLevel::Info => Styles::info,
+        TerminalLevel::Warn => Styles::warn,
+        TerminalLevel::Error => Styles::error,
+    };
+
+    // Pre-compute combined entry class
+    let entry_class = format!("{} {}", Styles::entry, level_class);
+
     rsx! {
-        div { class: "terminal-entry {level_class}",
-            span { class: "terminal-timestamp", "[{timestamp}]" }
-            span { class: "terminal-level", "{level_prefix}" }
-            span { class: "terminal-message", "{message}" }
+        div { class: "{entry_class}",
+            span { class: Styles::timestamp, "[{timestamp}]" }
+            span { class: Styles::level, "{level_prefix}" }
+            span { class: Styles::message, "{message}" }
         }
     }
 }

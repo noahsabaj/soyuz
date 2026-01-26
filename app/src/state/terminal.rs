@@ -60,17 +60,6 @@ pub enum TerminalLevel {
 }
 
 impl TerminalLevel {
-    /// CSS class name for styling
-    pub fn css_class(self) -> &'static str {
-        match self {
-            Self::Trace => "terminal-trace",
-            Self::Debug => "terminal-debug",
-            Self::Info => "terminal-info",
-            Self::Warn => "terminal-warn",
-            Self::Error => "terminal-error",
-        }
-    }
-
     /// Short prefix for display
     pub fn prefix(self) -> &'static str {
         match self {
@@ -211,13 +200,6 @@ impl TerminalBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_terminal_level_css_class() {
-        assert_eq!(TerminalLevel::Error.css_class(), "terminal-error");
-        assert_eq!(TerminalLevel::Warn.css_class(), "terminal-warn");
-        assert_eq!(TerminalLevel::Info.css_class(), "terminal-info");
-    }
 
     #[test]
     fn test_terminal_level_prefix() {

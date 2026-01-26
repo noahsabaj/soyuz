@@ -13,7 +13,6 @@ mod settings_panel;
 mod state;
 mod statusbar;
 mod terminal;
-mod terminal_layer;
 mod toolbar;
 
 use dioxus::desktop::tao::window::Icon;
@@ -49,7 +48,7 @@ fn main() {
     TERMINAL_BUFFER.set(terminal_buffer.clone()).ok();
 
     // Build layered tracing subscriber: terminal layer + filtered console output
-    let terminal_layer = terminal_layer::TerminalLayer::new(terminal_buffer);
+    let terminal_layer = terminal::layer::TerminalLayer::new(terminal_buffer);
 
     // Console layer with filter: only show WARN+ from soyuz, INFO+ for others
     let fmt_layer = tracing_subscriber::fmt::layer();
