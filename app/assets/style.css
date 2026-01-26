@@ -1,31 +1,10 @@
 /*
  * Soyuz Studio - Main Application Styles
  *
- * Theme variables are defined in theme.css (loaded via Rust include_str!)
+ * Theme variables are defined in theme.css
+ * Base resets and animations are in base.css
  * This file contains layout and component styles only.
  */
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-button {
-    border: none;
-    outline: none;
-    box-shadow: none;
-    -webkit-appearance: none;
-    appearance: none;
-}
-
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-    font-size: 14px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    overflow: hidden;
-}
 
 .app-container {
     display: flex;
@@ -1001,24 +980,6 @@ body {
     gap: 4px;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-
-::-webkit-scrollbar-track {
-    background: var(--bg-primary);
-}
-
-::-webkit-scrollbar-thumb {
-    background: var(--bg-tertiary);
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
-}
-
 /* Tab bar styling */
 .viewport-tabs {
     display: flex;
@@ -1066,11 +1027,6 @@ body {
 .tab-indicator.active {
     background: var(--success);
     animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
 }
 
 .tab-action {
@@ -1359,11 +1315,6 @@ body {
 /* Spinning animation for preview icon */
 .preview-icon.spinning {
     animation: spin 2s linear infinite;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
 }
 
 /* Modal dialog styles */
@@ -2014,12 +1965,6 @@ body {
     width: 16px;
     height: 16px;
     border-width: 2px;
-}
-
-@keyframes spinner-rotate {
-    to {
-        transform: rotate(360deg);
-    }
 }
 
 .loading-text {
