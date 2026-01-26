@@ -1,0 +1,31 @@
+/*
+ * StatusBar - Bottom status bar component styles
+ * Scoped CSS module for the StatusBar component.
+ */
+
+.bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 4px 16px;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.unsaved {
+    color: var(--warning);
+}
+
+.version {
+    margin-left: auto;
+    opacity: 0.5;
+    font-size: 11px;
+}

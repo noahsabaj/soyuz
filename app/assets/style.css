@@ -962,24 +962,6 @@
     background: var(--accent-hover);
 }
 
-/* Status bar */
-.status-bar {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 4px 16px;
-    background: var(--bg-tertiary);
-    border-top: 1px solid var(--border);
-    font-size: 12px;
-    color: var(--text-secondary);
-}
-
-.status-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
 /* Tab bar styling */
 .viewport-tabs {
     display: flex;
@@ -1282,17 +1264,6 @@
     color: var(--bg-primary);
 }
 
-/* Status bar unsaved indicator */
-.status-item.unsaved {
-    color: var(--warning);
-}
-
-/* Status bar version - subtle, right-aligned */
-.status-item.version {
-    margin-left: auto;
-    opacity: 0.5;
-    font-size: 11px;
-}
 
 /* Viewport header - additional styles */
 .viewport-header {
