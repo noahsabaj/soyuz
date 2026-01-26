@@ -1,15 +1,17 @@
 /*
- * Soyuz Studio - Export Window Styles
+ * Export Window - Mesh export configuration component styles
+ * Scoped CSS module for the ExportWindow component.
  *
- * Theme variables are loaded from theme.css (via Rust include_str!)
- * This file contains export window-specific layout styles only.
+ * Note: Base styles (body, *) are kept global since they apply
+ * to the entire export window.
  */
 
-* {
+/* Global base styles for the export window */
+:global(*) {
     box-sizing: border-box;
 }
 
-body {
+:global(body) {
     margin: 0;
     padding: 0;
     font-family: system-ui, -apple-system, sans-serif;
@@ -18,7 +20,9 @@ body {
     color: var(--text-primary);
 }
 
-.export-window {
+/* ==================== Export Window Layout ==================== */
+
+.window {
     display: flex;
     flex-direction: column;
     padding: 16px;
@@ -27,13 +31,13 @@ body {
     overflow: hidden;
 }
 
-.export-section {
+.section {
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 
-.export-section-label {
+.section_label {
     font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
@@ -41,12 +45,14 @@ body {
     letter-spacing: 0.5px;
 }
 
-.export-path-row {
+/* ==================== Path Input ==================== */
+
+.path_row {
     display: flex;
     gap: 8px;
 }
 
-.export-path-input {
+.path_input {
     flex: 1;
     padding: 8px 12px;
     background: var(--bg-secondary);
@@ -57,12 +63,12 @@ body {
     font-family: inherit;
 }
 
-.export-path-input:focus {
+.path_input:focus {
     outline: none;
     border-color: var(--accent);
 }
 
-.export-browse-btn {
+.browse_btn {
     padding: 8px 14px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
@@ -74,12 +80,14 @@ body {
     transition: all 0.15s;
 }
 
-.export-browse-btn:hover {
+.browse_btn:hover {
     background: var(--accent);
     border-color: var(--accent);
 }
 
-.export-filename-input {
+/* ==================== Filename Input ==================== */
+
+.filename_input {
     width: 100%;
     padding: 8px 12px;
     background: var(--bg-secondary);
@@ -90,17 +98,19 @@ body {
     font-family: inherit;
 }
 
-.export-filename-input:focus {
+.filename_input:focus {
     outline: none;
     border-color: var(--accent);
 }
 
-.export-format-buttons {
+/* ==================== Format Buttons ==================== */
+
+.format_buttons {
     display: flex;
     gap: 4px;
 }
 
-.export-format-btn {
+.format_btn {
     flex: 1;
     padding: 8px 12px;
     background: var(--bg-secondary);
@@ -113,18 +123,20 @@ body {
     transition: all 0.15s;
 }
 
-.export-format-btn:hover {
+.format_btn:hover {
     border-color: var(--accent);
     color: var(--text-primary);
 }
 
-.export-format-btn.active {
+.format_btn.active {
     background: var(--accent);
     border-color: var(--accent);
     color: var(--bg-primary);
 }
 
-.export-info-message {
+/* ==================== Info Message ==================== */
+
+.info_message {
     padding: 8px 12px;
     background: var(--bg-tertiary);
     border-left: 3px solid var(--warning);
@@ -133,7 +145,9 @@ body {
     color: var(--text-secondary);
 }
 
-.export-slider {
+/* ==================== Slider ==================== */
+
+.slider {
     width: 100%;
     height: 6px;
     appearance: none;
@@ -143,7 +157,7 @@ body {
     cursor: pointer;
 }
 
-.export-slider::-webkit-slider-thumb {
+.slider::-webkit-slider-thumb {
     appearance: none;
     width: 16px;
     height: 16px;
@@ -153,37 +167,41 @@ body {
     transition: transform 0.15s;
 }
 
-.export-slider::-webkit-slider-thumb:hover {
+.slider::-webkit-slider-thumb:hover {
     transform: scale(1.1);
 }
 
-.export-option {
+/* ==================== Options ==================== */
+
+.option {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.export-option input[type="checkbox"] {
+.option input[type="checkbox"] {
     width: 16px;
     height: 16px;
     accent-color: var(--accent);
     cursor: pointer;
 }
 
-.export-option label {
+.option label {
     color: var(--text-primary);
     cursor: pointer;
     user-select: none;
 }
 
-.export-actions {
+/* ==================== Action Buttons ==================== */
+
+.actions {
     display: flex;
     gap: 8px;
     margin-top: auto;
     padding-top: 16px;
 }
 
-.export-btn-primary {
+.btn_primary {
     flex: 2;
     padding: 10px 16px;
     background: var(--accent);
@@ -196,16 +214,16 @@ body {
     transition: all 0.15s;
 }
 
-.export-btn-primary:hover:not(:disabled) {
+.btn_primary:hover:not(:disabled) {
     background: var(--accent-hover);
 }
 
-.export-btn-primary:disabled {
+.btn_primary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
 }
 
-.export-btn-secondary {
+.btn_secondary {
     flex: 1;
     padding: 10px 12px;
     background: var(--bg-tertiary);
@@ -218,17 +236,19 @@ body {
     transition: all 0.15s;
 }
 
-.export-btn-secondary:hover:not(:disabled) {
+.btn_secondary:hover:not(:disabled) {
     background: var(--bg-secondary);
     border-color: var(--accent);
 }
 
-.export-btn-secondary:disabled {
+.btn_secondary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
 }
 
-.export-status {
+/* ==================== Status ==================== */
+
+.status {
     padding: 8px 12px;
     background: var(--bg-secondary);
     border-radius: 4px;

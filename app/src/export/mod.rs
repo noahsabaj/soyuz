@@ -1,6 +1,7 @@
 //! Export window for mesh generation and export
 //!
 //! Opens a separate OS window for configuring and executing mesh exports.
+//! Uses scoped CSS modules for component styling.
 
 // Closure is required for Dioxus signals
 #![allow(clippy::redundant_closure)]
@@ -105,6 +106,9 @@ struct ExportWindowProps {
 /// The export window component
 #[component]
 fn ExportWindow(props: ExportWindowProps) -> Element {
+    #[css_module("/src/export/export.module.css")]
+    struct Styles;
+
     // Local state for the export window
     let mut export_path = use_signal(|| props.initial_path.clone());
     let mut filename = use_signal(|| props.initial_filename.clone());
@@ -259,24 +263,25 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
     let is_stl = *format.read() == ExportFormat::Stl;
 
     rsx! {
-        style { {include_str!("../assets/theme.css")} }
-        style { {include_str!("../assets/export-window.css")} }
+        // Theme CSS for variables (inline since this is a separate window)
+        style { {include_str!("../../assets/theme.css")} }
+        // CSS module handles component-specific styles
 
-        div { class: "export-window",
+        div { class: Styles::window,
             // Save Location
-            div { class: "export-section",
-                label { class: "export-section-label", "Save Location" }
-                div { class: "export-path-row",
+            div { class: Styles::section,
+                label { class: Styles::section_label, "Save Location" }
+                div { class: Styles::path_row,
                     input {
                         r#type: "text",
-                        class: "export-path-input",
+                        class: Styles::path_input,
                         value: "{export_path.read().display()}",
                         oninput: move |evt| {
                             export_path.set(PathBuf::from(evt.value()));
                         }
                     }
                     button {
-                        class: "export-browse-btn",
+                        class: Styles::browse_btn,
                         onclick: browse_folder,
                         "..."
                     }
@@ -284,11 +289,11 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
             }
 
             // Filename
-            div { class: "export-section",
-                label { class: "export-section-label", "Filename" }
+            div { class: Styles::section,
+                label { class: Styles::section_label, "Filename" }
                 input {
                     r#type: "text",
-                    class: "export-filename-input",
+                    class: Styles::filename_input,
                     value: "{filename}",
                     oninput: move |evt| {
                         filename.set(evt.value());
@@ -297,9 +302,9 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
             }
 
             // Format
-            div { class: "export-section",
-                label { class: "export-section-label", "Format" }
-                div { class: "export-format-buttons",
+            div { class: Styles::section,
+                label { class: Styles::section_label, "Format" }
+                div { class: Styles::format_buttons,
                     FormatButton {
                         format: ExportFormat::Glb,
                         current: *format.read(),
@@ -325,19 +330,19 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
 
             // STL info message
             if is_stl {
-                div { class: "export-info-message",
+                div { class: Styles::info_message,
                     "STL format is optimized for 3D printing. Materials and textures are not supported."
                 }
             }
 
             // Mesh Resolution
-            div { class: "export-section",
-                label { class: "export-section-label",
+            div { class: Styles::section,
+                label { class: Styles::section_label,
                     "Mesh Resolution: {resolution}"
                 }
                 input {
                     r#type: "range",
-                    class: "export-slider",
+                    class: Styles::slider,
                     min: "16",
                     max: "256",
                     step: "16",
@@ -351,10 +356,10 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
             }
 
             // Options
-            div { class: "export-section",
-                label { class: "export-section-label", "Options" }
+            div { class: Styles::section,
+                label { class: Styles::section_label, "Options" }
 
-                div { class: "export-option",
+                div { class: Styles::option,
                     input {
                         r#type: "checkbox",
                         id: "optimize",
@@ -366,7 +371,7 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
                     label { r#for: "optimize", "Optimize mesh" }
                 }
 
-                div { class: "export-option",
+                div { class: Styles::option,
                     input {
                         r#type: "checkbox",
                         id: "close-after",
@@ -380,21 +385,21 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
             }
 
             // Export buttons
-            div { class: "export-actions",
+            div { class: Styles::actions,
                 button {
-                    class: "export-btn-primary",
+                    class: Styles::btn_primary,
                     disabled: *is_exporting.read(),
                     onclick: move |_| do_export(ExportAction::Export),
                     if *is_exporting.read() { "Exporting..." } else { "Export" }
                 }
                 button {
-                    class: "export-btn-secondary",
+                    class: Styles::btn_secondary,
                     disabled: *is_exporting.read(),
                     onclick: move |_| do_export(ExportAction::ExportAndOpenFolder),
                     "& Open Folder"
                 }
                 button {
-                    class: "export-btn-secondary",
+                    class: Styles::btn_secondary,
                     disabled: *is_exporting.read(),
                     onclick: move |_| do_export(ExportAction::ExportAndOpenFile),
                     "& Open"
@@ -402,7 +407,7 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
             }
 
             // Status
-            div { class: "export-status",
+            div { class: Styles::status,
                 if let Some(msg) = status_message.read().as_ref() {
                     "{msg}"
                 } else {
@@ -427,11 +432,19 @@ fn FormatButton(
     current: ExportFormat,
     on_select: EventHandler<ExportFormat>,
 ) -> Element {
+    #[css_module("/src/export/export.module.css")]
+    struct Styles;
+
     let is_selected = format == current;
+    let class = if is_selected {
+        format!("{} {}", Styles::format_btn, Styles::active)
+    } else {
+        Styles::format_btn.to_string()
+    };
 
     rsx! {
         button {
-            class: if is_selected { "export-format-btn active" } else { "export-format-btn" },
+            class: "{class}",
             onclick: move |_| on_select.call(format),
             {format.extension().to_uppercase()}
         }
