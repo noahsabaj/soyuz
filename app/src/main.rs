@@ -187,8 +187,9 @@ fn App() -> Element {
 
     rsx! {
         document::Title { "{title}" }
-        style { {include_str!("../assets/theme.css")} }
-        style { {include_str!("../assets/style.css")} }
+        document::Stylesheet { href: asset!("/assets/theme.css") }
+        document::Stylesheet { href: asset!("/assets/base.css") }
+        document::Stylesheet { href: asset!("/assets/style.css") }
 
         // Native scroll sync - handles scroll without Rust async overhead
         script {
