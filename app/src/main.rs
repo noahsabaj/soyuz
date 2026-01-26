@@ -191,13 +191,14 @@ fn App() -> Element {
         document::Stylesheet { href: asset!("/assets/style.css") }
 
         // Native scroll sync - handles scroll without Rust async overhead
+        // Uses data-editor-pane attribute since CSS module class names are hashed
         script {
             dangerous_inner_html: "
                 document.addEventListener('scroll', function(e) {{
-                    if (!e.target.classList || !e.target.classList.contains('code-input')) return;
+                    var paneId = e.target.dataset && e.target.dataset.editorPane;
+                    if (!paneId) return;
 
                     var editor = e.target;
-                    var paneId = editor.id.replace('editor-', '');
                     var lineNumbers = document.getElementById('line-numbers-' + paneId);
                     var syntax = document.getElementById('syntax-' + paneId);
 

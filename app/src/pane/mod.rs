@@ -591,10 +591,17 @@ fn EditorArea(
                 textarea {
                     id: "{editor_id}",
                     class: Styles::code_input,
+                    // Data attribute for JS scroll sync (CSS module class names are hashed)
+                    "data-editor-pane": "{pane_id}",
                     spellcheck: false,
                     value: "{code}",
                     onfocus: move |_| { state.write().focus_pane(pane_id); },
-                    // Scroll sync handled by native JS in main.rs (no async overhead)
+                    // Scroll sync handled by native JS in main.rs (continuous sync)
+                    // scrollend fires once when scrolling stops - useful for state updates
+                    onscrollend: move |_| {
+                        // Could save scroll position to state here for restoration
+                        // Currently a no-op placeholder for future scroll position persistence
+                    },
                     oninput: {
                         let editor_id = editor_id.clone();
                         move |evt| {
