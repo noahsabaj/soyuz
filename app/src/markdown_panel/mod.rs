@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// Embedded markdown content (compile-time)
-const COOKBOOK_MD: &str = include_str!("../../SOYUZ_COOKBOOK.md");
-const README_MD: &str = include_str!("../../README.md");
+const COOKBOOK_MD: &str = include_str!("../../../SOYUZ_COOKBOOK.md");
+const README_MD: &str = include_str!("../../../README.md");
 
 /// Static cache for parsed HTML content (one per document type)
 static COOKBOOK_HTML: OnceLock<String> = OnceLock::new();
@@ -137,11 +137,17 @@ fn markdown_to_html(markdown: &str) -> String {
 /// Markdown panel component - displays formatted markdown documentation
 #[component]
 pub fn MarkdownPanel(doc: MarkdownDoc) -> Element {
+    #[css_module("/src/markdown_panel/markdown.module.css")]
+    struct Styles;
+
     // Get cached HTML content for this document type
     let html_content = get_html_content(doc);
 
+    // Pre-compute combined class string for content div
+    let content_class = format!("{} {}", Styles::content, Styles::body);
+
     rsx! {
-        div { class: "markdown-panel",
+        div { class: Styles::panel,
             // Intercept anchor link clicks and scroll instead of navigating
             script {
                 dangerous_inner_html: "
@@ -167,7 +173,7 @@ pub fn MarkdownPanel(doc: MarkdownDoc) -> Element {
                     }})();
                 "
             }
-            div { class: "markdown-content markdown-body",
+            div { class: "{content_class}",
                 dangerous_inner_html: "{html_content}"
             }
         }
