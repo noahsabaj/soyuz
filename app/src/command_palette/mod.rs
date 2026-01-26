@@ -272,6 +272,9 @@ pub async fn unified_search(workspace: Option<&Path>, query: &str) -> Vec<Search
 /// Command Palette component
 #[component]
 pub fn CommandPalette() -> Element {
+    #[css_module("/src/command_palette/palette.module.css")]
+    struct Styles;
+
     let state = use_context::<Signal<AppState>>();
     let mut palette = use_context::<Signal<PaletteState>>();
 
@@ -369,19 +372,19 @@ pub fn CommandPalette() -> Element {
     rsx! {
         // Backdrop
         div {
-            class: "palette-backdrop",
+            class: Styles::backdrop,
             onclick: close_palette
         }
 
         // Palette container
         div {
-            class: "palette-container",
+            class: Styles::container,
             onclick: |e| e.stop_propagation(),
 
             // Search input
-            div { class: "palette-input-row",
+            div { class: Styles::input_row,
                 input {
-                    class: "palette-input",
+                    class: Styles::input,
                     r#type: "text",
                     placeholder: "{placeholder}",
                     value: "{query}",
@@ -397,7 +400,7 @@ pub fn CommandPalette() -> Element {
             }
 
             // Results list
-            div { class: "palette-results",
+            div { class: Styles::results,
                 match effective_mode {
                     PaletteMode::Unified => rsx! {
                         UnifiedResults { selected_index }
@@ -409,7 +412,7 @@ pub fn CommandPalette() -> Element {
                         TextSearchResults { query: search_query.to_string() }
                     },
                     PaletteMode::Symbols => rsx! {
-                        div { class: "palette-hint", "Symbol search coming soon..." }
+                        div { class: Styles::hint, "Symbol search coming soon..." }
                     },
                 }
             }
@@ -483,23 +486,30 @@ fn execute_command(id: &str, state: &mut AppState) {
 /// Unified search results - displays both files and commands
 #[component]
 fn UnifiedResults(selected_index: usize) -> Element {
+    #[css_module("/src/command_palette/palette.module.css")]
+    struct Styles;
+
     let mut palette = use_context::<Signal<PaletteState>>();
     let mut state = use_context::<Signal<AppState>>();
     let results = palette.read().unified_results.clone();
 
     if results.is_empty() {
         return rsx! {
-            div { class: "palette-empty", "No results found" }
+            div { class: Styles::empty, "No results found" }
         };
     }
+
+    // Pre-compute class strings for item and selected item
+    let item_class = Styles::item.to_string();
+    let item_selected_class = format!("{} {}", Styles::item, Styles::selected);
 
     rsx! {
         for (idx, result) in results.iter().enumerate() {
             {
                 let class = if idx == selected_index {
-                    "palette-item selected"
+                    item_selected_class.clone()
                 } else {
-                    "palette-item"
+                    item_class.clone()
                 };
 
                 match result {
@@ -522,9 +532,9 @@ fn UnifiedResults(selected_index: usize) -> Element {
                                     palette.write().visible = false;
                                 },
 
-                                span { class: "palette-file-icon", "" }
-                                span { class: "palette-item-label", "{name}" }
-                                span { class: "palette-item-path", "{relative}" }
+                                span { class: Styles::file_icon, "" }
+                                span { class: Styles::item_label, "{name}" }
+                                span { class: Styles::item_path, "{relative}" }
                             }
                         }
                     }
@@ -543,11 +553,11 @@ fn UnifiedResults(selected_index: usize) -> Element {
                                     palette.write().visible = false;
                                 },
 
-                                span { class: "palette-cmd-icon", ">" }
-                                span { class: "palette-item-label", "{label}" }
-                                span { class: "palette-item-category", "{category}" }
+                                span { class: Styles::cmd_icon, ">" }
+                                span { class: Styles::item_label, "{label}" }
+                                span { class: Styles::item_category, "{category}" }
                                 if let Some(s) = shortcut {
-                                    span { class: "palette-shortcut", "{s}" }
+                                    span { class: Styles::shortcut, "{s}" }
                                 }
                             }
                         }
@@ -561,10 +571,13 @@ fn UnifiedResults(selected_index: usize) -> Element {
 /// Go to line hint
 #[component]
 fn GoToLineHint(query: String) -> Element {
+    #[css_module("/src/command_palette/palette.module.css")]
+    struct Styles;
+
     let line_num: Result<usize, _> = query.parse();
 
     rsx! {
-        div { class: "palette-hint",
+        div { class: Styles::hint,
             if let Ok(n) = line_num {
                 "Press Enter to go to line {n}"
             } else if query.is_empty() {
@@ -579,8 +592,11 @@ fn GoToLineHint(query: String) -> Element {
 /// Text search results (placeholder)
 #[component]
 fn TextSearchResults(query: String) -> Element {
+    #[css_module("/src/command_palette/palette.module.css")]
+    struct Styles;
+
     rsx! {
-        div { class: "palette-hint",
+        div { class: Styles::hint,
             if query.is_empty() {
                 "Type to search text in files..."
             } else {
