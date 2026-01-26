@@ -38,7 +38,7 @@ pub fn spawn_preview(mut state: Signal<AppState>) {
     }
 
     // Spawn preview process
-    match spawn_preview_process(&temp_path) {
+    match spawn_preview_process(&temp_path, &state) {
         Ok(child) => {
             state.read().terminal_log(TerminalLevel::Info, "Preview window opened");
 
@@ -114,8 +114,16 @@ async fn wait_for_process_exit(
     }
 }
 
-/// Spawn the preview as a separate window process
-fn spawn_preview_process(script_path: &Path) -> Result<Child, std::io::Error> {
+/// Result of finding the preview binary
+enum PreviewBinaryResult {
+    /// Found the binary at this path
+    Found(std::path::PathBuf),
+    /// Binary not found, need to compile via cargo
+    NeedsCompilation,
+}
+
+/// Find the soyuz-preview binary
+fn find_preview_binary() -> PreviewBinaryResult {
     // Try to find the soyuz-preview binary next to the main executable
     let exe_path = std::env::current_exe().ok();
     let preview_path = exe_path
@@ -124,23 +132,45 @@ fn spawn_preview_process(script_path: &Path) -> Result<Child, std::io::Error> {
         .map(|p| p.join("soyuz-preview"))
         .filter(|p| p.exists());
 
-    if let Some(preview_bin) = preview_path {
-        Command::new(&preview_bin)
-            .arg("--script")
-            .arg(script_path)
-            .spawn()
-    } else {
-        // Fallback: try cargo run (for development)
-        Command::new("cargo")
-            .arg("run")
-            .arg("-p")
-            .arg("soyuz-app")
-            .arg("--bin")
-            .arg("soyuz-preview")
-            .arg("--release")
-            .arg("--")
-            .arg("--script")
-            .arg(script_path)
-            .spawn()
+    match preview_path {
+        Some(path) => PreviewBinaryResult::Found(path),
+        None => PreviewBinaryResult::NeedsCompilation,
+    }
+}
+
+/// Spawn the preview as a separate window process
+fn spawn_preview_process(
+    script_path: &Path,
+    state: &Signal<AppState>,
+) -> Result<Child, std::io::Error> {
+    match find_preview_binary() {
+        PreviewBinaryResult::Found(preview_bin) => {
+            Command::new(&preview_bin)
+                .arg("--script")
+                .arg(script_path)
+                .spawn()
+        }
+        PreviewBinaryResult::NeedsCompilation => {
+            // Fallback: compile and run via cargo (for development)
+            state.read().terminal_log(
+                TerminalLevel::Warn,
+                "Preview binary not found, compiling... (this may take a while)",
+            );
+            tracing::warn!(
+                "soyuz-preview binary not found next to executable, falling back to cargo run"
+            );
+
+            Command::new("cargo")
+                .arg("run")
+                .arg("-p")
+                .arg("soyuz-app")
+                .arg("--bin")
+                .arg("soyuz-preview")
+                .arg("--release")
+                .arg("--")
+                .arg("--script")
+                .arg(script_path)
+                .spawn()
+        }
     }
 }

@@ -64,6 +64,7 @@ section = "graphics"
 priority = "optional"
 assets = [
     ["target/release/soyuz-studio", "usr/bin/", "755"],
+    ["target/release/soyuz-preview", "usr/bin/", "755"],
     ["../assets/icons/icon-256.png", "usr/share/icons/hicolor/256x256/apps/soyuz-studio.png", "644"],
     ["../assets/icons/icon-128.png", "usr/share/icons/hicolor/128x128/apps/soyuz-studio.png", "644"],
     ["../assets/icons/icon-64.png", "usr/share/icons/hicolor/64x64/apps/soyuz-studio.png", "644"],
