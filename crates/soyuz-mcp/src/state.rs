@@ -122,6 +122,20 @@ impl SoyuzState {
                         respond,
                     } => {
                         let result = (|| -> Result<Vec<u8>> {
+                            // Validate render dimensions to prevent GPU crashes
+                            if width == 0 || height == 0 {
+                                return Err(anyhow!(
+                                    "Invalid render dimensions: {}x{}. Width and height must be at least 1.",
+                                    width, height
+                                ));
+                            }
+                            if width > 8192 || height > 8192 {
+                                return Err(anyhow!(
+                                    "Render dimensions too large: {}x{}. Maximum is 8192x8192.",
+                                    width, height
+                                ));
+                            }
+
                             let rm = raymarcher
                                 .as_ref()
                                 .ok_or_else(|| anyhow!("No scene loaded"))?;

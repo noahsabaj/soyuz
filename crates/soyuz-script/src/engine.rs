@@ -132,8 +132,17 @@ impl ScriptEngine {
         // Get the environment that was configured during script execution
         let environment = get_current_environment();
 
+        // Convert to SdfOp and validate for invalid float values
+        let sdf = rhai_sdf.to_sdf_op();
+        sdf.validate().map_err(|e| anyhow!(
+            "Script produced invalid geometry: {}. \
+            This usually happens when using expressions like 1.0/0.0 (infinity) or 0.0/0.0 (NaN). \
+            Please ensure all numeric values are finite.",
+            e
+        ))?;
+
         Ok(SceneResult {
-            sdf: rhai_sdf.to_sdf_op(),
+            sdf,
             environment,
         })
     }
@@ -174,6 +183,27 @@ impl ScriptEngine {
 
     /// Compile a script to check for syntax errors without running it
     pub fn compile(&self, script: &str) -> Result<()> {
+        // Check for empty or whitespace-only scripts
+        let trimmed = script.trim();
+        if trimmed.is_empty() {
+            return Err(anyhow!(
+                "Empty script. Please provide at least one SDF expression."
+            ));
+        }
+
+        // Check for comment-only scripts (no actual code)
+        let has_code = trimmed
+            .lines()
+            .any(|line| {
+                let line = line.trim();
+                !line.is_empty() && !line.starts_with("//")
+            });
+        if !has_code {
+            return Err(anyhow!(
+                "Script contains only comments. Please provide at least one SDF expression."
+            ));
+        }
+
         self.engine
             .compile(script)
             .map_err(|e| anyhow!("Script compilation failed: {}", e))?;

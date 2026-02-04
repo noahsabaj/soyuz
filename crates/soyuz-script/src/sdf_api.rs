@@ -285,11 +285,21 @@ pub fn sphere(radius: f64) -> RhaiSdf {
     })
 }
 
+/// Integer overload for sphere - allows `sphere(1)` instead of requiring `sphere(1.0)`
+pub fn sphere_int(radius: i64) -> RhaiSdf {
+    sphere(radius as f64)
+}
+
 pub fn cube(size: f64) -> RhaiSdf {
     let half = (size / 2.0) as f32;
     RhaiSdf::new(SdfOp::Box {
         half_extents: [half, half, half],
     })
+}
+
+/// Integer overload for cube - allows `cube(1)` instead of requiring `cube(1.0)`
+pub fn cube_int(size: i64) -> RhaiSdf {
+    cube(size as f64)
 }
 
 pub fn box3(x: f64, y: f64, z: f64) -> RhaiSdf {
@@ -458,8 +468,12 @@ pub fn register_sdf_api(engine: &mut Engine) {
         .register_fn("to_string", |sdf: &mut RhaiSdf| format!("{:?}", sdf.op));
 
     // === Primitive constructors ===
+    // Register both f64 and i64 overloads for common primitives to handle
+    // cases like `sphere(1)` or `sphere(0x10)` where Rhai parses as integer
     engine.register_fn("sphere", sphere);
+    engine.register_fn("sphere", sphere_int);
     engine.register_fn("cube", cube);
+    engine.register_fn("cube", cube_int);
     engine.register_fn("box3", box3);
     engine.register_fn("rounded_box", rounded_box);
     engine.register_fn("cylinder", cylinder);

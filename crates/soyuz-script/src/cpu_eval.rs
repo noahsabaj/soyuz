@@ -191,6 +191,14 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             lerp(d2, d1, h) + *k * h * (1.0 - h)
         }
 
+        SdfOp::Xor { a, b } => {
+            let d1 = eval_distance(a, p);
+            let d2 = eval_distance(b, p);
+            // XOR = (A AND NOT B) OR (B AND NOT A)
+            // In SDF terms: max(min(d1, d2), -max(d1, d2))
+            d1.min(d2).max(-d1.max(d2))
+        }
+
         // === Modifiers ===
         SdfOp::Shell { inner, thickness } => eval_distance(inner, p).abs() - *thickness,
 
@@ -271,6 +279,15 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             let s = (*amount * p.x).sin();
             let q = Vec3::new(c * p.x - s * p.y, s * p.x + c * p.y, p.z);
             eval_distance(inner, q)
+        }
+
+        SdfOp::Displacement { inner, amount, frequency } => {
+            // Simple noise-based displacement
+            let d = eval_distance(inner, p);
+            let noise = (p.x * *frequency).sin()
+                * (p.y * *frequency * 1.1).sin()
+                * (p.z * *frequency * 0.9).sin();
+            d + *amount * noise
         }
 
         // === Repetition ===
@@ -407,6 +424,12 @@ fn eval_bounds(op: &SdfOp) -> Aabb {
 
         SdfOp::SmoothIntersect { a, .. } => eval_bounds(a),
 
+        SdfOp::Xor { a, b } => {
+            // XOR result is bounded by the union of both shapes
+            // since any point can only be in the non-overlapping regions
+            eval_bounds(a).union(&eval_bounds(b))
+        }
+
         // Modifiers
         SdfOp::Shell { inner, thickness } => eval_bounds(inner).expand(*thickness),
 
@@ -456,6 +479,11 @@ fn eval_bounds(op: &SdfOp) -> Aabb {
         SdfOp::Twist { inner, .. } | SdfOp::Bend { inner, .. } => {
             // Conservative bounds for deformations
             eval_bounds(inner).expand(0.5)
+        }
+
+        SdfOp::Displacement { inner, amount, .. } => {
+            // Displacement can push the surface outward by at most the amount
+            eval_bounds(inner).expand(amount.abs())
         }
 
         // Repetition
