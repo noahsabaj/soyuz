@@ -351,7 +351,7 @@ pub async fn search_files(workspace: &Path, query: &str) -> Vec<FileResult> {
     }
 
     // Sort by score descending
-    results.sort_by(|a, b| b.score.cmp(&a.score));
+    results.sort_by_key(|result| std::cmp::Reverse(result.score));
 
     // Limit results
     results.truncate(30);
