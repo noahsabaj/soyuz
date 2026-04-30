@@ -358,26 +358,24 @@ impl ApplicationHandler for WatchApp<'_> {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.controller.handle_modifiers(&modifiers);
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed {
-                    match event.logical_key {
-                        Key::Named(NamedKey::Escape) => {
-                            event_loop.exit();
-                        }
-                        Key::Character(ref c) if c == "r" || c == "R" => {
-                            if self.controller.input.shift_held {
-                                // Shift+R = force reload script
-                                self.reload_script();
-                            } else {
-                                // R = reset camera
-                                self.controller.reset_camera();
-                            }
-                        }
-                        Key::Character(ref c) if c == "f" || c == "F" => {
-                            self.controller.focus_origin();
-                        }
-                        _ => {}
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                match event.logical_key {
+                    Key::Named(NamedKey::Escape) => {
+                        event_loop.exit();
                     }
+                    Key::Character(ref c) if c == "r" || c == "R" => {
+                        if self.controller.input.shift_held {
+                            // Shift+R = force reload script
+                            self.reload_script();
+                        } else {
+                            // R = reset camera
+                            self.controller.reset_camera();
+                        }
+                    }
+                    Key::Character(ref c) if c == "f" || c == "F" => {
+                        self.controller.focus_origin();
+                    }
+                    _ => {}
                 }
             }
             _ => {}

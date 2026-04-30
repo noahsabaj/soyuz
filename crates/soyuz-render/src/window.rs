@@ -267,20 +267,18 @@ impl ApplicationHandler for PreviewApp<'_> {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.controller.handle_modifiers(&modifiers);
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed {
-                    match event.logical_key {
-                        Key::Named(NamedKey::Escape) => {
-                            event_loop.exit();
-                        }
-                        Key::Character(ref c) if c == "r" || c == "R" => {
-                            self.controller.reset_camera();
-                        }
-                        Key::Character(ref c) if c == "f" || c == "F" => {
-                            self.controller.focus_origin();
-                        }
-                        _ => {}
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                match event.logical_key {
+                    Key::Named(NamedKey::Escape) => {
+                        event_loop.exit();
                     }
+                    Key::Character(ref c) if c == "r" || c == "R" => {
+                        self.controller.reset_camera();
+                    }
+                    Key::Character(ref c) if c == "f" || c == "F" => {
+                        self.controller.focus_origin();
+                    }
+                    _ => {}
                 }
             }
             _ => {}

@@ -425,23 +425,19 @@ impl ApplicationHandler for EmbeddedPreviewApp {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.controller.handle_modifiers(&modifiers);
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed {
-                    match event.logical_key {
-                        Key::Named(NamedKey::Escape) => {
-                            // Only close on Escape if not embedded
-                            if !self.is_embedded {
-                                event_loop.exit();
-                            }
-                        }
-                        Key::Character(ref c) if c == "r" || c == "R" => {
-                            self.controller.reset_camera();
-                        }
-                        Key::Character(ref c) if c == "f" || c == "F" => {
-                            self.controller.focus_origin();
-                        }
-                        _ => {}
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                match event.logical_key {
+                    // Only close on Escape if not embedded.
+                    Key::Named(NamedKey::Escape) if !self.is_embedded => {
+                        event_loop.exit();
                     }
+                    Key::Character(ref c) if c == "r" || c == "R" => {
+                        self.controller.reset_camera();
+                    }
+                    Key::Character(ref c) if c == "f" || c == "F" => {
+                        self.controller.focus_origin();
+                    }
+                    _ => {}
                 }
             }
             _ => {}
