@@ -33,6 +33,8 @@ bytemuck = { workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

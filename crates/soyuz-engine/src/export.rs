@@ -5,58 +5,11 @@
 
 use crate::scene::Scene;
 use anyhow::Result;
-use soyuz_core::export::MeshExport;
+use soyuz_core::export::{ExportFormat, MeshExport};
 use soyuz_core::mesh::{Mesh, MeshConfig, OptimizeConfig, SdfToMesh};
 use soyuz_core::sdf::Sdf;
 use soyuz_script::CpuSdf;
-use std::path::{Path, PathBuf};
-
-/// Supported export file formats
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ExportFormat {
-    /// GLB (binary glTF)
-    #[default]
-    Glb,
-
-    /// glTF (JSON + separate binary)
-    Gltf,
-
-    /// Wavefront OBJ
-    Obj,
-
-    /// STL (stereolithography, for 3D printing)
-    Stl,
-}
-
-impl ExportFormat {
-    /// Get the file extension for this format
-    pub fn extension(&self) -> &'static str {
-        match self {
-            ExportFormat::Glb => "glb",
-            ExportFormat::Gltf => "gltf",
-            ExportFormat::Obj => "obj",
-            ExportFormat::Stl => "stl",
-        }
-    }
-
-    /// Parse format from file extension
-    pub fn from_extension(ext: &str) -> Option<Self> {
-        match ext.to_lowercase().as_str() {
-            "glb" => Some(ExportFormat::Glb),
-            "gltf" => Some(ExportFormat::Gltf),
-            "obj" => Some(ExportFormat::Obj),
-            "stl" => Some(ExportFormat::Stl),
-            _ => None,
-        }
-    }
-
-    /// Infer format from a file path
-    pub fn from_path(path: &Path) -> Option<Self> {
-        path.extension()
-            .and_then(|e| e.to_str())
-            .and_then(Self::from_extension)
-    }
-}
+use std::path::PathBuf;
 
 /// Options for mesh export
 #[derive(Debug, Clone)]
@@ -105,7 +58,8 @@ impl ExportOptions {
 
     /// Get the effective format (explicit or inferred from path)
     pub fn effective_format(&self) -> Option<ExportFormat> {
-        self.format.or_else(|| ExportFormat::from_path(&self.path))
+        self.format
+            .or_else(|| ExportFormat::from_extension(&self.path))
     }
 }
 
@@ -195,17 +149,20 @@ pub fn export_scene(scene: &Scene, options: &ExportOptions) -> Result<ExportResu
 }
 
 /// Export a scene with simple parameters (convenience function)
-pub fn quick_export(scene: &Scene, path: impl Into<PathBuf>, resolution: u32) -> Result<ExportResult> {
-    export_scene(
-        scene,
-        &ExportOptions::new(path).with_resolution(resolution),
-    )
+pub fn quick_export(
+    scene: &Scene,
+    path: impl Into<PathBuf>,
+    resolution: u32,
+) -> Result<ExportResult> {
+    export_scene(scene, &ExportOptions::new(path).with_resolution(resolution))
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use soyuz_sdf::SdfOp;
+    use std::path::Path;
 
     #[test]
     fn test_format_extension() {
@@ -216,24 +173,24 @@ mod tests {
     }
 
     #[test]
-    fn test_format_from_extension() {
-        assert_eq!(ExportFormat::from_extension("glb"), Some(ExportFormat::Glb));
-        assert_eq!(ExportFormat::from_extension("GLB"), Some(ExportFormat::Glb));
-        assert_eq!(ExportFormat::from_extension("obj"), Some(ExportFormat::Obj));
-        assert_eq!(ExportFormat::from_extension("xyz"), None);
+    fn test_format_from_str_ext() {
+        assert_eq!(ExportFormat::from_str_ext("glb"), Some(ExportFormat::Glb));
+        assert_eq!(ExportFormat::from_str_ext("GLB"), Some(ExportFormat::Glb));
+        assert_eq!(ExportFormat::from_str_ext("obj"), Some(ExportFormat::Obj));
+        assert_eq!(ExportFormat::from_str_ext("xyz"), None);
     }
 
     #[test]
-    fn test_format_from_path() {
+    fn test_format_from_extension() {
         assert_eq!(
-            ExportFormat::from_path(Path::new("model.glb")),
+            ExportFormat::from_extension(Path::new("model.glb")),
             Some(ExportFormat::Glb)
         );
         assert_eq!(
-            ExportFormat::from_path(Path::new("/path/to/mesh.stl")),
+            ExportFormat::from_extension(Path::new("/path/to/mesh.stl")),
             Some(ExportFormat::Stl)
         );
-        assert_eq!(ExportFormat::from_path(Path::new("noext")), None);
+        assert_eq!(ExportFormat::from_extension(Path::new("noext")), None);
     }
 
     #[test]
@@ -251,7 +208,10 @@ mod tests {
 
     #[test]
     fn test_generate_mesh() {
-        let scene = Scene::new(SdfOp::Sphere { radius: 0.5 }, soyuz_sdf::Environment::default());
+        let scene = Scene::new(
+            SdfOp::Sphere { radius: 0.5 },
+            soyuz_sdf::Environment::default(),
+        );
 
         let config = MeshConfig::default().with_resolution(16);
         let mesh = generate_mesh_from_scene(&scene, config);

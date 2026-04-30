@@ -17,16 +17,16 @@
 /* Dropdown container - positioned below the titlebar */
 .container {
     position: fixed;
-    top: 42px; /* Just below titlebar (38px) + small gap */
+    top: 38px;
     left: 50%;
     transform: translateX(-50%);
-    width: 550px;
+    width: 620px;
     max-width: 90vw;
     max-height: calc(100vh - 100px);
-    background: var(--bg-secondary);
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.1);
+    border-radius: 5px;
+    box-shadow: 0 4px 16px var(--shadow-medium), 0 0 0 1px var(--shadow-subtle);
     z-index: 1001;
     display: flex;
     flex-direction: column;
@@ -36,10 +36,10 @@
 .input-row {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
+    padding: 7px 10px;
     border-bottom: 1px solid var(--border);
     gap: 8px;
-    background: var(--bg-primary);
+    background: var(--bg-elevated);
 }
 
 .input {
@@ -71,17 +71,17 @@
 .item {
     display: flex;
     align-items: center;
-    padding: 6px 12px;
+    padding: 5px 12px;
     cursor: pointer;
     gap: 8px;
 }
 
 .item:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--hover-bg);
 }
 
 .item.selected {
-    background: var(--bg-tertiary);
+    background: var(--selection-bg);
 }
 
 .item-label {
@@ -109,7 +109,7 @@
     color: var(--text-muted);
     font-size: 11px;
     padding: 2px 6px;
-    background: var(--bg-primary);
+    background: var(--bg-secondary);
     border-radius: 3px;
 }
 

@@ -31,7 +31,7 @@
 .terminal-panel {
     display: flex;
     flex-direction: column;
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border-top: 1px solid var(--border);
     flex-shrink: 0;
     overflow: hidden;
@@ -43,8 +43,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 12px;
-    height: 30px;
-    background: var(--bg-tertiary);
+    height: 28px;
+    background: var(--bg-elevated);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
@@ -86,7 +86,7 @@
 }
 
 .action-btn:hover {
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     color: var(--text-primary);
 }
 
@@ -115,7 +115,7 @@
 }
 
 .entry:hover {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--subtle-bg);
 }
 
 /* Timestamp */
@@ -136,8 +136,8 @@
 .trace .level { color: var(--text-muted); }
 .debug .level { color: var(--text-secondary); }
 .info .level { color: var(--accent); }
-.warn .level { color: var(--warning, #f9e2af); }
-.error .level { color: var(--error, #f38ba8); }
+.warn .level { color: var(--warning); }
+.error .level { color: var(--error); }
 
 /* Message content */
 .message {
@@ -147,11 +147,11 @@
 
 /* Error entries have subtle background */
 .entry.error {
-    background: rgba(243, 139, 168, 0.05);
+    background: var(--error-subtle-bg);
 }
 
 .entry.warn {
-    background: rgba(249, 226, 175, 0.03);
+    background: var(--warning-subtle-bg);
 }
 
 /* Filter container */
@@ -185,7 +185,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 6px 0;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px var(--shadow-medium);
 }
 
 /* Individual filter item */
@@ -221,9 +221,9 @@
 }
 
 .filter-label.warn {
-    color: var(--warning, #f9e2af);
+    color: var(--warning);
 }
 
 .filter-label.error {
-    color: var(--error, #f38ba8);
+    color: var(--error);
 }

@@ -499,14 +499,21 @@ impl WgslGenerator {
                 .unwrap();
                 match profile {
                     RevolveProfile::Circle { radius } => {
-                        writeln!(code, "    let {} = sd_circle_2d({}, {:.6});", var, p2d, radius)
-                            .unwrap();
+                        writeln!(
+                            code,
+                            "    let {} = sd_circle_2d({}, {:.6});",
+                            var, p2d, radius
+                        )
+                        .unwrap();
                     }
                     RevolveProfile::Rectangle { width, height } => {
                         writeln!(
                             code,
                             "    let {} = sd_box_2d({}, vec2<f32>({:.6}, {:.6}));",
-                            var, p2d, width / 2.0, height / 2.0
+                            var,
+                            p2d,
+                            width / 2.0,
+                            height / 2.0
                         )
                         .unwrap();
                     }

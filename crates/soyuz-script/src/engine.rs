@@ -2,15 +2,19 @@
 
 // Raw strings are clearer in test scripts
 // Format inlining not always clearer for error messages
+// Mutex lock only panics if poisoned (another thread panicked), which is unrecoverable
 #![allow(clippy::needless_raw_string_hashes)]
 #![allow(clippy::uninlined_format_args)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::missing_panics_doc)]
 
-use crate::env_api::{get_current_environment, register_env_api, reset_environment};
+use crate::env_api::register_env_api;
 use crate::sdf_api::{RhaiSdf, register_sdf_api};
 use anyhow::{Result, anyhow};
 use rhai::{Dynamic, Engine, Scope};
 use soyuz_sdf::{Environment, SdfOp};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 /// Result of evaluating a script - contains both the SDF and environment settings
 #[derive(Debug, Clone)]
@@ -24,23 +28,25 @@ pub struct SceneResult {
 /// Soyuz script engine for evaluating SDF scripts
 pub struct ScriptEngine {
     engine: Engine,
+    env: Arc<Mutex<Environment>>,
 }
 
 impl ScriptEngine {
     /// Create a new script engine with all SDF and environment functions registered
     pub fn new() -> Self {
         let mut engine = Engine::new();
+        let env = Arc::new(Mutex::new(Environment::default()));
 
         // Register all SDF primitives and operations
         register_sdf_api(&mut engine);
 
         // Register environment configuration API
-        register_env_api(&mut engine);
+        register_env_api(&mut engine, &env);
 
         // Configure engine for better errors
         engine.set_max_expr_depths(64, 64);
 
-        Self { engine }
+        Self { engine, env }
     }
 
     /// Evaluate a script and return the resulting SDF
@@ -55,7 +61,7 @@ impl ScriptEngine {
     /// ```
     pub fn eval_sdf(&self, script: &str) -> Result<RhaiSdf> {
         // Reset environment before evaluation
-        reset_environment();
+        *self.env.lock().unwrap() = Environment::default();
 
         let result: Dynamic = self
             .engine
@@ -106,7 +112,7 @@ impl ScriptEngine {
     /// any environment configuration done in the script.
     pub fn eval_scene(&self, script: &str) -> Result<SceneResult> {
         // Reset environment before evaluation
-        reset_environment();
+        *self.env.lock().unwrap() = Environment::default();
 
         let result: Dynamic = self
             .engine
@@ -130,21 +136,20 @@ impl ScriptEngine {
         })?;
 
         // Get the environment that was configured during script execution
-        let environment = get_current_environment();
+        let environment = self.env.lock().unwrap().clone();
 
         // Convert to SdfOp and validate for invalid float values
         let sdf = rhai_sdf.to_sdf_op();
-        sdf.validate().map_err(|e| anyhow!(
-            "Script produced invalid geometry: {}. \
+        sdf.validate().map_err(|e| {
+            anyhow!(
+                "Script produced invalid geometry: {}. \
             This usually happens when using expressions like 1.0/0.0 (infinity) or 0.0/0.0 (NaN). \
             Please ensure all numeric values are finite.",
-            e
-        ))?;
+                e
+            )
+        })?;
 
-        Ok(SceneResult {
-            sdf,
-            environment,
-        })
+        Ok(SceneResult { sdf, environment })
     }
 
     /// Evaluate a script file and return both SDF and environment settings
@@ -192,12 +197,10 @@ impl ScriptEngine {
         }
 
         // Check for comment-only scripts (no actual code)
-        let has_code = trimmed
-            .lines()
-            .any(|line| {
-                let line = line.trim();
-                !line.is_empty() && !line.starts_with("//")
-            });
+        let has_code = trimmed.lines().any(|line| {
+            let line = line.trim();
+            !line.is_empty() && !line.starts_with("//")
+        });
         if !has_code {
             return Err(anyhow!(
                 "Script contains only comments. Please provide at least one SDF expression."

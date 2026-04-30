@@ -1,67 +1,28 @@
-//! Export window for mesh generation and export
+//! Export panel for mesh generation and export
 //!
-//! Opens a separate OS window for configuring and executing mesh exports.
+//! Renders export controls inside a docked editor tab.
 
 // Closure is required for Dioxus signals
 #![allow(clippy::redundant_closure)]
 // Borrowed format strings are valid for file dialogs
 #![allow(clippy::needless_borrows_for_generic_args)]
 
-use crate::state::{AppState, ExportFormat, ExportSettings, TerminalLevel};
-use dioxus::desktop::{window, Config, LogicalSize, WindowBuilder};
+use crate::services::AppServices;
+use crate::state::{AppStore, ExportFormat, ExportSettings, TerminalLevel};
 use dioxus::prelude::*;
 use std::path::PathBuf;
 use tracing::warn;
 
-/// Open the export window
-pub fn open_export_window(state: Signal<AppState>) {
-
-    // Get initial values from state for the new window
-    let initial_state = state.read();
-    let last_export_dir = initial_state.export_settings.last_export_dir.clone();
-    let current_file = initial_state.current_file();
-    let close_after_export = initial_state.export_settings.close_after_export;
-    let format = initial_state.export_settings.format;
-    let resolution = initial_state.export_settings.resolution;
-    let optimize = initial_state.export_settings.optimize;
-    let code = initial_state.code();
-    drop(initial_state);
-
-    // Compute default path
-    let default_path = compute_default_path(last_export_dir.as_ref(), current_file.as_ref());
-
-    // Compute default filename
-    let default_filename = compute_default_filename(current_file.as_ref(), format);
-
-    // Create the export window component with captured values
-    let dom = VirtualDom::new_with_props(
-        ExportWindow,
-        ExportWindowProps {
-            main_state: state,
-            initial_path: default_path,
-            initial_filename: default_filename,
-            initial_format: format,
-            initial_resolution: resolution,
-            initial_optimize: optimize,
-            initial_close_after: close_after_export,
-            initial_code: code,
-        },
-    );
-
-    let window_builder = WindowBuilder::new()
-        .with_title("Export - Soyuz Studio")
-        .with_inner_size(LogicalSize::new(420.0, 520.0))
-        .with_resizable(true);
-
-    let config = Config::new()
-        .with_window(window_builder)
-        .with_menu(None::<dioxus::desktop::muda::Menu>);
-
-    window().new_window(dom, config);
+/// Open the docked export panel.
+pub fn open_export_panel(mut state: AppStore) {
+    state.write().open_export_tab();
 }
 
 /// Compute the default export path
-fn compute_default_path(last_export_dir: Option<&PathBuf>, current_file: Option<&PathBuf>) -> PathBuf {
+fn compute_default_path(
+    last_export_dir: Option<&PathBuf>,
+    current_file: Option<&PathBuf>,
+) -> PathBuf {
     // 1. Check last_export_dir
     if let Some(dir) = last_export_dir
         && dir.exists()
@@ -82,51 +43,42 @@ fn compute_default_path(last_export_dir: Option<&PathBuf>, current_file: Option<
 
 /// Compute the default filename (without path)
 fn compute_default_filename(current_file: Option<&PathBuf>, format: ExportFormat) -> String {
-    let stem = current_file
-        .and_then(|p| p.file_stem())
-        .map_or_else(|| "untitled".to_string(), |s| s.to_string_lossy().to_string());
+    let stem = current_file.and_then(|p| p.file_stem()).map_or_else(
+        || "untitled".to_string(),
+        |s| s.to_string_lossy().to_string(),
+    );
 
     format!("{}.{}", stem, format.extension())
 }
 
-/// Props for the export window
-#[derive(Clone, PartialEq, Props)]
-struct ExportWindowProps {
-    main_state: Signal<AppState>,
-    initial_path: PathBuf,
-    initial_filename: String,
-    initial_format: ExportFormat,
-    initial_resolution: u32,
-    initial_optimize: bool,
-    initial_close_after: bool,
-    initial_code: String,
-}
-
-/// The export window component
+/// The export panel component.
 #[component]
-fn ExportWindow(props: ExportWindowProps) -> Element {
-    // Local state for the export window
-    let mut export_path = use_signal(|| props.initial_path.clone());
-    let mut filename = use_signal(|| props.initial_filename.clone());
-    let mut format = use_signal(|| props.initial_format);
-    let mut resolution = use_signal(|| props.initial_resolution);
-    let mut optimize = use_signal(|| props.initial_optimize);
-    let mut close_after_export = use_signal(|| props.initial_close_after);
+pub fn ExportPanel() -> Element {
+    let state = use_context::<AppStore>();
+    let initial_state = state.read();
+    let initial_source_file = initial_state.source_file();
+    let initial_path = compute_default_path(
+        initial_state.export_settings.last_export_dir.as_ref(),
+        initial_source_file.as_ref(),
+    );
+    let initial_format = initial_state.export_settings.format;
+    let initial_filename = compute_default_filename(initial_source_file.as_ref(), initial_format);
+    let initial_resolution = initial_state.export_settings.resolution;
+    let initial_optimize = initial_state.export_settings.optimize;
+    let initial_code = initial_state.source_code();
+    drop(initial_state);
+
+    // Local state for the export panel.
+    let mut export_path = use_signal(|| initial_path.clone());
+    let mut filename = use_signal(|| initial_filename.clone());
+    let mut format = use_signal(|| initial_format);
+    let mut resolution = use_signal(|| initial_resolution);
+    let mut optimize = use_signal(|| initial_optimize);
     let mut is_exporting = use_signal(|| false);
     let mut status_message = use_signal(|| None::<String>);
-    let code = use_signal(|| props.initial_code.clone());
-    let mut main_state = props.main_state;
-
-    // Resize window when STL is selected (to accommodate the info message)
-    use_effect(move || {
-        let current_format = *format.read();
-        let height = if current_format == ExportFormat::Stl {
-            580.0 // Taller to fit the STL info message
-        } else {
-            520.0 // Standard height
-        };
-        window().set_inner_size(LogicalSize::new(420.0, height));
-    });
+    let code = use_signal(|| initial_code.clone());
+    let mut main_state = state;
+    let services = use_context::<AppServices>();
 
     // Handler for format change - updates filename extension
     let on_format_change = move |new_format: ExportFormat| {
@@ -160,7 +112,7 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
     };
 
     // Export handler
-    let do_export = move |action: ExportAction| {
+    let do_export = std::rc::Rc::new(move |action: ExportAction| {
         let path = export_path.read().clone();
         let name = filename.read().clone();
         let full_path = path.join(&name);
@@ -172,24 +124,21 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
             resolution: export_resolution,
             optimize: export_optimize,
             last_export_dir: Some(path.clone()),
-            close_after_export: *close_after_export.read(),
+            close_after_export: false,
         };
         let export_code = code.read().clone();
-        let should_close = *close_after_export.read();
 
         // Clone path for use after spawn_blocking
         let path_for_state = path.clone();
         let full_path_for_action = full_path.clone();
+        let services = services.clone();
 
         spawn(async move {
             is_exporting.set(true);
             status_message.set(Some("Generating mesh...".to_string()));
 
             // Log to terminal
-            main_state.read().terminal_log(
-                TerminalLevel::Info,
-                format!("Exporting to {}...", name),
-            );
+            services.terminal_log(TerminalLevel::Info, format!("Exporting to {}...", name));
 
             let result = tokio::task::spawn_blocking(move || {
                 export_mesh(&export_code, &full_path, &settings)
@@ -199,15 +148,13 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
             match result {
                 Ok(Ok(info)) => {
                     // Log success to terminal
-                    main_state.read().terminal_log(
-                        TerminalLevel::Info,
-                        format!("Export complete: {}", info),
-                    );
+                    services
+                        .terminal_log(TerminalLevel::Info, format!("Export complete: {}", info));
                     status_message.set(Some(format!("Exported: {}", info)));
 
                     // Update main state with last export directory
-                    main_state.write().export_settings.last_export_dir = Some(path_for_state.clone());
-                    main_state.write().export_settings.close_after_export = should_close;
+                    main_state.write().export_settings.last_export_dir =
+                        Some(path_for_state.clone());
                     main_state.write().export_settings.format = export_format;
                     main_state.write().export_settings.resolution = export_resolution;
                     main_state.write().export_settings.optimize = export_optimize;
@@ -215,56 +162,38 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
                     // Handle post-export action
                     match action {
                         ExportAction::Export => {
-                            if should_close {
-                                window().close();
-                            }
+                            // Docked export stays open for repeated exports.
                         }
                         ExportAction::ExportAndOpenFolder => {
                             open_folder(&path_for_state);
-                            if should_close {
-                                window().close();
-                            }
                         }
                         ExportAction::ExportAndOpenFile => {
                             open_file(&full_path_for_action);
-                            if should_close {
-                                window().close();
-                            }
                         }
                     }
                 }
                 Ok(Err(e)) => {
                     // Log error to terminal
-                    main_state.read().terminal_log(
-                        TerminalLevel::Error,
-                        format!("Export failed: {}", e),
-                    );
+                    services.terminal_log(TerminalLevel::Error, format!("Export failed: {}", e));
                     status_message.set(Some(format!("Error: {}", e)));
                 }
                 Err(e) => {
                     // Log error to terminal
-                    main_state.read().terminal_log(
-                        TerminalLevel::Error,
-                        format!("Export task failed: {}", e),
-                    );
+                    services
+                        .terminal_log(TerminalLevel::Error, format!("Export task failed: {}", e));
                     status_message.set(Some(format!("Error: {}", e)));
                 }
             }
 
             is_exporting.set(false);
         });
-    };
+    });
 
     // Check if STL format (no material support)
     let is_stl = *format.read() == ExportFormat::Stl;
 
     rsx! {
-        // Theme CSS for variables (inline since this is a separate window)
-        style { {include_str!("../../assets/theme.css")} }
-        // Component-specific styles
-        style { {include_str!("export.module.css")} }
-
-        div { class: "window",
+        div { class: "export-panel window",
             // Save Location
             div { class: "section",
                 label { class: "section-label", "Save Location" }
@@ -368,17 +297,6 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
                     label { r#for: "optimize", "Optimize mesh" }
                 }
 
-                div { class: "option",
-                    input {
-                        r#type: "checkbox",
-                        id: "close-after",
-                        checked: *close_after_export.read(),
-                        onchange: move |evt| {
-                            close_after_export.set(evt.checked());
-                        }
-                    }
-                    label { r#for: "close-after", "Close after export" }
-                }
             }
 
             // Export buttons
@@ -386,19 +304,28 @@ fn ExportWindow(props: ExportWindowProps) -> Element {
                 button {
                     class: "btn-primary",
                     disabled: *is_exporting.read(),
-                    onclick: move |_| do_export(ExportAction::Export),
+                    onclick: {
+                        let do_export = do_export.clone();
+                        move |_| do_export(ExportAction::Export)
+                    },
                     if *is_exporting.read() { "Exporting..." } else { "Export" }
                 }
                 button {
                     class: "btn-secondary",
                     disabled: *is_exporting.read(),
-                    onclick: move |_| do_export(ExportAction::ExportAndOpenFolder),
+                    onclick: {
+                        let do_export = do_export.clone();
+                        move |_| do_export(ExportAction::ExportAndOpenFolder)
+                    },
                     "& Open Folder"
                 }
                 button {
                     class: "btn-secondary",
                     disabled: *is_exporting.read(),
-                    onclick: move |_| do_export(ExportAction::ExportAndOpenFile),
+                    onclick: {
+                        let do_export = do_export.clone();
+                        move |_| do_export(ExportAction::ExportAndOpenFile)
+                    },
                     "& Open"
                 }
             }
@@ -430,7 +357,11 @@ fn FormatButton(
     on_select: EventHandler<ExportFormat>,
 ) -> Element {
     let is_selected = format == current;
-    let class = if is_selected { "format-btn active" } else { "format-btn" };
+    let class = if is_selected {
+        "format-btn active"
+    } else {
+        "format-btn"
+    };
 
     rsx! {
         button {

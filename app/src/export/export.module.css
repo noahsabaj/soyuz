@@ -1,6 +1,5 @@
 /*
- * Export Window - Mesh export configuration component styles
- * Styles for the ExportWindow component (separate OS window).
+ * ExportPanel - Mesh export configuration component styles
  */
 
 /* Base styles for the export window */
@@ -22,10 +21,16 @@ body {
 .window {
     display: flex;
     flex-direction: column;
-    padding: 16px;
-    gap: 16px;
-    height: 100vh;
-    overflow: hidden;
+    padding: 18px 24px;
+    gap: 14px;
+    height: 100%;
+    overflow: auto;
+}
+
+.export-panel {
+    width: min(720px, 100%);
+    margin: 0 auto;
+    background: var(--bg-primary);
 }
 
 .section {
@@ -52,7 +57,7 @@ body {
 .path-input {
     flex: 1;
     padding: 8px 12px;
-    background: var(--bg-secondary);
+    background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-primary);
@@ -66,8 +71,8 @@ body {
 }
 
 .browse-btn {
-    padding: 8px 14px;
-    background: var(--bg-tertiary);
+    padding: 6px 12px;
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-primary);
@@ -78,7 +83,7 @@ body {
 }
 
 .browse-btn:hover {
-    background: var(--accent);
+    background: var(--bg-tertiary);
     border-color: var(--accent);
 }
 
@@ -87,7 +92,7 @@ body {
 .filename-input {
     width: 100%;
     padding: 8px 12px;
-    background: var(--bg-secondary);
+    background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-primary);
@@ -110,7 +115,7 @@ body {
 .format-btn {
     flex: 1;
     padding: 8px 12px;
-    background: var(--bg-secondary);
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-secondary);
@@ -128,7 +133,7 @@ body {
 .format-btn.active {
     background: var(--accent);
     border-color: var(--accent);
-    color: var(--bg-primary);
+    color: white;
 }
 
 /* ==================== Info Message ==================== */
@@ -194,7 +199,7 @@ body {
 .actions {
     display: flex;
     gap: 8px;
-    margin-top: auto;
+    margin-top: 8px;
     padding-top: 16px;
 }
 
@@ -223,7 +228,7 @@ body {
 .btn-secondary {
     flex: 1;
     padding: 10px 12px;
-    background: var(--bg-tertiary);
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--text-primary);
@@ -234,7 +239,7 @@ body {
 }
 
 .btn-secondary:hover:not(:disabled) {
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     border-color: var(--accent);
 }
 
@@ -247,7 +252,7 @@ body {
 
 .status {
     padding: 8px 12px;
-    background: var(--bg-secondary);
+    background: var(--bg-elevated);
     border-radius: 4px;
     font-size: 12px;
     color: var(--text-secondary);

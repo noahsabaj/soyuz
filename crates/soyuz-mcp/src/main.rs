@@ -27,15 +27,13 @@ use rmcp::transport::io::stdio;
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
 
-use soyuz_mcp::state::SoyuzState;
 use soyuz_mcp::SoyuzMcpService;
+use soyuz_mcp::state::SoyuzState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // CRITICAL: Log to stderr only - stdout is reserved for MCP JSON-RPC
-    let stderr_layer = fmt::layer()
-        .with_writer(std::io::stderr)
-        .with_ansi(false);
+    let stderr_layer = fmt::layer().with_writer(std::io::stderr).with_ansi(false);
 
     tracing_subscriber::registry()
         .with(stderr_layer)

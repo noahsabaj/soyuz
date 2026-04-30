@@ -12,6 +12,7 @@
 #![allow(clippy::manual_div_ceil)]
 
 use crate::camera::Camera;
+use crate::theme_generated;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use soyuz_sdf::{Environment, EnvironmentUniforms, SdfOp, build_shader, get_base_shader};
@@ -125,7 +126,7 @@ impl Raymarcher {
             queue,
             surface_format,
             shader_source,
-            Environment::default(),
+            theme_generated::default_environment(),
         )
     }
 
@@ -319,12 +320,7 @@ impl Raymarcher {
                     view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.1,
-                            b: 0.1,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(theme_generated::RENDER_CLEAR_COLOR),
                         store: wgpu::StoreOp::Store,
                     },
                 })],

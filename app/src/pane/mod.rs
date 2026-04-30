@@ -9,8 +9,9 @@
 
 use crate::js_interop::{self, position_to_line_col};
 use crate::markdown_panel::MarkdownPanel;
+use crate::services::AppServices;
 use crate::settings_panel::SettingsPanel;
-use crate::state::{AppState, EditorPane, EditorTab, PaneId, SplitDirection, TabId};
+use crate::state::{AppStore, EditorPane, EditorTab, PaneId, SplitDirection, TabId};
 use dioxus::prelude::*;
 
 /// State for tab drag-and-drop operations (shared via context)
@@ -67,14 +68,15 @@ fn WelcomeScreen() -> Element {
 /// Render the entire pane tree recursively
 #[component]
 pub fn PaneTree() -> Element {
-    let state = use_context::<Signal<AppState>>();
+    let state = use_context::<AppStore>();
 
     // Memoize the pane tree clone to avoid cloning on every render
     // Only re-clones when the pane structure actually changes
     let pane = use_memo(move || state.read().editor_pane.clone());
 
     // Provide drag state context for all child components
-    let _drag_state: Signal<TabDragState> = use_context_provider(|| Signal::new(TabDragState::default()));
+    let _drag_state: Signal<TabDragState> =
+        use_context_provider(|| Signal::new(TabDragState::default()));
 
     rsx! {
         div { class: "pane-tree",
@@ -122,15 +124,20 @@ fn PaneView(pane: EditorPane) -> Element {
 #[derive(Clone, Copy, Default)]
 struct ResizeState {
     active: bool,
-    start_mouse_pos: f64,   // Mouse position when drag started
-    start_ratio: f32,       // Ratio when drag started
-    container_width: f64,   // Estimated container width
+    start_mouse_pos: f64, // Mouse position when drag started
+    start_ratio: f32,     // Ratio when drag started
+    container_width: f64, // Estimated container width
 }
 
 /// A split container with two child panes and a resizable handle
 #[component]
-fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, ratio: f32) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+fn SplitPane(
+    direction: SplitDirection,
+    first: EditorPane,
+    second: EditorPane,
+    ratio: f32,
+) -> Element {
+    let mut state = use_context::<AppStore>();
     let mut resize_state = use_signal(ResizeState::default);
 
     // Generate a stable ID for this split container based on first pane's ID
@@ -238,7 +245,7 @@ fn SplitPane(direction: SplitDirection, first: EditorPane, second: EditorPane, r
 /// A single tab group pane with tabs and editor
 #[component]
 fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
     let mut drag_state = use_context::<Signal<TabDragState>>();
     let tabs_len = tabs.len();
 
@@ -246,7 +253,11 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
 
     // If no tabs, show welcome screen (VSCode behavior)
     if tabs.is_empty() {
-        let pane_class = if is_focused { "editor-pane focused" } else { "editor-pane" };
+        let pane_class = if is_focused {
+            "editor-pane focused"
+        } else {
+            "editor-pane"
+        };
         return rsx! {
             div {
                 class: pane_class,
@@ -270,6 +281,8 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
     let code = active_tab.map(|t| t.content.clone()).unwrap_or_default();
     let active_tab_id = active_tab.map(|t| t.id).unwrap_or(0);
     let is_settings_tab = active_tab.map(|t| t.is_settings()).unwrap_or(false);
+    let is_preview_tab = active_tab.map(|t| t.is_preview()).unwrap_or(false);
+    let is_export_tab = active_tab.map(|t| t.is_export()).unwrap_or(false);
     let markdown_doc = active_tab.and_then(|t| t.markdown_doc());
 
     // Check if editor content is a drop target
@@ -283,7 +296,11 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
         highlight_rhai(&code_for_highlight)
     }));
 
-    let pane_class = if is_focused { "editor-pane focused" } else { "editor-pane" };
+    let pane_class = if is_focused {
+        "editor-pane focused"
+    } else {
+        "editor-pane"
+    };
 
     let content_wrapper_class = if is_content_drop_target {
         "editor-content-wrapper drop-target"
@@ -330,6 +347,10 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
                 // Render panel based on tab type
                 if is_settings_tab {
                     SettingsPanel {}
+                } else if is_preview_tab {
+                    crate::preview::PreviewPanel {}
+                } else if is_export_tab {
+                    crate::export::ExportPanel {}
                 } else if let Some(doc) = markdown_doc {
                     MarkdownPanel { doc }
                 } else {
@@ -348,7 +369,8 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
 /// Tab bar with tabs and action buttons
 #[component]
 fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused: bool) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
     let mut drag_state = use_context::<Signal<TabDragState>>();
     let tabs_len = tabs.len();
 
@@ -381,7 +403,12 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                     let is_dirty = tab.is_dirty;
                     let is_active = tab_id == active_tab_id;
                     let is_settings = tab.is_settings();
+                    let is_preview = tab.is_preview();
+                    let is_export = tab.is_export();
                     let is_markdown = tab.is_markdown();
+                    let services_for_middle = services.clone();
+                    let services_for_switch = services.clone();
+                    let services_for_close = services.clone();
 
                     // Determine CSS classes based on drag state
                     let ds = drag_state.read();
@@ -443,12 +470,20 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                                 // Middle button (button index 1)
                                 if evt.trigger_button() == Some(dioxus_elements::input_data::MouseButton::Auxiliary) {
                                     evt.stop_propagation();
+                                    if is_preview {
+                                        crate::preview::stop_preview(state, &services_for_middle);
+                                    }
                                     state.write().close_tab_in_pane(pane_id, tab_id);
                                 }
                             },
 
                             // Left-click to switch tab
-                            onclick: move |_| { state.write().switch_to_tab(tab_id); },
+                            onclick: move |_| {
+                                if !is_preview {
+                                    crate::preview::stop_preview(state, &services_for_switch);
+                                }
+                                state.write().switch_to_tab(tab_id);
+                            },
 
                             span { class: "tab-name",
                                 // Gear icon for Settings tab
@@ -457,6 +492,12 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                                         class: "tab-icon settings-icon",
                                         dangerous_inner_html: include_str!("../../assets/gear.svg")
                                     }
+                                }
+                                if is_preview {
+                                    span { class: "tab-icon preview-icon", "P" }
+                                }
+                                if is_export {
+                                    span { class: "tab-icon export-icon", "E" }
                                 }
                                 // Book icon for markdown tabs (Cookbook, README, etc.)
                                 if is_markdown {
@@ -474,6 +515,9 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                                 class: "tab-close",
                                 onclick: move |evt| {
                                     evt.stop_propagation();
+                                    if is_preview {
+                                        crate::preview::stop_preview(state, &services_for_close);
+                                    }
                                     state.write().close_tab_in_pane(pane_id, tab_id);
                                 },
                                 "x"
@@ -542,7 +586,8 @@ fn EditorArea(
     active_tab_id: u64,
     highlighted_html: String,
 ) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
     let editor_id = format!("editor-{}", pane_id);
 
     rsx! {
@@ -578,9 +623,11 @@ fn EditorArea(
                     },
                     oninput: {
                         let editor_id = editor_id.clone();
+                        let services = services.clone();
                         move |evt| {
                             let new_code = evt.value().clone();
                             state.write().set_code(new_code.clone());
+                            services.mark_preview_dirty();
                             update_cursor_position(state, &editor_id, &new_code);
                         }
                     },
@@ -595,8 +642,15 @@ fn EditorArea(
                         move |_| { update_cursor_position(state, &editor_id, &code); }
                     },
                     onkeydown: {
+                        let services = services.clone();
                         move |evt| {
-                            handle_editor_keydown(state, pane_id, active_tab_id, &evt);
+                            handle_editor_keydown(
+                                state,
+                                &services,
+                                pane_id,
+                                active_tab_id,
+                                &evt,
+                            );
                         }
                     },
                 }
@@ -606,7 +660,7 @@ fn EditorArea(
 }
 
 /// Update cursor position from the DOM
-fn update_cursor_position(mut state: Signal<AppState>, editor_id: &str, code: &str) {
+fn update_cursor_position(mut state: AppStore, editor_id: &str, code: &str) {
     let editor_id = editor_id.to_string();
     let code = code.to_string();
     spawn(async move {
@@ -619,14 +673,16 @@ fn update_cursor_position(mut state: Signal<AppState>, editor_id: &str, code: &s
 
 /// Handle keyboard shortcuts in the editor
 fn handle_editor_keydown(
-    mut state: Signal<AppState>,
+    mut state: AppStore,
+    services: &AppServices,
     pane_id: PaneId,
     active_tab_id: u64,
     evt: &KeyboardEvent,
 ) {
     // Ctrl+Enter: Run preview
     if evt.modifiers().ctrl() && evt.key() == Key::Enter {
-        state.write().run_preview();
+        evt.prevent_default();
+        crate::preview::open_docked_preview(state, services.clone());
     }
 
     // Ctrl+Z: Undo
@@ -636,6 +692,7 @@ fn handle_editor_keydown(
     {
         evt.prevent_default();
         if let Some((new_content, cursor_pos)) = state.write().undo() {
+            services.mark_preview_dirty();
             spawn(async move {
                 js_interop::set_editor_content(pane_id, &new_content, cursor_pos).await;
             });
@@ -649,6 +706,7 @@ fn handle_editor_keydown(
     {
         evt.prevent_default();
         if let Some((new_content, cursor_pos)) = state.write().redo() {
+            services.mark_preview_dirty();
             spawn(async move {
                 js_interop::set_editor_content(pane_id, &new_content, cursor_pos).await;
             });

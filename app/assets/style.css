@@ -38,18 +38,182 @@
 .panel {
     display: flex;
     flex-direction: column;
-    background: var(--bg-secondary);
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
 }
 
 .explorer-panel {
-    width: 220px;
+    width: 240px;
     min-width: 180px;
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     user-select: none;
     -webkit-user-select: none;
+}
+
+.activity-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 48px;
+    min-width: 48px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    user-select: none;
+}
+
+.activity-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-left: 2px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.activity-item:hover {
+    color: var(--text-primary);
+}
+
+.activity-item.active {
+    border-left-color: var(--text-primary);
+    color: var(--text-primary);
+}
+
+.activity-item svg {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
+}
+
+.activity-item .activity-icon {
+    fill: none;
+    stroke: currentColor;
+}
+
+.activity-item .activity-icon path,
+.activity-item .activity-icon rect,
+.activity-item .activity-icon circle,
+.activity-item .activity-icon line,
+.activity-item .activity-icon polyline {
+    fill: none;
+}
+
+.activity-spacer {
+    flex: 1;
+}
+
+/* ==================== About Dialog ==================== */
+
+.about-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--shadow-medium);
+}
+
+.about-dialog {
+    width: min(420px, calc(100vw - 48px));
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    box-shadow: 0 24px 72px var(--shadow-medium);
+}
+
+.about-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 22px 14px;
+}
+
+.about-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.about-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    color: var(--accent);
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.about-brand h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.about-brand p {
+    margin: 4px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.about-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.about-close:hover {
+    border-color: var(--border);
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.about-description {
+    margin: 0;
+    padding: 0 22px 18px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.about-meta {
+    display: grid;
+    gap: 10px;
+    padding: 16px 22px 22px;
+    border-top: 1px solid var(--border);
+}
+
+.about-meta div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.about-label {
+    color: var(--text-muted);
+    text-transform: uppercase;
 }
 
 .editor-panel {
@@ -62,12 +226,12 @@
 /* ==================== Syntax Highlighting ==================== */
 /* Used by highlight_rhai() for HTML string injection */
 
-.hl-keyword { color: #cba6f7; }
-.hl-builtin { color: #89b4fa; }
-.hl-string { color: #a6e3a1; }
-.hl-number { color: #fab387; }
-.hl-comment { color: #6c7086; font-style: italic; }
-.hl-operator { color: #89dceb; }
+.hl-keyword { color: var(--syntax-keyword); }
+.hl-builtin { color: var(--syntax-builtin); }
+.hl-string { color: var(--syntax-string); }
+.hl-number { color: var(--syntax-number); }
+.hl-comment { color: var(--syntax-comment); font-style: italic; }
+.hl-operator { color: var(--syntax-operator); }
 
 /* ==================== Error Boundary ==================== */
 
@@ -128,7 +292,7 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(243, 139, 168, 0.05);
+    background: var(--error-subtle-bg);
     border: 1px solid var(--error);
     border-radius: 6px;
     margin: 8px;

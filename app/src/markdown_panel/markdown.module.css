@@ -6,9 +6,67 @@
 
 .markdown-panel {
     height: 100%;
-    overflow-y: auto;
     background: var(--bg-primary);
     scroll-behavior: smooth;
+}
+
+.docs-browser {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    min-height: 0;
+}
+
+.docs-single-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+}
+
+.docs-sidebar {
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    background: var(--bg-secondary);
+    padding: 8px 0;
+}
+
+.docs-nav-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 8px 14px;
+    border: 0;
+    border-left: 2px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.docs-nav-item:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.docs-nav-item.active {
+    border-left-color: var(--accent);
+    background: var(--menu-active-bg);
+    color: var(--text-primary);
+}
+
+.docs-nav-section {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.docs-nav-title {
+    font-size: 12px;
+}
+
+.docs-content-scroll {
+    min-width: 0;
+    overflow-y: auto;
 }
 
 .content {

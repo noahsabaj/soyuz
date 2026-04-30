@@ -44,6 +44,7 @@
 //! required for GPU shader compatibility. For most use cases,
 //! the precision loss is negligible.
 
+pub mod api_generated;
 pub mod cpu_eval;
 pub mod engine;
 pub mod env_api;
@@ -54,7 +55,7 @@ pub mod watcher;
 
 pub use cpu_eval::CpuSdf;
 pub use engine::{SceneResult, ScriptEngine};
-pub use env_api::{get_current_environment, register_env_api, reset_environment};
+pub use env_api::register_env_api;
 pub use sdf_api::{RhaiSdf, register_sdf_api};
 
 #[cfg(feature = "file-watcher")]

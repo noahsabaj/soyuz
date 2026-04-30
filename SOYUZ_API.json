@@ -1,0 +1,617 @@
+{
+  "categories": [
+    {
+      "id": "primitives",
+      "title": "Primitives",
+      "functions": [
+        {
+          "name": "sphere",
+          "signature": "sphere(radius: f64) -> Sdf",
+          "description": "Creates a sphere centered at the origin.",
+          "example": "sphere(0.5)",
+          "kind": "constructor"
+        },
+        {
+          "name": "cube",
+          "signature": "cube(size: f64) -> Sdf",
+          "description": "Creates a cube with equal sides, centered at the origin.",
+          "example": "cube(1.0)",
+          "kind": "constructor"
+        },
+        {
+          "name": "box3",
+          "signature": "box3(width: f64, height: f64, depth: f64) -> Sdf",
+          "description": "Creates a rectangular box with different dimensions per axis.",
+          "example": "box3(1.0, 0.5, 0.3)",
+          "kind": "constructor"
+        },
+        {
+          "name": "rounded_box",
+          "signature": "rounded_box(width: f64, height: f64, depth: f64, radius: f64) -> Sdf",
+          "description": "Creates a rectangular box with rounded edges.",
+          "example": "rounded_box(1.0, 0.5, 0.3, 0.05)",
+          "kind": "constructor"
+        },
+        {
+          "name": "cylinder",
+          "signature": "cylinder(radius: f64, height: f64) -> Sdf",
+          "description": "Creates a cylinder aligned along the Y axis.",
+          "example": "cylinder(0.3, 1.0)",
+          "kind": "constructor"
+        },
+        {
+          "name": "capsule",
+          "signature": "capsule(radius: f64, height: f64) -> Sdf",
+          "description": "Creates a capsule with hemispherical caps.",
+          "example": "capsule(0.2, 1.0)",
+          "kind": "constructor"
+        },
+        {
+          "name": "torus",
+          "signature": "torus(major_radius: f64, minor_radius: f64) -> Sdf",
+          "description": "Creates a torus in the XZ plane.",
+          "example": "torus(0.5, 0.1)",
+          "kind": "constructor"
+        },
+        {
+          "name": "cone",
+          "signature": "cone(radius: f64, height: f64) -> Sdf",
+          "description": "Creates a cone with its tip at the origin.",
+          "example": "cone(0.3, 1.0)",
+          "kind": "constructor"
+        },
+        {
+          "name": "plane",
+          "signature": "plane(nx: f64, ny: f64, nz: f64, offset: f64) -> Sdf",
+          "description": "Creates an infinite plane from a normal and offset.",
+          "example": "plane(0.0, 1.0, 0.0, 0.0)",
+          "kind": "constructor"
+        },
+        {
+          "name": "ground_plane",
+          "signature": "ground_plane() -> Sdf",
+          "description": "Creates a horizontal ground plane at Y=0.",
+          "example": "ground_plane()",
+          "kind": "constructor"
+        },
+        {
+          "name": "ellipsoid",
+          "signature": "ellipsoid(rx: f64, ry: f64, rz: f64) -> Sdf",
+          "description": "Creates an ellipsoid with different radii per axis.",
+          "example": "ellipsoid(0.5, 0.3, 0.4)",
+          "kind": "constructor"
+        },
+        {
+          "name": "octahedron",
+          "signature": "octahedron(size: f64) -> Sdf",
+          "description": "Creates a regular octahedron.",
+          "example": "octahedron(0.5)",
+          "kind": "constructor"
+        },
+        {
+          "name": "hex_prism",
+          "signature": "hex_prism(radius: f64, height: f64) -> Sdf",
+          "description": "Creates a hexagonal prism.",
+          "example": "hex_prism(0.3, 0.5)",
+          "kind": "constructor"
+        },
+        {
+          "name": "tri_prism",
+          "signature": "tri_prism(width: f64, height: f64) -> Sdf",
+          "description": "Creates a triangular prism.",
+          "example": "tri_prism(0.5, 0.3)",
+          "kind": "constructor"
+        },
+        {
+          "name": "pyramid",
+          "signature": "pyramid(height: f64) -> Sdf",
+          "description": "Creates a square-based pyramid.",
+          "example": "pyramid(1.0)",
+          "kind": "constructor"
+        },
+        {
+          "name": "link",
+          "signature": "link(length: f64, major_radius: f64, minor_radius: f64) -> Sdf",
+          "description": "Creates a chain-link shape.",
+          "example": "link(0.35, 0.3, 0.12)",
+          "kind": "constructor"
+        },
+        {
+          "name": "extrude_circle",
+          "signature": "extrude_circle(radius: f64, depth: f64) -> Sdf",
+          "description": "Extrudes a 2D circle into 3D.",
+          "example": "extrude_circle(0.3, 0.5)",
+          "kind": "constructor"
+        },
+        {
+          "name": "extrude_rect",
+          "signature": "extrude_rect(width: f64, height: f64, depth: f64) -> Sdf",
+          "description": "Extrudes a 2D rectangle into 3D.",
+          "example": "extrude_rect(0.5, 0.3, 0.2)",
+          "kind": "constructor"
+        },
+        {
+          "name": "extrude_rounded_rect",
+          "signature": "extrude_rounded_rect(width: f64, height: f64, radius: f64, depth: f64) -> Sdf",
+          "description": "Extrudes a rounded 2D rectangle into 3D.",
+          "example": "extrude_rounded_rect(0.5, 0.3, 0.05, 0.2)",
+          "kind": "constructor"
+        },
+        {
+          "name": "revolve_circle",
+          "signature": "revolve_circle(radius: f64, offset: f64) -> Sdf",
+          "description": "Revolves a 2D circle around the Y axis.",
+          "example": "revolve_circle(0.1, 0.5)",
+          "kind": "constructor"
+        },
+        {
+          "name": "revolve_rect",
+          "signature": "revolve_rect(width: f64, height: f64, offset: f64) -> Sdf",
+          "description": "Revolves a 2D rectangle around the Y axis.",
+          "example": "revolve_rect(0.2, 0.1, 0.4)",
+          "kind": "constructor"
+        }
+      ]
+    },
+    {
+      "id": "operations",
+      "title": "Boolean Operations",
+      "functions": [
+        {
+          "name": "union",
+          "signature": "sdf.union(other: Sdf) -> Sdf",
+          "description": "Combines two shapes.",
+          "example": "sphere(0.5).union(cube(0.4))",
+          "kind": "method"
+        },
+        {
+          "name": "subtract",
+          "signature": "sdf.subtract(other: Sdf) -> Sdf",
+          "description": "Subtracts one shape from another.",
+          "example": "sphere(0.5).subtract(cube(0.4))",
+          "kind": "method"
+        },
+        {
+          "name": "intersect",
+          "signature": "sdf.intersect(other: Sdf) -> Sdf",
+          "description": "Keeps only the overlapping region of two shapes.",
+          "example": "sphere(0.5).intersect(cube(0.4))",
+          "kind": "method"
+        },
+        {
+          "name": "smooth_union",
+          "signature": "sdf.smooth_union(other: Sdf, k: f64) -> Sdf",
+          "description": "Combines two shapes with a smooth blend.",
+          "example": "sphere(0.5).smooth_union(cube(0.4), 0.1)",
+          "kind": "method"
+        },
+        {
+          "name": "smooth_subtract",
+          "signature": "sdf.smooth_subtract(other: Sdf, k: f64) -> Sdf",
+          "description": "Subtracts one shape from another with smooth edges.",
+          "example": "sphere(0.5).smooth_subtract(cube(0.4), 0.05)",
+          "kind": "method"
+        },
+        {
+          "name": "smooth_intersect",
+          "signature": "sdf.smooth_intersect(other: Sdf, k: f64) -> Sdf",
+          "description": "Intersects two shapes with smooth edges.",
+          "example": "sphere(0.5).smooth_intersect(cube(0.4), 0.05)",
+          "kind": "method"
+        },
+        {
+          "name": "xor",
+          "signature": "sdf.xor(other: Sdf) -> Sdf",
+          "description": "Keeps non-overlapping regions from two shapes.",
+          "example": "sphere(0.5).xor(cube(0.4))",
+          "kind": "method"
+        }
+      ]
+    },
+    {
+      "id": "modifiers",
+      "title": "Modifiers And Repetition",
+      "functions": [
+        {
+          "name": "shell",
+          "signature": "sdf.shell(thickness: f64) -> Sdf",
+          "description": "Keeps only a shell around the surface.",
+          "example": "sphere(0.5).shell(0.05)",
+          "kind": "method"
+        },
+        {
+          "name": "hollow",
+          "signature": "sdf.hollow(thickness: f64) -> Sdf",
+          "description": "Alias for shell.",
+          "example": "sphere(0.5).hollow(0.05)",
+          "kind": "alias",
+          "aliasOf": "shell"
+        },
+        {
+          "name": "round",
+          "signature": "sdf.round(radius: f64) -> Sdf",
+          "description": "Rounds the surface outward by a radius.",
+          "example": "cube(0.5).round(0.05)",
+          "kind": "method"
+        },
+        {
+          "name": "onion",
+          "signature": "sdf.onion(thickness: f64) -> Sdf",
+          "description": "Creates repeated shell layers.",
+          "example": "sphere(0.5).onion(0.05)",
+          "kind": "method"
+        },
+        {
+          "name": "elongate",
+          "signature": "sdf.elongate(x: f64, y: f64, z: f64) -> Sdf",
+          "description": "Stretches the shape along each axis.",
+          "example": "sphere(0.3).elongate(0.2, 0.0, 0.0)",
+          "kind": "method"
+        },
+        {
+          "name": "twist",
+          "signature": "sdf.twist(amount: f64) -> Sdf",
+          "description": "Twists the shape around the Y axis.",
+          "example": "box3(0.5, 1.0, 0.1).twist(2.0)",
+          "kind": "method"
+        },
+        {
+          "name": "bend",
+          "signature": "sdf.bend(amount: f64) -> Sdf",
+          "description": "Bends the shape along the X axis.",
+          "example": "box3(1.0, 0.2, 0.2).bend(0.5)",
+          "kind": "method"
+        },
+        {
+          "name": "displace",
+          "signature": "sdf.displace(amount: f64, frequency: f64) -> Sdf",
+          "description": "Adds noise-based displacement to the surface.",
+          "example": "sphere(0.5).displace(0.05, 10.0)",
+          "kind": "method"
+        },
+        {
+          "name": "repeat",
+          "signature": "sdf.repeat(sx: f64, sy: f64, sz: f64) -> Sdf",
+          "description": "Repeats the shape infinitely in a grid.",
+          "example": "sphere(0.2).repeat(1.0, 1.0, 1.0)",
+          "kind": "method"
+        },
+        {
+          "name": "repeat_limited",
+          "signature": "sdf.repeat_limited(sx: f64, sy: f64, sz: f64, cx: f64, cy: f64, cz: f64) -> Sdf",
+          "description": "Repeats the shape in a bounded grid.",
+          "example": "sphere(0.2).repeat_limited(0.5, 0.5, 0.5, 3.0, 3.0, 3.0)",
+          "kind": "method"
+        },
+        {
+          "name": "repeat_polar",
+          "signature": "sdf.repeat_polar(count: i64) -> Sdf",
+          "description": "Repeats the shape radially around the Y axis.",
+          "example": "sphere(0.2).translate_x(0.5).repeat_polar(6)",
+          "kind": "method"
+        }
+      ]
+    },
+    {
+      "id": "transforms",
+      "title": "Transforms",
+      "functions": [
+        {
+          "name": "translate",
+          "signature": "sdf.translate(x: f64, y: f64, z: f64) -> Sdf",
+          "description": "Moves the shape by an offset.",
+          "example": "sphere(0.5).translate(1.0, 0.0, 0.0)",
+          "kind": "method"
+        },
+        {
+          "name": "translate_x",
+          "signature": "sdf.translate_x(x: f64) -> Sdf",
+          "description": "Moves the shape along the X axis.",
+          "example": "sphere(0.5).translate_x(1.0)",
+          "kind": "method"
+        },
+        {
+          "name": "translate_y",
+          "signature": "sdf.translate_y(y: f64) -> Sdf",
+          "description": "Moves the shape along the Y axis.",
+          "example": "sphere(0.5).translate_y(1.0)",
+          "kind": "method"
+        },
+        {
+          "name": "translate_z",
+          "signature": "sdf.translate_z(z: f64) -> Sdf",
+          "description": "Moves the shape along the Z axis.",
+          "example": "sphere(0.5).translate_z(1.0)",
+          "kind": "method"
+        },
+        {
+          "name": "rotate_x",
+          "signature": "sdf.rotate_x(angle: f64) -> Sdf",
+          "description": "Rotates the shape around the X axis in radians.",
+          "example": "cube(0.5).rotate_x(deg(45.0))",
+          "kind": "method"
+        },
+        {
+          "name": "rotate_y",
+          "signature": "sdf.rotate_y(angle: f64) -> Sdf",
+          "description": "Rotates the shape around the Y axis in radians.",
+          "example": "cube(0.5).rotate_y(deg(45.0))",
+          "kind": "method"
+        },
+        {
+          "name": "rotate_z",
+          "signature": "sdf.rotate_z(angle: f64) -> Sdf",
+          "description": "Rotates the shape around the Z axis in radians.",
+          "example": "cube(0.5).rotate_z(deg(45.0))",
+          "kind": "method"
+        },
+        {
+          "name": "scale",
+          "signature": "sdf.scale(factor: f64) -> Sdf",
+          "description": "Uniformly scales the shape.",
+          "example": "sphere(0.5).scale(2.0)",
+          "kind": "method"
+        },
+        {
+          "name": "mirror_x",
+          "signature": "sdf.mirror_x() -> Sdf",
+          "description": "Mirrors the shape across the YZ plane.",
+          "example": "sphere(0.5).translate_x(0.5).mirror_x()",
+          "kind": "method"
+        },
+        {
+          "name": "mirror_y",
+          "signature": "sdf.mirror_y() -> Sdf",
+          "description": "Mirrors the shape across the XZ plane.",
+          "example": "sphere(0.5).translate_y(0.5).mirror_y()",
+          "kind": "method"
+        },
+        {
+          "name": "mirror_z",
+          "signature": "sdf.mirror_z() -> Sdf",
+          "description": "Mirrors the shape across the XY plane.",
+          "example": "sphere(0.5).translate_z(0.5).mirror_z()",
+          "kind": "method"
+        },
+        {
+          "name": "symmetry_x",
+          "signature": "sdf.symmetry_x() -> Sdf",
+          "description": "Creates X-axis symmetry.",
+          "example": "sphere(0.5).translate_x(0.5).symmetry_x()",
+          "kind": "method"
+        },
+        {
+          "name": "symmetry_y",
+          "signature": "sdf.symmetry_y() -> Sdf",
+          "description": "Creates Y-axis symmetry.",
+          "example": "sphere(0.5).translate_y(0.5).symmetry_y()",
+          "kind": "method"
+        },
+        {
+          "name": "symmetry_z",
+          "signature": "sdf.symmetry_z() -> Sdf",
+          "description": "Creates Z-axis symmetry.",
+          "example": "sphere(0.5).translate_z(0.5).symmetry_z()",
+          "kind": "method"
+        }
+      ]
+    },
+    {
+      "id": "math",
+      "title": "Math Helpers",
+      "functions": [
+        {
+          "name": "PI",
+          "signature": "PI() -> f64",
+          "description": "Returns pi.",
+          "example": "cube(0.5).rotate_y(PI() / 4.0)",
+          "kind": "function"
+        },
+        {
+          "name": "TAU",
+          "signature": "TAU() -> f64",
+          "description": "Returns 2*pi.",
+          "example": "cube(0.5).rotate_y(TAU() / 8.0)",
+          "kind": "function"
+        },
+        {
+          "name": "deg",
+          "signature": "deg(degrees: f64) -> f64",
+          "description": "Converts degrees to radians.",
+          "example": "cube(0.5).rotate_x(deg(45.0))",
+          "kind": "function"
+        },
+        {
+          "name": "rad",
+          "signature": "rad(radians: f64) -> f64",
+          "description": "Converts radians to degrees.",
+          "example": "let angle = rad(PI() / 4.0);",
+          "kind": "function"
+        }
+      ]
+    },
+    {
+      "id": "environment",
+      "title": "Environment",
+      "functions": [
+        {
+          "name": "set_sun_direction",
+          "signature": "set_sun_direction(x: f64, y: f64, z: f64)",
+          "description": "Sets the direction of the sun light.",
+          "example": "set_sun_direction(1.0, 1.0, 0.5)",
+          "kind": "function"
+        },
+        {
+          "name": "set_sun_color",
+          "signature": "set_sun_color(r: f64, g: f64, b: f64)",
+          "description": "Sets the color of the sun light.",
+          "example": "set_sun_color(1.0, 0.9, 0.8)",
+          "kind": "function"
+        },
+        {
+          "name": "set_sun_intensity",
+          "signature": "set_sun_intensity(intensity: f64)",
+          "description": "Sets the sun brightness multiplier.",
+          "example": "set_sun_intensity(1.5)",
+          "kind": "function"
+        },
+        {
+          "name": "set_ambient_color",
+          "signature": "set_ambient_color(r: f64, g: f64, b: f64)",
+          "description": "Sets the ambient light color.",
+          "example": "set_ambient_color(0.1, 0.1, 0.15)",
+          "kind": "function"
+        },
+        {
+          "name": "set_ambient_intensity",
+          "signature": "set_ambient_intensity(intensity: f64)",
+          "description": "Sets the ambient light brightness multiplier.",
+          "example": "set_ambient_intensity(0.8)",
+          "kind": "function"
+        },
+        {
+          "name": "set_material_color",
+          "signature": "set_material_color(r: f64, g: f64, b: f64)",
+          "description": "Sets the base material color.",
+          "example": "set_material_color(0.8, 0.2, 0.1)",
+          "kind": "function"
+        },
+        {
+          "name": "set_material_color_hex",
+          "signature": "set_material_color_hex(hex: string)",
+          "description": "Sets the base material color from a hex string.",
+          "example": "set_material_color_hex(\"#cc5533\")",
+          "kind": "function"
+        },
+        {
+          "name": "set_material_shininess",
+          "signature": "set_material_shininess(shininess: f64)",
+          "description": "Sets material shininess.",
+          "example": "set_material_shininess(16.0)",
+          "kind": "function"
+        },
+        {
+          "name": "set_specular_intensity",
+          "signature": "set_specular_intensity(intensity: f64)",
+          "description": "Sets specular highlight strength.",
+          "example": "set_specular_intensity(0.4)",
+          "kind": "function"
+        },
+        {
+          "name": "set_sky_horizon",
+          "signature": "set_sky_horizon(r: f64, g: f64, b: f64)",
+          "description": "Sets the sky color near the horizon.",
+          "example": "set_sky_horizon(0.7, 0.8, 0.9)",
+          "kind": "function"
+        },
+        {
+          "name": "set_sky_zenith",
+          "signature": "set_sky_zenith(r: f64, g: f64, b: f64)",
+          "description": "Sets the sky color at the zenith.",
+          "example": "set_sky_zenith(0.3, 0.5, 0.8)",
+          "kind": "function"
+        },
+        {
+          "name": "set_background_color",
+          "signature": "set_background_color(r: f64, g: f64, b: f64)",
+          "description": "Compatibility alias that sets both sky horizon and zenith colors.",
+          "example": "set_background_color(0.1, 0.1, 0.12)",
+          "kind": "alias",
+          "aliasOf": "set_sky_horizon + set_sky_zenith"
+        },
+        {
+          "name": "set_fog_color",
+          "signature": "set_fog_color(r: f64, g: f64, b: f64)",
+          "description": "Sets the fog color.",
+          "example": "set_fog_color(0.6, 0.65, 0.7)",
+          "kind": "function"
+        },
+        {
+          "name": "set_fog_density",
+          "signature": "set_fog_density(density: f64)",
+          "description": "Sets fog density.",
+          "example": "set_fog_density(0.02)",
+          "kind": "function"
+        },
+        {
+          "name": "set_ao_enabled",
+          "signature": "set_ao_enabled(enabled: bool)",
+          "description": "Enables or disables ambient occlusion.",
+          "example": "set_ao_enabled(true)",
+          "kind": "function"
+        },
+        {
+          "name": "set_ao_intensity",
+          "signature": "set_ao_intensity(intensity: f64)",
+          "description": "Sets ambient occlusion strength.",
+          "example": "set_ao_intensity(1.5)",
+          "kind": "function"
+        },
+        {
+          "name": "set_shadows_enabled",
+          "signature": "set_shadows_enabled(enabled: bool)",
+          "description": "Enables or disables shadows.",
+          "example": "set_shadows_enabled(true)",
+          "kind": "function"
+        },
+        {
+          "name": "set_shadow_softness",
+          "signature": "set_shadow_softness(softness: f64)",
+          "description": "Sets shadow softness.",
+          "example": "set_shadow_softness(0.2)",
+          "kind": "function"
+        },
+        {
+          "name": "rgb_hex",
+          "signature": "rgb_hex(hex: string) -> array",
+          "description": "Converts a hex color string to normalized RGB values.",
+          "example": "let color = rgb_hex(\"#ff5500\");",
+          "kind": "function"
+        },
+        {
+          "name": "env_default",
+          "signature": "env_default()",
+          "description": "Resets environment settings to the default.",
+          "example": "env_default()",
+          "kind": "alias",
+          "aliasOf": "Environment::default"
+        },
+        {
+          "name": "env_studio",
+          "signature": "env_studio()",
+          "description": "Applies clean studio lighting.",
+          "example": "env_studio()",
+          "kind": "preset"
+        },
+        {
+          "name": "env_sunset",
+          "signature": "env_sunset()",
+          "description": "Applies warm sunset lighting.",
+          "example": "env_sunset()",
+          "kind": "preset"
+        },
+        {
+          "name": "env_night",
+          "signature": "env_night()",
+          "description": "Applies cool night lighting.",
+          "example": "env_night()",
+          "kind": "preset"
+        },
+        {
+          "name": "env_daylight",
+          "signature": "env_daylight()",
+          "description": "Applies daylight lighting.",
+          "example": "env_daylight()",
+          "kind": "preset"
+        },
+        {
+          "name": "env_clay",
+          "signature": "env_clay()",
+          "description": "Applies a clay material studio preset.",
+          "example": "env_clay()",
+          "kind": "preset"
+        }
+      ]
+    }
+  ]
+}

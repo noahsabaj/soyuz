@@ -5,8 +5,8 @@
 
 use crate::state::{TerminalBuffer, TerminalEntry, TerminalLevel};
 use tracing::Subscriber;
-use tracing_subscriber::layer::Context;
 use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context;
 
 /// Prefixes of targets to ignore (Dioxus internals, etc.)
 const IGNORED_TARGET_PREFIXES: &[&str] = &[

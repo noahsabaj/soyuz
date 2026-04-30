@@ -25,5 +25,8 @@ notify-debouncer-mini = { workspace = true, optional = true }
 default = ["file-watcher"]
 file-watcher = ["dep:notify", "dep:notify-debouncer-mini"]
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [lints]
 workspace = true

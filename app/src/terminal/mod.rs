@@ -9,7 +9,8 @@
 
 pub mod layer;
 
-use crate::state::{AppState, TerminalEntry, TerminalLevel};
+use crate::services::AppServices;
+use crate::state::{AppStore, TerminalEntry, TerminalLevel};
 use dioxus::prelude::*;
 
 /// Resize state for terminal panel drag operation
@@ -29,13 +30,14 @@ struct FilterDropdownState {
 /// Terminal panel component
 #[component]
 pub fn TerminalPanel() -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
     let mut resize_state = use_signal(TerminalResizeState::default);
 
     let visible = state.read().terminal_visible;
     let height = state.read().terminal_height;
     let filter = state.read().terminal_filter.clone();
-    let entries = state.read().terminal_buffer.snapshot();
+    let entries = services.terminal_snapshot();
 
     // Filter entries based on current filter settings
     let filtered_entries: Vec<TerminalEntry> = entries
@@ -102,7 +104,8 @@ pub fn TerminalPanel() -> Element {
 /// Terminal header bar with title and actions
 #[component]
 fn TerminalHeader() -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
     let mut filter_dropdown = use_signal(FilterDropdownState::default);
 
     let filter = state.read().terminal_filter.clone();
@@ -191,7 +194,7 @@ fn TerminalHeader() -> Element {
                 button {
                     class: "action-btn",
                     title: "Clear Output",
-                    onclick: move |_| { state.read().terminal_clear(); },
+                    onclick: move |_| { services.terminal_clear(); },
                     // Trash icon (inline SVG)
                     svg {
                         width: "14",
@@ -227,7 +230,7 @@ fn TerminalHeader() -> Element {
 /// Single terminal entry row
 #[component]
 fn TerminalEntryRow(entry: TerminalEntry) -> Element {
-    let state = use_context::<Signal<AppState>>();
+    let state = use_context::<AppStore>();
 
     // Get time settings
     let timezone_offset = state.read().settings.timezone_offset;

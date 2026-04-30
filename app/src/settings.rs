@@ -3,11 +3,14 @@
 //! Handles loading, saving, and managing user preferences that persist across sessions.
 //! Settings are stored in `{config_dir}/soyuz/settings.json`.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use soyuz_core::export::ExportFormat;
 use std::fs;
 use std::path::PathBuf;
+
+const DEFAULT_THEME: &str = "soyuz-graphite";
+const LEGACY_DARK_THEME: &str = "Dark";
 
 /// Auto-save behavior for the editor
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -80,7 +83,7 @@ impl Default for Settings {
             auto_save: AutoSave::Off,
 
             // Theme defaults
-            theme: "Dark".to_string(),
+            theme: DEFAULT_THEME.to_string(),
 
             // Export defaults
             export_format: ExportFormat::Glb,
@@ -95,7 +98,7 @@ impl Default for Settings {
             undo_history_limit: 100,
 
             // Time display defaults
-            timezone_offset: 0, // UTC
+            timezone_offset: 0,    // UTC
             time_format_24h: true, // 24-hour format
         }
     }
@@ -117,9 +120,16 @@ pub fn load_settings() -> Settings {
     }
 
     match fs::read_to_string(&path) {
-        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+        Ok(contents) => normalize_settings(serde_json::from_str(&contents).unwrap_or_default()),
         Err(_) => Settings::default(),
     }
+}
+
+fn normalize_settings(mut settings: Settings) -> Settings {
+    if settings.theme == LEGACY_DARK_THEME {
+        settings.theme = DEFAULT_THEME.to_string();
+    }
+    settings
 }
 
 /// Save settings to disk
@@ -175,12 +185,7 @@ impl SettingCategory {
 
     /// Get all categories in display order
     pub fn all() -> &'static [SettingCategory] {
-        &[
-            Self::Editor,
-            Self::Theme,
-            Self::Export,
-            Self::Application,
-        ]
+        &[Self::Editor, Self::Theme, Self::Export, Self::Application]
     }
 }
 
@@ -188,9 +193,14 @@ impl SettingCategory {
 #[derive(Clone, PartialEq)]
 pub enum ControlType {
     Text,
-    Number { min: u32, max: u32 },
+    Number {
+        min: u32,
+        max: u32,
+    },
     Checkbox,
-    Dropdown { options: Vec<(&'static str, &'static str)> },
+    Dropdown {
+        options: Vec<(&'static str, &'static str)>,
+    },
 }
 
 /// Get metadata for all settings (used to build the settings UI)
@@ -255,7 +265,7 @@ pub fn all_settings_meta() -> Vec<SettingMeta> {
             description: "Color theme for the application",
             category: SettingCategory::Theme,
             control_type: ControlType::Dropdown {
-                options: vec![("Dark", "Dark")],
+                options: vec![(DEFAULT_THEME, "Soyuz Graphite")],
             },
         },
         // Export settings

@@ -14,7 +14,7 @@
 #![allow(clippy::match_same_arms)]
 
 use soyuz_core::sdf::{Aabb, Sdf};
-use soyuz_sdf::SdfOp;
+use soyuz_sdf::{ExtrudeProfile, RevolveProfile, SdfOp};
 use std::sync::Arc;
 
 // Re-export from soyuz-core prelude
@@ -163,6 +163,17 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             (q.z - s.y).max((q.x * 0.866025 + p.y * 0.5).max(-p.y) - s.x * 0.5)
         }
 
+        SdfOp::Pyramid { height } => sd_pyramid(p, *height),
+
+        SdfOp::Link {
+            length,
+            major_radius,
+            minor_radius,
+        } => {
+            let q = Vec3::new(p.x, (p.y.abs() - *length).max(0.0), p.z);
+            Vec2::new(Vec2::new(q.x, q.y).length() - *major_radius, q.z).length() - *minor_radius
+        }
+
         // === Boolean Operations ===
         SdfOp::Union { a, b } => eval_distance(a, p).min(eval_distance(b, p)),
 
@@ -281,13 +292,28 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             eval_distance(inner, q)
         }
 
-        SdfOp::Displacement { inner, amount, frequency } => {
+        SdfOp::Displacement {
+            inner,
+            amount,
+            frequency,
+        } => {
             // Simple noise-based displacement
             let d = eval_distance(inner, p);
             let noise = (p.x * *frequency).sin()
                 * (p.y * *frequency * 1.1).sin()
                 * (p.z * *frequency * 0.9).sin();
             d + *amount * noise
+        }
+
+        // === 2D-to-3D Operations ===
+        SdfOp::Extrude { profile, depth } => {
+            let d2d = eval_profile_2d(profile, Vec2::new(p.x, p.y));
+            op_extrude(d2d, p.z, *depth)
+        }
+
+        SdfOp::Revolve { profile, offset } => {
+            let q = Vec2::new(Vec2::new(p.x, p.z).length() - *offset, p.y);
+            eval_revolve_profile(profile, q)
         }
 
         // === Repetition ===
@@ -411,6 +437,22 @@ fn eval_bounds(op: &SdfOp) -> Aabb {
             Aabb::cube(s)
         }
 
+        SdfOp::Pyramid { height } => {
+            Aabb::new(Vec3::new(-0.5, 0.0, -0.5), Vec3::new(0.5, *height, 0.5))
+        }
+
+        SdfOp::Link {
+            length,
+            major_radius,
+            minor_radius,
+        } => {
+            let r = *major_radius + *minor_radius;
+            Aabb::new(
+                Vec3::new(-r, -(*length + r), -*minor_radius),
+                Vec3::new(r, *length + r, *minor_radius),
+            )
+        }
+
         // Boolean operations
         SdfOp::Union { a, b } => eval_bounds(a).union(&eval_bounds(b)),
 
@@ -486,6 +528,24 @@ fn eval_bounds(op: &SdfOp) -> Aabb {
             eval_bounds(inner).expand(amount.abs())
         }
 
+        // 2D-to-3D operations
+        SdfOp::Extrude { profile, depth } => {
+            let (min, max) = profile_bounds_2d(profile);
+            Aabb::new(
+                Vec3::new(min.x, min.y, -*depth),
+                Vec3::new(max.x, max.y, *depth),
+            )
+        }
+
+        SdfOp::Revolve { profile, offset } => {
+            let (min, max) = profile_bounds_2d_for_revolve(profile);
+            let radius = (offset + max.x.abs()).abs().max((offset + min.x).abs());
+            Aabb::new(
+                Vec3::new(-radius, min.y, -radius),
+                Vec3::new(radius, max.y, radius),
+            )
+        }
+
         // Repetition
         SdfOp::RepeatInfinite { .. } => {
             // Can't have finite bounds for infinite repetition
@@ -528,4 +588,94 @@ fn eval_bounds(op: &SdfOp) -> Aabb {
 #[inline]
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
+}
+
+fn sd_pyramid(p: Vec3, height: f32) -> f32 {
+    let m2 = height * height + 0.25;
+    let mut pxz = Vec2::new(p.x.abs(), p.z.abs());
+    if pxz.y > pxz.x {
+        pxz = Vec2::new(pxz.y, pxz.x);
+    }
+    pxz -= Vec2::splat(0.5);
+
+    let q = Vec3::new(
+        pxz.y,
+        height * p.y - 0.5 * pxz.x,
+        height * pxz.x + 0.5 * p.y,
+    );
+    let s = (-q.x).max(0.0);
+    let t = ((q.y - 0.5 * pxz.y) / (m2 + 0.25)).clamp(0.0, 1.0);
+
+    let a = m2 * (q.x + s) * (q.x + s) + q.y * q.y;
+    let b = m2 * (q.x + 0.5 * t) * (q.x + 0.5 * t) + (q.y - m2 * t) * (q.y - m2 * t);
+    let d2 = if q.y.min(-q.x * m2 - q.y * 0.5) > 0.0 {
+        0.0
+    } else {
+        a.min(b)
+    };
+
+    ((d2 + q.z * q.z) / m2).sqrt() * q.z.max(-p.y).signum()
+}
+
+fn eval_profile_2d(profile: &ExtrudeProfile, p: Vec2) -> f32 {
+    match profile {
+        ExtrudeProfile::Circle { radius } => sd_circle_2d(p, *radius),
+        ExtrudeProfile::Rectangle { width, height } => {
+            sd_box_2d(p, Vec2::new(*width * 0.5, *height * 0.5))
+        }
+        ExtrudeProfile::RoundedRectangle {
+            width,
+            height,
+            radius,
+        } => sd_rounded_box_2d(p, Vec2::new(*width * 0.5, *height * 0.5), *radius),
+    }
+}
+
+fn eval_revolve_profile(profile: &RevolveProfile, p: Vec2) -> f32 {
+    match profile {
+        RevolveProfile::Circle { radius } => sd_circle_2d(p, *radius),
+        RevolveProfile::Rectangle { width, height } => {
+            sd_box_2d(p, Vec2::new(*width * 0.5, *height * 0.5))
+        }
+    }
+}
+
+fn sd_circle_2d(p: Vec2, radius: f32) -> f32 {
+    p.length() - radius
+}
+
+fn sd_box_2d(p: Vec2, half_extents: Vec2) -> f32 {
+    let d = p.abs() - half_extents;
+    d.max(Vec2::ZERO).length() + d.x.max(d.y).min(0.0)
+}
+
+fn sd_rounded_box_2d(p: Vec2, half_extents: Vec2, radius: f32) -> f32 {
+    let q = p.abs() - half_extents + Vec2::splat(radius);
+    q.max(Vec2::ZERO).length() + q.x.max(q.y).min(0.0) - radius
+}
+
+fn op_extrude(d2d: f32, z: f32, half_depth: f32) -> f32 {
+    let w = Vec2::new(d2d, z.abs() - half_depth);
+    w.x.max(w.y).min(0.0) + w.max(Vec2::ZERO).length()
+}
+
+fn profile_bounds_2d(profile: &ExtrudeProfile) -> (Vec2, Vec2) {
+    match profile {
+        ExtrudeProfile::Circle { radius } => (Vec2::splat(-*radius), Vec2::splat(*radius)),
+        ExtrudeProfile::Rectangle { width, height }
+        | ExtrudeProfile::RoundedRectangle { width, height, .. } => {
+            let half = Vec2::new(*width * 0.5, *height * 0.5);
+            (-half, half)
+        }
+    }
+}
+
+fn profile_bounds_2d_for_revolve(profile: &RevolveProfile) -> (Vec2, Vec2) {
+    match profile {
+        RevolveProfile::Circle { radius } => (Vec2::splat(-*radius), Vec2::splat(*radius)),
+        RevolveProfile::Rectangle { width, height } => {
+            let half = Vec2::new(*width * 0.5, *height * 0.5);
+            (-half, half)
+        }
+    }
 }

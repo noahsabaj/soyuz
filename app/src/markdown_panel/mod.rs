@@ -1,57 +1,45 @@
-//! Markdown documentation panel - displays embedded markdown as formatted HTML
+//! Markdown documentation panel.
 //!
-//! Renders embedded markdown documentation with proper styling.
-//! Supports multiple document types (Cookbook, README).
-//! The content is parsed once per document type using a lazy static cache.
-//! Headings are automatically assigned IDs based on their text content for
-//! anchor link navigation.
+//! Renders the generated Soyuz documentation set embedded at compile time.
+//! The Help menu owns three markdown tabs: Documentation, Cookbook, and README.
+//! Sidebar navigation changes the selected page inside those tabs.
 
-use crate::state::MarkdownDoc;
+use crate::docs_generated::{DOCS, EmbeddedDoc, doc_by_id};
+use crate::state::{AppStore, MarkdownDoc};
 use dioxus::prelude::*;
-use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd, html};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-/// Embedded markdown content (compile-time)
-const COOKBOOK_MD: &str = include_str!("../../../SOYUZ_COOKBOOK.md");
-const README_MD: &str = include_str!("../../../README.md");
+/// Static cache for parsed HTML content.
+static DOC_HTML: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
 
-/// Static cache for parsed HTML content (one per document type)
-static COOKBOOK_HTML: OnceLock<String> = OnceLock::new();
-static README_HTML: OnceLock<String> = OnceLock::new();
+/// Get parsed HTML content for a document type (cached).
+fn get_html_content(doc: &'static EmbeddedDoc) -> &'static str {
+    let html_by_id = DOC_HTML.get_or_init(|| {
+        DOCS.iter()
+            .map(|doc| (doc.id, markdown_to_html(doc.content)))
+            .collect()
+    });
 
-/// Get parsed HTML content for a document type (cached)
-fn get_html_content(doc: MarkdownDoc) -> &'static str {
-    match doc {
-        MarkdownDoc::Cookbook => {
-            COOKBOOK_HTML.get_or_init(|| markdown_to_html(COOKBOOK_MD))
-        }
-        MarkdownDoc::Readme => {
-            README_HTML.get_or_init(|| markdown_to_html(README_MD))
-        }
-    }
+    html_by_id.get(doc.id).map_or(
+        "<h1>Documentation</h1><p>Document not found.</p>",
+        String::as_str,
+    )
 }
 
-/// Convert heading text to a URL-friendly slug
-/// "Quick Start" -> "quick-start"
-/// "Environment & Lighting" -> "environment--lighting" (& becomes empty, spaces become -)
+/// Convert heading text to a URL-friendly slug.
 fn slugify(text: &str) -> String {
     let mut result = String::new();
 
     for c in text.chars() {
         if c.is_alphanumeric() {
             result.push(c.to_ascii_lowercase());
-        } else if c.is_whitespace() || c == '-' || c == '_' {
-            // Only add dash if result is non-empty (avoid leading dashes)
-            if !result.is_empty() {
-                result.push('-');
-            }
+        } else if (c.is_whitespace() || c == '-' || c == '_') && !result.is_empty() {
+            result.push('-');
         }
-        // Other characters (punctuation like &) are simply skipped,
-        // which can create consecutive dashes (intentional for TOC compatibility)
     }
 
-    // Trim trailing dashes
     while result.ends_with('-') {
         result.pop();
     }
@@ -59,12 +47,11 @@ fn slugify(text: &str) -> String {
     result
 }
 
-/// Convert markdown to HTML with auto-generated heading IDs
+/// Convert markdown to HTML with auto-generated heading IDs.
 fn markdown_to_html(markdown: &str) -> String {
     let parser = Parser::new_ext(markdown, Options::all());
     let events: Vec<Event> = parser.collect();
 
-    // First pass: collect heading texts to generate IDs
     let mut heading_ids: HashMap<usize, String> = HashMap::new();
     let mut slug_counts: HashMap<String, usize> = HashMap::new();
     let mut i = 0;
@@ -74,7 +61,6 @@ fn markdown_to_html(markdown: &str) -> String {
             let start_idx = i;
             let mut heading_text = String::new();
 
-            // Collect text until we hit the end of heading
             i += 1;
             while i < events.len() {
                 match &events[i] {
@@ -87,15 +73,13 @@ fn markdown_to_html(markdown: &str) -> String {
                 i += 1;
             }
 
-            // Generate slug and handle duplicates
             let base_slug = slugify(&heading_text);
             let count = slug_counts.entry(base_slug.clone()).or_insert(0);
             let slug = if *count == 0 {
                 base_slug.clone()
             } else {
-                format!("{}-{}", base_slug, count)
+                format!("{base_slug}-{count}")
             };
-            // Increment count for this slug
             if let Some(c) = slug_counts.get_mut(&base_slug) {
                 *c += 1;
             }
@@ -105,7 +89,6 @@ fn markdown_to_html(markdown: &str) -> String {
         i += 1;
     }
 
-    // Second pass: transform events to inject IDs
     let transformed: Vec<Event> = events
         .into_iter()
         .enumerate()
@@ -134,41 +117,74 @@ fn markdown_to_html(markdown: &str) -> String {
     html_output
 }
 
-/// Markdown panel component - displays formatted markdown documentation
+/// Markdown panel component - displays formatted markdown documentation.
 #[component]
 pub fn MarkdownPanel(doc: MarkdownDoc) -> Element {
-    // Get cached HTML content for this document type
-    let html_content = get_html_content(doc);
+    let mut state = use_context::<AppStore>();
+    let selected_id = doc.selected_id;
+    let selected_doc = doc_by_id(selected_id)
+        .or_else(|| doc_by_id(MarkdownDoc::DOCS_INDEX.selected_id))
+        .unwrap_or(&DOCS[0]);
+    let html_content = get_html_content(selected_doc);
+    let show_sidebar = doc.container != crate::state::MarkdownContainer::Readme;
+    let panel_class = if show_sidebar {
+        "markdown-panel docs-browser"
+    } else {
+        "markdown-panel docs-single-page"
+    };
 
     rsx! {
-        div { class: "markdown-panel",
-            // Intercept anchor link clicks and scroll instead of navigating
-            script {
-                dangerous_inner_html: "
-                    (function() {{
-                        var panel = document.currentScript.parentElement;
-                        panel.addEventListener('click', function(e) {{
-                            var link = e.target.closest('a');
-                            if (link) {{
-                                var href = link.getAttribute('href');
-                                if (href && href.charAt(0) === String.fromCharCode(35)) {{
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    e.stopImmediatePropagation();
-                                    var targetId = href.substring(1);
-                                    var target = document.getElementById(targetId);
-                                    if (target) {{
-                                        target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-                                    }}
-                                    return false;
-                                }}
-                            }}
-                        }}, true);
-                    }})();
-                "
+        div { class: panel_class,
+            if show_sidebar {
+                aside { class: "docs-sidebar",
+                    for nav_doc in DOCS.iter().filter(move |nav_doc| doc.can_select(nav_doc.id)) {
+                        {
+                            let is_active = selected_id == nav_doc.id;
+                            let nav_doc_id = nav_doc.id;
+                            rsx! {
+                                button {
+                                    key: "{nav_doc.id}",
+                                    class: if is_active { "docs-nav-item active" } else { "docs-nav-item" },
+                                    title: "{nav_doc.href}",
+                                    onclick: move |_| {
+                                        state.write().select_active_markdown_doc(nav_doc_id);
+                                    },
+                                    span { class: "docs-nav-section", "{nav_doc.section}" }
+                                    span { class: "docs-nav-title", "{nav_doc.title}" }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            div { class: "content body",
-                dangerous_inner_html: "{html_content}"
+            div { class: "docs-content-scroll",
+                script {
+                    dangerous_inner_html: "
+                        (function() {{
+                            var panel = document.currentScript.parentElement;
+                            panel.addEventListener('click', function(e) {{
+                                var link = e.target.closest('a');
+                                if (link) {{
+                                    var href = link.getAttribute('href');
+                                    if (href && href.charAt(0) === String.fromCharCode(35)) {{
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        e.stopImmediatePropagation();
+                                        var targetId = href.substring(1);
+                                        var target = document.getElementById(targetId);
+                                        if (target) {{
+                                            target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                                        }}
+                                        return false;
+                                    }}
+                                }}
+                            }}, true);
+                        }})();
+                    "
+                }
+                div { class: "content body",
+                    dangerous_inner_html: "{html_content}"
+                }
             }
         }
     }

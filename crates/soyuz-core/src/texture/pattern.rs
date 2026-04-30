@@ -1,9 +1,7 @@
 //! Pattern generators for procedural textures
 
 // Mathematical constants don't need separators
-// Return expression binding is clearer for debugging
 #![allow(clippy::unreadable_literal)]
-#![allow(clippy::let_and_return)]
 
 use super::Texture;
 use glam::{Vec2, Vec2Swizzles};
@@ -275,8 +273,7 @@ impl Texture for Stripes {
         let c = self.angle.cos();
         let s = self.angle.sin();
         let rotated = uv.x * c - uv.y * s;
-        let t = (rotated * self.scale * 2.0 * PI).sin() * 0.5 + 0.5;
-        t
+        (rotated * self.scale * 2.0 * PI).sin() * 0.5 + 0.5
     }
 }
 

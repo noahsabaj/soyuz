@@ -245,6 +245,21 @@ impl Ridged {
             scale: 1.0,
         }
     }
+
+    pub fn lacunarity(mut self, value: f32) -> Self {
+        self.lacunarity = value;
+        self
+    }
+
+    pub fn persistence(mut self, value: f32) -> Self {
+        self.persistence = value;
+        self
+    }
+
+    pub fn scale(mut self, value: f32) -> Self {
+        self.scale = value;
+        self
+    }
 }
 
 impl Texture for Ridged {

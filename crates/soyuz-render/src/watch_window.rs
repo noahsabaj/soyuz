@@ -14,17 +14,16 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::uninlined_format_args)]
 
-use crate::camera::Camera;
+use crate::camera_controller::CameraController;
 use crate::raymarcher::{Raymarcher, init_with_surface};
-use glam::Vec3;
 use soyuz_sdf::SdfOp;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalSize, PhysicalPosition},
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    dpi::LogicalSize,
+    event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
     window::{Window, WindowId},
@@ -64,16 +63,6 @@ impl Default for WatchWindowConfig {
 /// Callback type for script evaluation
 pub type EvalCallback = Box<dyn Fn(&std::path::Path) -> Result<SdfOp, String> + Send>;
 
-/// Input state for camera control
-#[derive(Debug, Default)]
-struct InputState {
-    mouse_left: bool,
-    mouse_right: bool,
-    mouse_middle: bool,
-    last_mouse_pos: Option<PhysicalPosition<f64>>,
-    shift_held: bool,
-}
-
 /// Application state for the watch window
 struct WatchApp<'a> {
     config: WatchWindowConfig,
@@ -83,8 +72,7 @@ struct WatchApp<'a> {
     device: Option<Arc<wgpu::Device>>,
     queue: Option<Arc<wgpu::Queue>>,
     raymarcher: Option<Raymarcher>,
-    camera: Camera,
-    input: InputState,
+    controller: CameraController,
     start_time: Instant,
     instance: wgpu::Instance,
 
@@ -115,8 +103,7 @@ impl<'a> WatchApp<'a> {
             device: None,
             queue: None,
             raymarcher: None,
-            camera: Camera::default(),
-            input: InputState::default(),
+            controller: CameraController::new(),
             start_time: now,
             instance,
             current_sdf: None,
@@ -137,7 +124,7 @@ impl<'a> WatchApp<'a> {
                 config.width = new_size.width;
                 config.height = new_size.height;
                 surface.configure(device, config);
-                self.camera.aspect = new_size.width as f32 / new_size.height as f32;
+                self.controller.camera.aspect = new_size.width as f32 / new_size.height as f32;
             }
         }
     }
@@ -214,30 +201,6 @@ impl<'a> WatchApp<'a> {
         }
     }
 
-    fn handle_mouse_motion(&mut self, position: PhysicalPosition<f64>) {
-        if let Some(last_pos) = self.input.last_mouse_pos {
-            let dx = (position.x - last_pos.x) as f32 * 0.005;
-            let dy = (position.y - last_pos.y) as f32 * 0.005;
-
-            if self.input.mouse_left {
-                self.camera.orbit(dx, dy);
-            } else if self.input.mouse_right || (self.input.mouse_left && self.input.shift_held) {
-                self.camera.pan(-dx * 2.0, dy * 2.0);
-            } else if self.input.mouse_middle {
-                self.camera.zoom(dy * 5.0);
-            }
-        }
-        self.input.last_mouse_pos = Some(position);
-    }
-
-    fn handle_scroll(&mut self, delta: MouseScrollDelta) {
-        let scroll = match delta {
-            MouseScrollDelta::LineDelta(_, y) => y,
-            MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
-        };
-        self.camera.zoom(scroll * 0.5);
-    }
-
     fn render(&mut self) {
         let (Some(surface), Some(raymarcher), Some(config)) =
             (&self.surface, &self.raymarcher, &self.surface_config)
@@ -277,17 +240,13 @@ impl<'a> WatchApp<'a> {
         }
 
         raymarcher.update_uniforms(
-            &self.camera,
+            &self.controller.camera,
             [config.width as f32, config.height as f32],
             time,
         );
         raymarcher.render(&view);
 
         output.present();
-    }
-
-    fn reset_camera(&mut self) {
-        self.camera = Camera::default();
     }
 }
 
@@ -351,7 +310,7 @@ impl ApplicationHandler for WatchApp<'_> {
             Raymarcher::with_sdf(device.clone(), queue.clone(), format, &default_sdf)
         };
 
-        self.camera.aspect = size.width as f32 / size.height as f32;
+        self.controller.camera.aspect = size.width as f32 / size.height as f32;
 
         self.window = Some(window);
         self.surface = Some(surface);
@@ -388,22 +347,16 @@ impl ApplicationHandler for WatchApp<'_> {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                let pressed = state == ElementState::Pressed;
-                match button {
-                    MouseButton::Left => self.input.mouse_left = pressed,
-                    MouseButton::Right => self.input.mouse_right = pressed,
-                    MouseButton::Middle => self.input.mouse_middle = pressed,
-                    _ => {}
-                }
+                self.controller.handle_mouse_button(state, button);
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_mouse_motion(position);
+                self.controller.handle_mouse_motion(position);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                self.handle_scroll(delta);
+                self.controller.handle_scroll(delta);
             }
             WindowEvent::ModifiersChanged(modifiers) => {
-                self.input.shift_held = modifiers.state().shift_key();
+                self.controller.handle_modifiers(&modifiers);
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state == ElementState::Pressed {
@@ -412,16 +365,16 @@ impl ApplicationHandler for WatchApp<'_> {
                             event_loop.exit();
                         }
                         Key::Character(ref c) if c == "r" || c == "R" => {
-                            if self.input.shift_held {
+                            if self.controller.input.shift_held {
                                 // Shift+R = force reload script
                                 self.reload_script();
                             } else {
                                 // R = reset camera
-                                self.reset_camera();
+                                self.controller.reset_camera();
                             }
                         }
                         Key::Character(ref c) if c == "f" || c == "F" => {
-                            self.camera.target = Vec3::ZERO;
+                            self.controller.focus_origin();
                         }
                         _ => {}
                     }

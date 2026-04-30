@@ -7,14 +7,50 @@
 // Borrowed format strings are valid
 #![allow(clippy::needless_borrows_for_generic_args)]
 
+use crate::app_commands;
+use crate::assets::APP_ICON_32;
 use crate::command_palette::PaletteState;
-use crate::preview::spawn_preview;
-use crate::state::AppState;
+use crate::services::AppServices;
+use crate::state::AppStore;
 use dioxus::prelude::*;
-use tracing::warn;
 
-/// Embedded 32x32 logo as base64 data URL (ensures it's bundled in the binary)
-const LOGO_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAALcUExURQAAABAjHBUmHw4gGgscFur//xIkHA8gGxIlHREjHBAjGxMkHhEiGxEjGxEkHRUqIBAmHRAiGwAGAA4gGRk0JRIiHA8gGhEkHhcaFBAiHBIlHhMmHg4eFhIkHRMlHRMlHhAhGwcOEBInHSFSMwQFCwAAAAASDBgrIyo8MhQhGgsdFxcpIRksIwsbFhEjHBAiGxQnHxElHRMmHx0vJxMlHRMlHRIiGxIkHREjHBAiHFVrVihCMBowJA8gGhAhGhMmHhIlHREkHREkHRIkHRIkHREjHA8hGhEkHREkHQsdF1hvWZq2kz9kRCxIMxgsIgkWFRMmHxQmHxEjHBEjHBEkHREjHAkbFVNpVZCqiqbCnabCnZaxj1t9XCxJNBIlHREkHREjHBAiGwsbExAkHBAjGxMlHUplTW2La26MbFJuVBUsIBEkHREkHBEjHREjHBAjHAweGEJiSBYuIQgUFBEkHBEjHBEkHREjHBAjHBEjHBEjHBAjHBgtI1+HYCtbNiJJLhQrIBAjHBEjHBAiGxAiGxEjHBAjHBAiHA0fGjNPO26bbztjQi1fOClUMxYuIREkHBAjHBAiGxMnIREjHBAiGxAiGhAiHDxYQlN7VlF7VCRFLxgyIxIlHRMnHhIlHRIkHREjHA8hGhEjHRktIydCMUBkR1R5WDBLOBguIxQqHxo3JhcxIhMmHhIkHRMlHhIkHBAjGxIiGBIiGhIkHBEjGw8iGg8iGxAlHA8iGxQrHx1AKR9CKxgzJBInHg4cGRAjHBEjHBEjGxAiGxAiGxAiGxEjHBAjGxAiGxAiGxEkHBYvIhcyIxQqIAsXFhAiGxAiGw8iGw8iGg8hGhEjHBIkHQ0bGAwbF111XZ67ll9+X1B7U26MbC1RNiZOMUtwT1iFWVqHW1mGWlmGWz1kQyRMMCRPMGCJY1J7VV6NYF6NX1J9VS9bOXCecVJ5VlmGXFyKXmmTa3GfcmaQaP///3OLDxEAAADXdFJOUwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABASkoARZufR0LIjxE0dhgJwEMSYLi0GliYk0xm59JiywDM3BTlPv6u0MEBwd3TD+SJ17z/v3+/u9WMZsZA1dUWuX+/v1yNjwkZ3RBkXEFXaI6BUp1Jk1q3v7if5CKHwhhYw5NvP394rapoUwGAV1bBFD29dWzqq6uTSp6BxF219q8rKyusrZ+HEGBCwECCRk6iK+ssLrQpDsEDnybjpGcoJNrNzCpyFoLBSE1NScSAxEVhyxtoAAAAAFiS0dE86yxvu4AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQfpDB0AOQp0TeYNAAABQ0lEQVQ4y2NgGAXYgKoqiGRUU9fQZMKUZWbR0tbRZdXTNzA0MjYxNWNDlWbnMLewtLpubWNrZ+/g6OTs4sqJIs/l5u7h6eV946aPr58/d0AgT1AwL4oCvpDQsPCIyKjomFuxcfwCnPEJiYJI0kLCSckpqWm309MzMu/czRIRzXbK4RBDyItL5OblFxTeu//g4aPHT54WFZeUlnHyIeQ5yysqq6prap89f/Hy1eu6+obGpmZGSYS8YEtrWztfR2fXm7fv3nf39Pb1T5jIhWQ/56TJU6YKSk2b/uHjpxkzZ82eM3eetAyy+2XnL1goyCC7aPGSpcuWr1i5avWatXIoHpRft37Dxk2bt2zdtn3Hzl279+zdp4AahIz7Dxw8dPjI0WPHT5w8dfrMWXaMOBA8d/7CxUuXr8gqKl29pqwyAGlkJAAAvLR0g5Oy8vgAAAAASUVORK5CYII=";
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TopMenu {
+    File,
+    Edit,
+    Selection,
+    View,
+    Go,
+    Preview,
+    Terminal,
+    Help,
+}
+
+impl TopMenu {
+    const ALL: [Self; 8] = [
+        Self::File,
+        Self::Edit,
+        Self::Selection,
+        Self::View,
+        Self::Go,
+        Self::Preview,
+        Self::Terminal,
+        Self::Help,
+    ];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::File => "File",
+            Self::Edit => "Edit",
+            Self::Selection => "Selection",
+            Self::View => "View",
+            Self::Go => "Go",
+            Self::Preview => "Preview",
+            Self::Terminal => "Terminal",
+            Self::Help => "Help",
+        }
+    }
+}
 
 /// Application logo in the toolbar
 #[component]
@@ -24,7 +60,7 @@ fn AppLogo() -> Element {
             class: "app-logo",
             onmousedown: |e| e.stop_propagation(),
             img {
-                src: LOGO_DATA_URL,
+                src: APP_ICON_32,
                 alt: "Soyuz Studio",
                 width: "20",
                 height: "20"
@@ -36,7 +72,7 @@ fn AppLogo() -> Element {
 /// Top toolbar with file operations and window controls
 #[component]
 pub fn Toolbar() -> Element {
-    let state = use_context::<Signal<AppState>>();
+    let state = use_context::<AppStore>();
     let window = dioxus::desktop::use_window();
 
     // Clone window for each closure that needs it
@@ -55,8 +91,7 @@ pub fn Toolbar() -> Element {
             // Left side: Logo, file operations and preview controls
             div { class: "titlebar-left",
                 AppLogo {}
-                FileOperations { state }
-                PreviewControls { state }
+                MenuBar {}
             }
 
             // Center: Search bar (fills available space, centers content)
@@ -129,123 +164,205 @@ pub fn Toolbar() -> Element {
     }
 }
 
-/// File operation buttons (New, Open, Save, etc.)
+/// VSCode-style top menu labels.
 #[component]
-fn FileOperations(state: Signal<AppState>) -> Element {
-    let mut state = state;
+fn MenuBar() -> Element {
+    let state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
+    let palette = use_context::<Signal<PaletteState>>();
+    let mut active_menu = use_signal(|| None::<TopMenu>);
+
+    let open_menu = *active_menu.read();
     let has_workspace = state.read().has_workspace();
 
     rsx! {
-        div { class: "toolbar-group",
-            ToolbarButton {
-                title: "New file (Ctrl+N)",
-                label: "New",
-                onclick: move |_| { state.write().new_tab(); }
+        nav {
+            class: "menu-bar",
+            aria_label: "Application menu",
+            onmousedown: |e| e.stop_propagation(),
+
+            if open_menu.is_some() {
+                div {
+                    class: "menu-backdrop",
+                    onclick: move |_| active_menu.set(None),
+                    onmousedown: |e| e.stop_propagation()
+                }
             }
-            ToolbarButton {
-                title: "Open file (Ctrl+O)",
-                label: "Open",
-                onclick: move |_| {
-                    spawn(async move {
-                        if let Some(path) = rfd::AsyncFileDialog::new()
-                            .add_filter("Rhai Scripts", &["rhai"])
-                            .pick_file()
-                            .await
-                        {
-                            if let Ok(content) = tokio::fs::read_to_string(path.path()).await {
-                                state.write().open_file(path.path().to_path_buf(), content);
+
+            for menu in TopMenu::ALL {
+                {
+                    let label = menu.label();
+                    let item_class = if open_menu == Some(menu) {
+                        "menu-item active"
+                    } else {
+                        "menu-item"
+                    };
+
+                    rsx! {
+                        div {
+                            key: "{label}",
+                            class: "menu-root",
+                            onmouseenter: move |_| {
+                                if active_menu.read().is_some() {
+                                    active_menu.set(Some(menu));
+                                }
+                            },
+
+                            button {
+                                class: "{item_class}",
+                                onclick: move |_| {
+                                    let next = if active_menu.read().as_ref() == Some(&menu) {
+                                        None
+                                    } else {
+                                        Some(menu)
+                                    };
+                                    active_menu.set(next);
+                                },
+                                onmousedown: |e| {
+                                    e.prevent_default();
+                                    e.stop_propagation();
+                                },
+                                "{label}"
+                            }
+
+                            if open_menu == Some(menu) {
+                                {menu_dropdown(
+                                    menu,
+                                    state,
+                                    &services,
+                                    palette,
+                                    active_menu,
+                                    has_workspace,
+                                )}
                             }
                         }
-                    });
-                }
-            }
-            ToolbarButton {
-                title: "Save file (Ctrl+S)",
-                label: "Save",
-                onclick: move |_| { save_current_file(state); }
-            }
-        }
-        div { class: "toolbar-group",
-            ToolbarButton {
-                title: "Open a new window",
-                label: "New Window",
-                onclick: move |_| { spawn_new_window(); }
-            }
-            if has_workspace {
-                ToolbarButton {
-                    title: "Close the current folder",
-                    label: "Close Folder",
-                    onclick: move |_| { state.write().close_folder(); }
+                    }
                 }
             }
         }
     }
 }
 
-/// Spawn a new Soyuz Studio window (fresh session)
-fn spawn_new_window() {
-    match std::env::current_exe() {
-        Ok(exe) => {
-            if let Err(e) = std::process::Command::new(exe).arg("--fresh").spawn() {
-                warn!("Failed to spawn new window: {e}");
-            }
-        }
-        Err(e) => warn!("Failed to get current executable: {e}"),
-    }
-}
-
-/// Preview and export controls
-#[component]
-fn PreviewControls(state: Signal<AppState>) -> Element {
-    let mut state = state;
-    let is_previewing = state.read().is_previewing;
-    let terminal_visible = state.read().terminal_visible;
+#[allow(clippy::too_many_lines)]
+fn menu_dropdown(
+    menu: TopMenu,
+    state: AppStore,
+    services: &AppServices,
+    palette: Signal<PaletteState>,
+    active_menu: Signal<Option<TopMenu>>,
+    has_workspace: bool,
+) -> Element {
+    let services = AppServices::clone(services);
 
     rsx! {
-        div { class: "toolbar-group",
-            if is_previewing {
-                ToolbarButton {
-                    title: "Stop preview",
-                    label: "Stop",
-                    class: "stop",
-                    onclick: move |_| { state.write().stop_preview(); }
-                }
-            } else {
-                ToolbarButton {
-                    title: "Run preview (Ctrl+Enter)",
-                    label: "Preview",
-                    onclick: move |_| { spawn_preview(state); }
-                }
-            }
-            ToolbarButton {
-                title: "Export mesh",
-                label: "Export",
-                onclick: move |_| { crate::export::open_export_window(state); }
-            }
-            // Terminal toggle button
-            button {
-                class: if terminal_visible { "titlebar-btn toolbar-button active" } else { "titlebar-btn toolbar-button" },
-                title: if terminal_visible { "Hide Terminal (Ctrl+`)" } else { "Show Terminal (Ctrl+`)" },
-                onclick: move |_| { state.write().toggle_terminal(); },
-                onmousedown: |e| e.stop_propagation(),
-                "Terminal"
-            }
-            // Settings button (gear icon)
-            button {
-                class: "titlebar-btn toolbar-button settings-btn",
-                title: "Settings",
-                onmousedown: |e| e.stop_propagation(),
-                onclick: move |_| { state.write().open_settings(); },
-                dangerous_inner_html: include_str!("../../assets/gear.svg")
+        div {
+            class: "menu-dropdown",
+            onmousedown: |e| {
+                e.prevent_default();
+                e.stop_propagation();
+            },
+            match menu {
+                TopMenu::File => rsx! {
+                    {menu_action("New File", Some("Ctrl+N"), "file.new", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Open File", Some("Ctrl+O"), "file.open", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Open Folder", None, "file.openFolder", false, state, services.clone(), palette, active_menu)}
+                    {menu_separator()}
+                    {menu_action("Save", Some("Ctrl+S"), "file.save", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Save As", Some("Ctrl+Shift+S"), "file.saveAs", false, state, services.clone(), palette, active_menu)}
+                    {menu_separator()}
+                    {menu_action("New Window", None, "window.new", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Close Folder", None, "file.closeFolder", !has_workspace, state, services.clone(), palette, active_menu)}
+                },
+                TopMenu::Edit => rsx! {
+                    {menu_action("Undo", Some("Ctrl+Z"), "edit.undo", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Redo", Some("Ctrl+Shift+Z"), "edit.redo", false, state, services.clone(), palette, active_menu)}
+                    {menu_separator()}
+                    {menu_action("Cut", Some("Ctrl+X"), "edit.cut", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Copy", Some("Ctrl+C"), "edit.copy", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Paste", Some("Ctrl+V"), "edit.paste", false, state, services.clone(), palette, active_menu)}
+                },
+                TopMenu::Selection => rsx! {
+                    {menu_action("Select All", Some("Ctrl+A"), "edit.selectAll", false, state, services.clone(), palette, active_menu)}
+                },
+                TopMenu::View => rsx! {
+                    {menu_action("Command Palette", Some("Ctrl+Shift+P"), "view.commandPalette", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Settings", None, "view.settings", false, state, services.clone(), palette, active_menu)}
+                },
+                TopMenu::Go => rsx! {
+                    {menu_action("Go to File", Some("Ctrl+P"), "view.goToFile", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Go to Line", Some("Ctrl+G"), "view.goToLine", false, state, services.clone(), palette, active_menu)}
+                },
+                TopMenu::Preview => rsx! {
+                    {menu_action("Open/Refresh Preview", Some("F5"), "preview.run", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Pop Out Preview", None, "preview.popOut", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Stop Preview", Some("Shift+F5"), "preview.stop", false, state, services.clone(), palette, active_menu)}
+                },
+                TopMenu::Terminal => rsx! {
+                    {menu_action("Toggle Terminal", Some("Ctrl+`"), "terminal.toggle", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Clear Terminal", None, "terminal.clear", false, state, services.clone(), palette, active_menu)}
+                },
+                TopMenu::Help => rsx! {
+                    {menu_action("Open Cookbook", None, "help.cookbook", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Open README", None, "help.readme", false, state, services.clone(), palette, active_menu)}
+                    {menu_action("Open Documentation", Some("F1"), "help.documentation", false, state, services.clone(), palette, active_menu)}
+                    {menu_separator()}
+                    {menu_action("About Soyuz Studio", None, "help.about", false, state, services.clone(), palette, active_menu)}
+                },
             }
         }
+    }
+}
+
+fn menu_action(
+    label: &'static str,
+    shortcut: Option<&'static str>,
+    command_id: &'static str,
+    disabled: bool,
+    state: AppStore,
+    services: AppServices,
+    palette: Signal<PaletteState>,
+    mut active_menu: Signal<Option<TopMenu>>,
+) -> Element {
+    let class = if disabled {
+        "menu-action disabled"
+    } else {
+        "menu-action"
+    };
+
+    rsx! {
+        button {
+            class: "{class}",
+            disabled,
+            onclick: move |_| {
+                if disabled {
+                    return;
+                }
+                app_commands::execute_app_command(command_id, state, services.clone(), palette);
+                active_menu.set(None);
+            },
+            onmousedown: |e| {
+                e.prevent_default();
+                e.stop_propagation();
+            },
+
+            span { class: "menu-label", "{label}" }
+            if let Some(shortcut) = shortcut {
+                span { class: "menu-shortcut", "{shortcut}" }
+            }
+        }
+    }
+}
+
+fn menu_separator() -> Element {
+    rsx! {
+        div { class: "menu-separator" }
     }
 }
 
 /// Search bar in toolbar - opens command palette when clicked
 #[component]
-fn WindowTitle(state: Signal<AppState>) -> Element {
-    let mut palette = use_context::<Signal<PaletteState>>();
+fn WindowTitle(state: AppStore) -> Element {
+    let palette = use_context::<Signal<PaletteState>>();
 
     // Get workspace name for display
     let workspace_name = state
@@ -257,8 +374,7 @@ fn WindowTitle(state: Signal<AppState>) -> Element {
         .unwrap_or_else(|| "Soyuz Studio".to_string());
 
     let open_palette = move |_| {
-        palette.write().visible = true;
-        palette.write().query.clear();
+        app_commands::open_unified_palette(palette, state, "");
     };
 
     rsx! {
@@ -270,59 +386,5 @@ fn WindowTitle(state: Signal<AppState>) -> Element {
             span { class: "search-icon", "" }
             span { class: "search-placeholder", "{workspace_name}" }
         }
-    }
-}
-
-/// Reusable toolbar button component
-#[component]
-fn ToolbarButton(
-    title: &'static str,
-    label: &'static str,
-    onclick: EventHandler<MouseEvent>,
-    #[props(default = "")] class: &'static str,
-) -> Element {
-    // Build class string based on variant
-    let button_class = if class == "stop" {
-        "titlebar-btn toolbar-button stop"
-    } else {
-        "titlebar-btn toolbar-button"
-    };
-
-    rsx! {
-        button {
-            class: "{button_class}",
-            title: "{title}",
-            onclick: move |evt| onclick.call(evt),
-            onmousedown: |e| e.stop_propagation(),
-            "{label}"
-        }
-    }
-}
-
-/// Save the current file (or show save dialog for untitled)
-fn save_current_file(mut state: Signal<AppState>) {
-    let current_file = state.read().current_file();
-    let code = state.read().code();
-
-    if let Some(path) = current_file {
-        spawn(async move {
-            if tokio::fs::write(&path, &code).await.is_ok() {
-                state.write().mark_saved(None);
-            }
-        });
-    } else {
-        spawn(async move {
-            if let Some(path) = rfd::AsyncFileDialog::new()
-                .add_filter("Rhai Scripts", &["rhai"])
-                .set_file_name("untitled.rhai")
-                .save_file()
-                .await
-            {
-                let code = state.read().code();
-                if tokio::fs::write(path.path(), &code).await.is_ok() {
-                    state.write().mark_saved(Some(path.path().to_path_buf()));
-                }
-            }
-        });
     }
 }

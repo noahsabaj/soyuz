@@ -59,7 +59,15 @@ impl RenderPreviewsRequest {
         let input = self.angles.trim().to_lowercase();
 
         if input == "all" {
-            return vec!["front", "back", "left", "right", "top", "bottom", "isometric"];
+            return vec![
+                "front",
+                "back",
+                "left",
+                "right",
+                "top",
+                "bottom",
+                "isometric",
+            ];
         }
 
         input

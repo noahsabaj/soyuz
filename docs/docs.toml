@@ -1,0 +1,164 @@
+[site]
+title = "Documentation"
+description = "Studio workflows, SDF concepts, API reference, and procedural modeling recipes."
+
+[[sections]]
+id = "overview"
+title = "Overview"
+description = "Start from the documentation index."
+
+[[sections.pages]]
+id = "index"
+href = "/docs"
+title = "Documentation"
+description = "The top-level documentation index."
+source = "index.md"
+kind = "markdown"
+
+[[sections]]
+id = "getting-started"
+title = "Getting Started"
+description = "Install Soyuz Studio and create your first procedural asset."
+
+[[sections.pages]]
+id = "getting-started/installation"
+href = "/docs/getting-started"
+title = "Installation"
+description = "Get Soyuz running on your machine."
+source = "getting-started/installation.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "getting-started/quick-start"
+href = "/docs/getting-started/quick-start"
+title = "Quick Start"
+description = "Create your first 3D model in a few minutes."
+source = "getting-started/quick-start.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "getting-started/studio"
+href = "/docs/getting-started/studio"
+title = "Soyuz Studio"
+description = "Use the desktop workbench for scripts, preview, and export."
+source = "getting-started/studio.md"
+kind = "markdown"
+
+[[sections]]
+id = "concepts"
+title = "Concepts"
+description = "Understand the fundamentals of Signed Distance Fields."
+
+[[sections.pages]]
+id = "concepts/sdf"
+href = "/docs/concepts"
+title = "Signed Distance Fields"
+description = "The mathematical foundation of Soyuz."
+source = "concepts/sdf.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "concepts/primitives"
+href = "/docs/concepts/primitives"
+title = "Primitives"
+description = "Basic shapes that form the building blocks of your models."
+source = "concepts/primitives.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "concepts/operations"
+href = "/docs/concepts/operations"
+title = "Boolean Operations"
+description = "Combine shapes with union, subtract, and intersect."
+source = "concepts/operations.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "concepts/transforms"
+href = "/docs/concepts/transforms"
+title = "Transforms"
+description = "Move, rotate, scale, and mirror shapes."
+source = "concepts/transforms.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "concepts/modifiers"
+href = "/docs/concepts/modifiers"
+title = "Modifiers"
+description = "Transform surfaces and repeat shapes."
+source = "concepts/modifiers.md"
+kind = "markdown"
+
+[[sections]]
+id = "api"
+title = "API Reference"
+description = "Complete reference for all Soyuz functions."
+
+[[sections.pages]]
+id = "api/overview"
+href = "/docs/api"
+title = "API Reference"
+description = "Complete reference for all Soyuz functions."
+source = "api/overview.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "api/primitives"
+href = "/docs/api/primitives"
+title = "Primitives API"
+description = "Shape constructors available in Soyuz scripts."
+kind = "api"
+api_categories = ["primitives"]
+
+[[sections.pages]]
+id = "api/operations"
+href = "/docs/api/operations"
+title = "Operations API"
+description = "Boolean operations, modifiers, and repetition methods."
+kind = "api"
+api_categories = ["operations", "modifiers"]
+
+[[sections.pages]]
+id = "api/transforms"
+href = "/docs/api/transforms"
+title = "Transforms API"
+description = "Positioning, rotation, scale, symmetry, and math helpers."
+kind = "api"
+api_categories = ["transforms", "math"]
+
+[[sections.pages]]
+id = "api/environment"
+href = "/docs/api/environment"
+title = "Environment API"
+description = "Lighting, material, sky, fog, effects, and presets."
+kind = "api"
+api_categories = ["environment"]
+
+[[sections]]
+id = "cookbook"
+title = "Cookbook"
+description = "Recipes and patterns for common modeling tasks."
+
+[[sections.pages]]
+id = "cookbook/recipes-overview"
+href = "/docs/cookbook"
+title = "Recipes Overview"
+description = "Practical modeling recipes and example families."
+source = "cookbook/recipes-overview.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "cookbook/patterns"
+href = "/docs/cookbook/patterns"
+title = "Common Patterns"
+description = "Reusable techniques for everyday modeling."
+source = "cookbook/patterns.md"
+kind = "markdown"
+
+[[sections.pages]]
+id = "cookbook/tips"
+href = "/docs/cookbook/tips"
+title = "Tips & Tricks"
+description = "Best practices for effective modeling."
+source = "cookbook/tips.md"
+kind = "markdown"

@@ -37,7 +37,7 @@ The SDF approach means:
 
 ### Prerequisites
 
-- Rust toolchain (1.75+)
+- Rust toolchain (1.85+)
 - Linux with X11 or Wayland (primary target)
 
 ### Build
@@ -46,12 +46,24 @@ The SDF approach means:
 git clone https://github.com/noahsabaj/soyuz
 cd soyuz
 
-# Build all binaries
-cargo build --release
+# Build Soyuz Studio
+cargo build --release -p soyuz-app --bin soyuz-studio
 
-# The binaries are:
-# ./target/release/soyuz-studio  (desktop IDE)
-# ./target/release/soyuz-preview (preview window)
+# The desktop IDE binary is:
+# ./target/release/soyuz-studio
+#
+# Preview windows run as isolated soyuz-studio --preview child processes,
+# so no separate preview helper binary is required for normal use.
+```
+
+### Product Smoke
+
+```bash
+# Fast CI-safe product smoke: Dioxus check/build, preview entrypoint, export entrypoint
+cargo run -p xtask -- studio-smoke --mode fast
+
+# Optional real-window smoke when a display is available
+cargo run -p xtask -- studio-smoke --mode graphics
 ```
 
 ---
@@ -61,7 +73,7 @@ cargo build --release
 ### Soyuz Studio (Desktop IDE)
 
 ```bash
-cargo run --release -p app
+cargo run --release -p soyuz-app --bin soyuz-studio
 ```
 
 This opens the full IDE with:

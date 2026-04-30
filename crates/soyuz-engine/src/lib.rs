@@ -45,14 +45,17 @@ use std::path::Path;
 // Re-export commonly used types from dependencies
 pub use soyuz_core::export::MeshExport;
 pub use soyuz_core::mesh::{Mesh, MeshConfig, OptimizeConfig, SdfToMesh};
-pub use soyuz_render::{Camera, WindowConfig, run_preview_with_sdf};
+pub use soyuz_render::{
+    Camera, EmbeddedConfig, WindowConfig, run_embedded_preview, run_preview_with_sdf,
+};
 pub use soyuz_script::{CpuSdf, SceneResult};
 pub use soyuz_sdf::{Environment, SdfOp};
 
 // Re-export our own types
-pub use export::{ExportFormat, ExportOptions, ExportResult};
+pub use export::{ExportOptions, ExportResult};
 pub use preview::PreviewOptions;
 pub use scene::SceneError;
+pub use soyuz_core::export::ExportFormat;
 
 #[cfg(feature = "file-watcher")]
 pub use soyuz_script::{ScriptWatcher, WatchEvent};
@@ -276,9 +279,7 @@ impl Engine {
             })
         });
 
-        if should_reload
-            && let Some(path) = source_path.cloned()
-        {
+        if should_reload && let Some(path) = source_path.cloned() {
             self.load_script(&path)?;
             return Ok(true);
         }

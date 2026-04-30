@@ -6,8 +6,8 @@
 //!
 //! Note: STL does not support materials, textures, or vertex colors.
 
-use crate::mesh::Mesh;
 use crate::Result;
+use crate::mesh::Mesh;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -100,6 +100,7 @@ pub fn export_stl(mesh: &Mesh, path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::mesh::Vertex;
@@ -151,28 +152,55 @@ mod tests {
         let mesh = Mesh {
             vertices: vec![
                 // Front face
-                Vertex { position: [-0.5, -0.5, 0.5], normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0] },
-                Vertex { position: [0.5, -0.5, 0.5], normal: [0.0, 0.0, 1.0], uv: [1.0, 0.0] },
-                Vertex { position: [0.5, 0.5, 0.5], normal: [0.0, 0.0, 1.0], uv: [1.0, 1.0] },
-                Vertex { position: [-0.5, 0.5, 0.5], normal: [0.0, 0.0, 1.0], uv: [0.0, 1.0] },
+                Vertex {
+                    position: [-0.5, -0.5, 0.5],
+                    normal: [0.0, 0.0, 1.0],
+                    uv: [0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.5, -0.5, 0.5],
+                    normal: [0.0, 0.0, 1.0],
+                    uv: [1.0, 0.0],
+                },
+                Vertex {
+                    position: [0.5, 0.5, 0.5],
+                    normal: [0.0, 0.0, 1.0],
+                    uv: [1.0, 1.0],
+                },
+                Vertex {
+                    position: [-0.5, 0.5, 0.5],
+                    normal: [0.0, 0.0, 1.0],
+                    uv: [0.0, 1.0],
+                },
                 // Back face
-                Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], uv: [0.0, 0.0] },
-                Vertex { position: [0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], uv: [1.0, 0.0] },
-                Vertex { position: [0.5, 0.5, -0.5], normal: [0.0, 0.0, -1.0], uv: [1.0, 1.0] },
-                Vertex { position: [-0.5, 0.5, -0.5], normal: [0.0, 0.0, -1.0], uv: [0.0, 1.0] },
+                Vertex {
+                    position: [-0.5, -0.5, -0.5],
+                    normal: [0.0, 0.0, -1.0],
+                    uv: [0.0, 0.0],
+                },
+                Vertex {
+                    position: [0.5, -0.5, -0.5],
+                    normal: [0.0, 0.0, -1.0],
+                    uv: [1.0, 0.0],
+                },
+                Vertex {
+                    position: [0.5, 0.5, -0.5],
+                    normal: [0.0, 0.0, -1.0],
+                    uv: [1.0, 1.0],
+                },
+                Vertex {
+                    position: [-0.5, 0.5, -0.5],
+                    normal: [0.0, 0.0, -1.0],
+                    uv: [0.0, 1.0],
+                },
             ],
             indices: vec![
                 // Front
-                0, 1, 2, 0, 2, 3,
-                // Back
-                5, 4, 7, 5, 7, 6,
-                // Left
-                4, 0, 3, 4, 3, 7,
-                // Right
-                1, 5, 6, 1, 6, 2,
-                // Top
-                3, 2, 6, 3, 6, 7,
-                // Bottom
+                0, 1, 2, 0, 2, 3, // Back
+                5, 4, 7, 5, 7, 6, // Left
+                4, 0, 3, 4, 3, 7, // Right
+                1, 5, 6, 1, 6, 2, // Top
+                3, 2, 6, 3, 6, 7, // Bottom
                 4, 5, 1, 4, 1, 0,
             ],
         };

@@ -1,0 +1,26 @@
+[application]
+name = "Soyuz Studio"
+asset_dir = "app/assets"
+sub_package = "soyuz-app"
+
+[web.app]
+title = "Soyuz Studio"
+
+[web.watcher]
+watch_path = ["app/src", "app/assets", "Cargo.toml", "app/Cargo.toml", "Dioxus.toml"]
+
+[bundle]
+identifier = "dev.soyuz.studio"
+publisher = "Noah Sabaj"
+category = "DeveloperTool"
+short_description = "Desktop IDE for procedural 3D asset generation."
+long_description = "Soyuz Studio is a desktop IDE for writing SDF scripts, previewing procedural 3D assets, and exporting common 3D formats."
+icon = [
+    "assets/icons/icon-16.png",
+    "assets/icons/icon-32.png",
+    "assets/icons/icon-48.png",
+    "assets/icons/icon-64.png",
+    "assets/icons/icon-128.png",
+    "assets/icons/icon-256.png",
+    "assets/icons/icon.ico",
+]

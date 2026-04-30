@@ -6,7 +6,7 @@
 
 use std::thread;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use image::ImageEncoder;
 use soyuz_core::export::MeshExport;
 use soyuz_core::mesh::{MeshConfig, OptimizeConfig, SdfToMesh};
@@ -126,13 +126,15 @@ impl SoyuzState {
                             if width == 0 || height == 0 {
                                 return Err(anyhow!(
                                     "Invalid render dimensions: {}x{}. Width and height must be at least 1.",
-                                    width, height
+                                    width,
+                                    height
                                 ));
                             }
                             if width > 8192 || height > 8192 {
                                 return Err(anyhow!(
                                     "Render dimensions too large: {}x{}. Maximum is 8192x8192.",
-                                    width, height
+                                    width,
+                                    height
                                 ));
                             }
 
@@ -362,8 +364,12 @@ impl std::fmt::Display for SceneInfo {
             write!(
                 f,
                 "Scene loaded. Bounds: [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}]",
-                self.bounds_min[0], self.bounds_min[1], self.bounds_min[2],
-                self.bounds_max[0], self.bounds_max[1], self.bounds_max[2]
+                self.bounds_min[0],
+                self.bounds_min[1],
+                self.bounds_min[2],
+                self.bounds_max[0],
+                self.bounds_max[1],
+                self.bounds_max[2]
             )
         } else {
             write!(f, "No scene loaded")

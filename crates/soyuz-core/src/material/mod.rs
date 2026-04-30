@@ -280,22 +280,7 @@ impl MaterialChannel {
                 }
             }
             MaterialChannel::Texture(t) => {
-                for y in 0..size {
-                    for x in 0..size {
-                        let uv = glam::Vec2::new(x as f32 / size as f32, y as f32 / size as f32);
-                        let color = t.sample_color(uv);
-                        img.put_pixel(
-                            x,
-                            y,
-                            Rgba([
-                                (color[0].clamp(0.0, 1.0) * 255.0) as u8,
-                                (color[1].clamp(0.0, 1.0) * 255.0) as u8,
-                                (color[2].clamp(0.0, 1.0) * 255.0) as u8,
-                                (color[3].clamp(0.0, 1.0) * 255.0) as u8,
-                            ]),
-                        );
-                    }
-                }
+                return rasterize_texture(t.as_ref(), size);
             }
         }
 

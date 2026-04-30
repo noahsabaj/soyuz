@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
+    "xtask",
     "crates/soyuz-math",
     "crates/soyuz-core",
     "crates/soyuz-sdf",
@@ -14,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.2"
+version = "0.6.0"
 edition = "2024"
 authors = ["Noah Sabaj"]
 license = "MIT OR Apache-2.0"
@@ -45,7 +46,8 @@ glyphon = "0.9"
 rhai = "1.20"
 
 # Desktop app
-dioxus = { version = "0.7.3", features = ["desktop"] }
+dioxus = "0.7.6"
+dioxus-stores = "0.7.6"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }
@@ -75,6 +77,7 @@ rustyline = "14.0"
 
 # Testing
 approx = "0.5"
+proptest = "1.6"
 
 [workspace.lints.clippy]
 # Set lower priority for lint groups so individual lints can override

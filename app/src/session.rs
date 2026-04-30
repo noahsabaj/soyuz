@@ -124,14 +124,16 @@ impl Session {
 }
 
 /// Convert EditorPane to PaneSession (recursive)
-/// Note: Settings tabs are skipped - they should not be persisted
+/// Note: transient workspace tabs are skipped - they should not be persisted
 fn pane_to_session(pane: &EditorPane) -> PaneSession {
     match pane {
-        EditorPane::TabGroup { id, tabs, active_tab_idx } => {
-            // Filter out Settings tabs - they shouldn't be persisted
-            let file_tabs: Vec<_> = tabs.iter()
-                .filter(|tab| !tab.is_settings())
-                .collect();
+        EditorPane::TabGroup {
+            id,
+            tabs,
+            active_tab_idx,
+        } => {
+            // Filter out Settings/Preview/Export tabs - they shouldn't be persisted
+            let file_tabs: Vec<_> = tabs.iter().filter(|tab| tab.is_persistable()).collect();
 
             // Adjust active_tab_idx to account for filtered tabs
             let adjusted_active_idx = if file_tabs.is_empty() {
@@ -139,34 +141,41 @@ fn pane_to_session(pane: &EditorPane) -> PaneSession {
             } else {
                 // Find the new index of the previously active tab
                 let active_tab_id = tabs.get(*active_tab_idx).map(|t| t.id);
-                file_tabs.iter()
+                file_tabs
+                    .iter()
                     .position(|t| Some(t.id) == active_tab_id)
                     .unwrap_or(0)
             };
 
             PaneSession::TabGroup {
                 id: *id,
-                tabs: file_tabs.iter().map(|tab| TabSession {
-                    path: tab.path.clone(),
-                    content: if tab.path.is_none() || tab.is_dirty {
-                        Some(tab.content.clone())
-                    } else {
-                        None
-                    },
-                    is_dirty: tab.is_dirty,
-                    history: Some(tab.history.clone()),
-                }).collect(),
+                tabs: file_tabs
+                    .iter()
+                    .map(|tab| TabSession {
+                        path: tab.path.clone(),
+                        content: if tab.path.is_none() || tab.is_dirty {
+                            Some(tab.content.clone())
+                        } else {
+                            None
+                        },
+                        is_dirty: tab.is_dirty,
+                        history: Some(tab.history.clone()),
+                    })
+                    .collect(),
                 active_tab_idx: adjusted_active_idx,
             }
         }
-        EditorPane::Split { direction, first, second, ratio } => {
-            PaneSession::Split {
-                direction: *direction,
-                first: Box::new(pane_to_session(first)),
-                second: Box::new(pane_to_session(second)),
-                ratio: *ratio,
-            }
-        }
+        EditorPane::Split {
+            direction,
+            first,
+            second,
+            ratio,
+        } => PaneSession::Split {
+            direction: *direction,
+            first: Box::new(pane_to_session(first)),
+            second: Box::new(pane_to_session(second)),
+            ratio: *ratio,
+        },
     }
 }
 
@@ -184,9 +193,17 @@ pub fn state_to_session(state: &AppState) -> Session {
 }
 
 /// Convert PaneSession to EditorPane (recursive)
-fn session_to_pane(session: &PaneSession, next_tab_id: &mut u64, max_pane_id: &mut PaneId) -> EditorPane {
+fn session_to_pane(
+    session: &PaneSession,
+    next_tab_id: &mut u64,
+    max_pane_id: &mut PaneId,
+) -> EditorPane {
     match session {
-        PaneSession::TabGroup { id, tabs, active_tab_idx } => {
+        PaneSession::TabGroup {
+            id,
+            tabs,
+            active_tab_idx,
+        } => {
             // Track max pane ID
             if *id > *max_pane_id {
                 *max_pane_id = *id;
@@ -194,10 +211,8 @@ fn session_to_pane(session: &PaneSession, next_tab_id: &mut u64, max_pane_id: &m
 
             let mut restored_tabs = Vec::new();
             for tab_session in tabs {
-                let content = load_tab_content(
-                    tab_session.path.as_ref(),
-                    tab_session.content.as_ref(),
-                );
+                let content =
+                    load_tab_content(tab_session.path.as_ref(), tab_session.content.as_ref());
 
                 let history = tab_session.history.clone().unwrap_or_default();
                 restored_tabs.push(EditorTab::with_history(
@@ -216,14 +231,17 @@ fn session_to_pane(session: &PaneSession, next_tab_id: &mut u64, max_pane_id: &m
                 active_tab_idx: *active_tab_idx,
             }
         }
-        PaneSession::Split { direction, first, second, ratio } => {
-            EditorPane::Split {
-                direction: *direction,
-                first: Box::new(session_to_pane(first, next_tab_id, max_pane_id)),
-                second: Box::new(session_to_pane(second, next_tab_id, max_pane_id)),
-                ratio: *ratio,
-            }
-        }
+        PaneSession::Split {
+            direction,
+            first,
+            second,
+            ratio,
+        } => EditorPane::Split {
+            direction: *direction,
+            first: Box::new(session_to_pane(first, next_tab_id, max_pane_id)),
+            second: Box::new(session_to_pane(second, next_tab_id, max_pane_id)),
+            ratio: *ratio,
+        },
     }
 }
 
@@ -239,10 +257,7 @@ pub fn restore_session(state: &mut AppState, session: Session) {
         // Legacy: restore from flat tabs list
         let mut tabs = Vec::new();
         for tab_session in session.tabs {
-            let content = load_tab_content(
-                tab_session.path.as_ref(),
-                tab_session.content.as_ref(),
-            );
+            let content = load_tab_content(tab_session.path.as_ref(), tab_session.content.as_ref());
 
             let history = tab_session.history.unwrap_or_default();
             tabs.push(EditorTab::with_history(
@@ -270,7 +285,11 @@ pub fn restore_session(state: &mut AppState, session: Session) {
     state.next_pane_id = max_pane_id + 1;
 
     // Restore focused pane (validate it exists)
-    if state.editor_pane.find_pane(session.focused_pane_id).is_some() {
+    if state
+        .editor_pane
+        .find_pane(session.focused_pane_id)
+        .is_some()
+    {
         state.focused_pane_id = session.focused_pane_id;
     } else if let Some(first_id) = state.editor_pane.all_pane_ids().first() {
         state.focused_pane_id = *first_id;
@@ -282,4 +301,15 @@ pub fn restore_session(state: &mut AppState, session: Session) {
     // Restore export settings
     state.export_settings.last_export_dir = session.last_export_dir.filter(|p| p.exists());
     state.export_settings.close_after_export = session.close_after_export;
+    state.last_source_tab_id = state
+        .active_tab()
+        .filter(|tab| tab.is_persistable())
+        .map(|tab| tab.id)
+        .or_else(|| {
+            state
+                .all_tabs()
+                .into_iter()
+                .find(|tab| tab.is_persistable())
+                .map(|tab| tab.id)
+        });
 }

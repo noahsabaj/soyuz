@@ -92,7 +92,7 @@
 
 /* Highlight empty space as drop target for moving to root */
 .explorer-content.drop-target-root {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--subtle-bg);
 }
 
 /* Inline input for creating files/folders */
@@ -128,19 +128,19 @@
 }
 
 .tree-item:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--hover-bg);
 }
 
 .tree-item.selected {
-    background: rgba(0, 122, 204, 0.3);
+    background: var(--selection-bg);
 }
 
 .tree-item.selected:hover {
-    background: rgba(0, 122, 204, 0.4);
+    background: var(--selection-bg);
 }
 
 .tree-item.drop-target {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--strong-bg);
 }
 
 .tree-item.dragging {
@@ -239,7 +239,7 @@
 .empty-button {
     padding: 8px 16px;
     background: var(--accent);
-    color: white;
+    color: var(--button-text-on-accent);
     border: none;
     font-size: 13px;
     cursor: pointer;
@@ -267,7 +267,7 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px var(--shadow-medium);
     padding: 4px 0;
 }
 
@@ -290,8 +290,8 @@
 }
 
 .context-menu-item.danger:hover {
-    background: rgba(220, 50, 50, 0.2);
-    color: #f87171;
+    background: var(--danger-bg);
+    color: var(--danger-text);
 }
 
 .context-menu-icon {

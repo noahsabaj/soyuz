@@ -40,6 +40,17 @@ impl ExportFormat {
         }
     }
 
+    /// Parse format from a string extension name (case-insensitive)
+    pub fn from_str_ext(ext: &str) -> Option<Self> {
+        match ext.to_lowercase().as_str() {
+            "obj" => Some(Self::Obj),
+            "gltf" => Some(Self::Gltf),
+            "glb" => Some(Self::Glb),
+            "stl" => Some(Self::Stl),
+            _ => None,
+        }
+    }
+
     /// Get the file extension for this format
     pub fn extension(&self) -> &'static str {
         match self {

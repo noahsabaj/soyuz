@@ -61,16 +61,16 @@ pub fn get_icon(path: &PathBuf, is_dir: bool) -> &'static str {
         "" // Folder icon handled by CSS
     } else {
         match path.extension().and_then(|e| e.to_str()) {
-            Some("rhai") => "", // Script/code file
-            Some("rs") => "",   // Rust file
-            Some("toml") => "", // Config file
-            Some("md") => "",   // Markdown
-            Some("glb") | Some("gltf") | Some("obj") => "", // 3D model
+            Some("rhai") => "",                                           // Script/code file
+            Some("rs") => "",                                             // Rust file
+            Some("toml") => "",                                           // Config file
+            Some("md") => "",                                             // Markdown
+            Some("glb") | Some("gltf") | Some("obj") => "",               // 3D model
             Some("png") | Some("jpg") | Some("jpeg") | Some("svg") => "", // Image
-            Some("json") => "", // JSON
-            Some("css") => "",  // CSS
-            Some("lock") => "", // Lock file
-            _ => "",            // Generic file
+            Some("json") => "",                                           // JSON
+            Some("css") => "",                                            // CSS
+            Some("lock") => "",                                           // Lock file
+            _ => "",                                                      // Generic file
         }
     }
 }

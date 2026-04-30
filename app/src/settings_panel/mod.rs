@@ -5,10 +5,8 @@
 use dioxus::prelude::*;
 use tracing::warn;
 
-use crate::settings::{
-    all_settings_meta, save_settings, AutoSave, ControlType, SettingCategory,
-};
-use crate::state::AppState;
+use crate::settings::{AutoSave, ControlType, SettingCategory, all_settings_meta, save_settings};
+use crate::state::AppStore;
 use soyuz_core::export::ExportFormat;
 
 /// Main settings panel component
@@ -138,7 +136,7 @@ fn SettingRow(
 /// Text input control
 #[component]
 fn TextControl(id: &'static str) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
 
     let value = {
         let s = state.read();
@@ -172,7 +170,7 @@ fn TextControl(id: &'static str) -> Element {
 /// Number input control
 #[component]
 fn NumberControl(id: &'static str, min: u32, max: u32) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
 
     let value = {
         let s = state.read();
@@ -219,7 +217,7 @@ fn NumberControl(id: &'static str, min: u32, max: u32) -> Element {
 /// Checkbox control
 #[component]
 fn CheckboxControl(id: &'static str) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
 
     let checked = {
         let s = state.read();
@@ -264,7 +262,7 @@ fn CheckboxControl(id: &'static str) -> Element {
 /// Dropdown control
 #[component]
 fn DropdownControl(id: &'static str, options: Vec<(&'static str, &'static str)>) -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
 
     let current_value = {
         let s = state.read();

@@ -294,17 +294,24 @@ fn build_gltf_json_with_material(
     let indices_offset = uvs_offset + uvs_size;
     let indices_size = index_count * 4;
 
-    // Calculate texture buffer offsets
+    // Calculate texture buffer offsets. GLB embeds texture bytes in the single
+    // binary chunk; external glTF writes textures as standalone PNG files.
     let mut texture_offsets = Vec::new();
     let mut current_offset = mesh_buffer_size;
-    for tex in texture_buffers {
-        let padding = (4 - (current_offset % 4)) % 4;
-        current_offset += padding;
-        texture_offsets.push(current_offset);
-        current_offset += tex.len();
+    if is_glb {
+        for tex in texture_buffers {
+            let padding = (4 - (current_offset % 4)) % 4;
+            current_offset += padding;
+            texture_offsets.push(current_offset);
+            current_offset += tex.len();
+        }
     }
 
-    let total_buffer_size = current_offset;
+    let total_buffer_size = if is_glb {
+        current_offset
+    } else {
+        mesh_buffer_size
+    };
 
     // Start JSON
     writeln_str!(json, "{{");
@@ -389,15 +396,17 @@ fn build_gltf_json_with_material(
         indices_size
     );
 
-    // Add buffer views for textures
-    for (offset, tex) in texture_offsets.iter().zip(texture_buffers.iter()) {
-        writeln_str!(json, ",");
-        write_str!(
-            json,
-            r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }}"#,
-            offset,
-            tex.len()
-        );
+    // Add buffer views for embedded GLB textures only.
+    if is_glb {
+        for (offset, tex) in texture_offsets.iter().zip(texture_buffers.iter()) {
+            writeln_str!(json, ",");
+            write_str!(
+                json,
+                r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }}"#,
+                offset,
+                tex.len()
+            );
+        }
     }
     writeln_str!(json);
     writeln_str!(json, r#"  ],"#);
@@ -579,5 +588,51 @@ mod tests {
         assert!(result.is_ok());
         assert!(temp_path.exists());
         std::fs::remove_file(&temp_path).ok();
+    }
+
+    #[test]
+    fn test_export_gltf_with_material_uses_external_texture_uris() {
+        let mesh = create_test_mesh();
+        let material = Material::pbr()
+            .albedo_color(0.8, 0.2, 0.2)
+            .roughness(0.5)
+            .metallic(0.0);
+        let mesh_mat = MeshWithMaterial::new(mesh, material);
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("soyuz_gltf_material_test_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
+        let temp_path = temp_dir.join("material.gltf");
+
+        let result = export_gltf_with_material(&mesh_mat, &temp_path);
+        assert!(result.is_ok());
+        assert!(temp_path.exists());
+
+        let json = std::fs::read_to_string(&temp_path).expect("gltf JSON should be readable");
+        let root: serde_json::Value = serde_json::from_str(&json).expect("gltf JSON should parse");
+        let buffer_views = root["bufferViews"]
+            .as_array()
+            .expect("gltf should contain bufferViews");
+        assert_eq!(
+            buffer_views.len(),
+            4,
+            "external glTF should only define mesh bufferViews"
+        );
+
+        let images = root["images"]
+            .as_array()
+            .expect("gltf should contain images");
+        assert!(!images.is_empty(), "material export should create textures");
+        for (i, image) in images.iter().enumerate() {
+            assert!(image.get("bufferView").is_none());
+            assert_eq!(
+                image.get("uri").and_then(serde_json::Value::as_str),
+                Some(format!("texture_{}.png", i).as_str())
+            );
+            assert!(temp_dir.join(format!("texture_{}.png", i)).exists());
+        }
+
+        gltf::Gltf::open(&temp_path).expect("gltf crate should parse exported JSON");
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

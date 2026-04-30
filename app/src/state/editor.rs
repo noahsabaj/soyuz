@@ -21,24 +21,86 @@ pub enum TabKind {
     File,
     /// Settings panel (singleton)
     Settings,
-    /// Embedded markdown documentation (singleton per doc type)
+    /// Embedded interactive preview (singleton)
+    Preview,
+    /// Embedded export panel (singleton)
+    Export,
+    /// Embedded markdown documentation (singleton per container)
     Markdown(MarkdownDoc),
 }
 
-/// Types of embedded markdown documents
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum MarkdownDoc {
+/// Top-level embedded markdown tab containers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkdownContainer {
+    /// General documentation tab.
+    Documentation,
+    /// Cookbook tab.
     Cookbook,
+    /// Project README tab.
     Readme,
 }
 
+/// State for an embedded markdown tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarkdownDoc {
+    /// Top-level tab container.
+    pub container: MarkdownContainer,
+    /// Selected generated document id inside the container.
+    pub selected_id: &'static str,
+}
+
 impl MarkdownDoc {
+    /// Documentation tab.
+    pub const DOCS_INDEX: Self = Self {
+        container: MarkdownContainer::Documentation,
+        selected_id: "index",
+    };
+    /// Cookbook tab.
+    pub const COOKBOOK: Self = Self {
+        container: MarkdownContainer::Cookbook,
+        selected_id: "cookbook/recipes-overview",
+    };
+    /// Project README tab.
+    pub const README: Self = Self {
+        container: MarkdownContainer::Readme,
+        selected_id: "readme",
+    };
+
     /// Get display name for the tab
     pub fn display_name(self) -> &'static str {
-        match self {
-            MarkdownDoc::Cookbook => "Cookbook",
-            MarkdownDoc::Readme => "README",
+        match self.container {
+            MarkdownContainer::Documentation => "Documentation",
+            MarkdownContainer::Cookbook => "Cookbook",
+            MarkdownContainer::Readme => {
+                crate::docs_generated::doc_title(self.selected_id).unwrap_or("README")
+            }
         }
+    }
+
+    /// Check whether the generated document belongs in this tab container.
+    pub fn can_select(self, doc_id: &str) -> bool {
+        crate::docs_generated::doc_by_id(doc_id).is_some_and(|doc| match self.container {
+            MarkdownContainer::Documentation => !matches!(doc.section, "Cookbook" | "Project"),
+            MarkdownContainer::Cookbook => doc.section == "Cookbook",
+            MarkdownContainer::Readme => doc.id == Self::README.selected_id,
+        })
+    }
+
+    /// Return a copy with a new selected generated document if it belongs here.
+    pub fn with_selected_id(self, doc_id: &'static str) -> Self {
+        if self.can_select(doc_id) {
+            Self {
+                selected_id: doc_id,
+                ..self
+            }
+        } else {
+            self
+        }
+    }
+
+    /// Check whether two markdown tabs belong to the same top-level container.
+    pub fn same_container(self, other: Self) -> bool {
+        self.container == other.container
     }
 }
 
@@ -104,6 +166,34 @@ impl EditorTab {
         }
     }
 
+    /// Create a Preview tab
+    pub fn new_preview(id: TabId, source_code: String) -> Self {
+        Self {
+            id,
+            kind: TabKind::Preview,
+            path: None,
+            content: source_code,
+            is_dirty: false,
+            cursor_line: 1,
+            cursor_col: 1,
+            history: UndoHistory::default(),
+        }
+    }
+
+    /// Create an Export tab
+    pub fn new_export(id: TabId, source_code: String) -> Self {
+        Self {
+            id,
+            kind: TabKind::Export,
+            path: None,
+            content: source_code,
+            is_dirty: false,
+            cursor_line: 1,
+            cursor_col: 1,
+            history: UndoHistory::default(),
+        }
+    }
+
     /// Create a Markdown documentation tab
     pub fn new_markdown(id: TabId, doc: MarkdownDoc) -> Self {
         Self {
@@ -156,6 +246,8 @@ impl EditorTab {
     pub fn display_name(&self) -> String {
         match &self.kind {
             TabKind::Settings => "Settings".to_string(),
+            TabKind::Preview => "Preview".to_string(),
+            TabKind::Export => "Export".to_string(),
             TabKind::Markdown(doc) => doc.display_name().to_string(),
             TabKind::File => self
                 .path
@@ -171,6 +263,21 @@ impl EditorTab {
         self.kind == TabKind::Settings
     }
 
+    /// Check if this is a Preview tab
+    pub fn is_preview(&self) -> bool {
+        self.kind == TabKind::Preview
+    }
+
+    /// Check if this is an Export tab
+    pub fn is_export(&self) -> bool {
+        self.kind == TabKind::Export
+    }
+
+    /// Check if this tab should be restored across sessions
+    pub fn is_persistable(&self) -> bool {
+        matches!(self.kind, TabKind::File)
+    }
+
     /// Check if this is a markdown documentation tab
     pub fn is_markdown(&self) -> bool {
         matches!(self.kind, TabKind::Markdown(_))
@@ -181,6 +288,13 @@ impl EditorTab {
         match self.kind {
             TabKind::Markdown(doc) => Some(doc),
             _ => None,
+        }
+    }
+
+    /// Select a generated markdown document inside this tab.
+    pub fn select_markdown_doc(&mut self, doc_id: &'static str) {
+        if let TabKind::Markdown(doc) = &mut self.kind {
+            *doc = doc.with_selected_id(doc_id);
         }
     }
 }
@@ -249,9 +363,9 @@ impl EditorPane {
         match self {
             EditorPane::TabGroup { id, .. } if *id == pane_id => Some(self),
             EditorPane::TabGroup { .. } => None,
-            EditorPane::Split { first, second, .. } => {
-                first.find_pane(pane_id).or_else(|| second.find_pane(pane_id))
-            }
+            EditorPane::Split { first, second, .. } => first
+                .find_pane(pane_id)
+                .or_else(|| second.find_pane(pane_id)),
         }
     }
 
@@ -304,6 +418,16 @@ impl EditorPane {
         }
     }
 
+    /// Find a tab by ID (recursive)
+    pub fn find_tab(&self, tab_id: TabId) -> Option<&EditorTab> {
+        match self {
+            EditorPane::TabGroup { tabs, .. } => tabs.iter().find(|tab| tab.id == tab_id),
+            EditorPane::Split { first, second, .. } => {
+                first.find_tab(tab_id).or_else(|| second.find_tab(tab_id))
+            }
+        }
+    }
+
     /// Collect all tabs from the pane tree (recursive)
     pub fn collect_tabs(&self) -> Vec<&EditorTab> {
         match self {
@@ -344,28 +468,63 @@ impl EditorPane {
                 }
                 None
             }
-            EditorPane::Split { first, second, .. } => {
-                first.find_settings_tab().or_else(|| second.find_settings_tab())
-            }
+            EditorPane::Split { first, second, .. } => first
+                .find_settings_tab()
+                .or_else(|| second.find_settings_tab()),
         }
     }
 
-    /// Find a markdown documentation tab by type (returns pane_id, tab_id)
-    pub fn find_markdown_tab(&self, doc: MarkdownDoc) -> Option<(PaneId, TabId)> {
+    /// Find the Preview tab if it exists (returns pane_id, tab_id)
+    pub fn find_preview_tab(&self) -> Option<(PaneId, TabId)> {
         match self {
             EditorPane::TabGroup { id, tabs, .. } => {
                 for tab in tabs {
-                    if tab.markdown_doc() == Some(doc) {
+                    if tab.is_preview() {
+                        return Some((*id, tab.id));
+                    }
+                }
+                None
+            }
+            EditorPane::Split { first, second, .. } => first
+                .find_preview_tab()
+                .or_else(|| second.find_preview_tab()),
+        }
+    }
+
+    /// Find the Export tab if it exists (returns pane_id, tab_id)
+    pub fn find_export_tab(&self) -> Option<(PaneId, TabId)> {
+        match self {
+            EditorPane::TabGroup { id, tabs, .. } => {
+                for tab in tabs {
+                    if tab.is_export() {
                         return Some((*id, tab.id));
                     }
                 }
                 None
             }
             EditorPane::Split { first, second, .. } => {
-                first
-                    .find_markdown_tab(doc)
-                    .or_else(|| second.find_markdown_tab(doc))
+                first.find_export_tab().or_else(|| second.find_export_tab())
             }
+        }
+    }
+
+    /// Find a markdown documentation tab by container (returns pane_id, tab_id)
+    pub fn find_markdown_tab(&self, doc: MarkdownDoc) -> Option<(PaneId, TabId)> {
+        match self {
+            EditorPane::TabGroup { id, tabs, .. } => {
+                for tab in tabs {
+                    if tab
+                        .markdown_doc()
+                        .is_some_and(|existing| existing.same_container(doc))
+                    {
+                        return Some((*id, tab.id));
+                    }
+                }
+                None
+            }
+            EditorPane::Split { first, second, .. } => first
+                .find_markdown_tab(doc)
+                .or_else(|| second.find_markdown_tab(doc)),
         }
     }
 }

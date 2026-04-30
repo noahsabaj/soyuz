@@ -21,17 +21,16 @@
 #![allow(clippy::redundant_closure_for_method_calls)]
 #![allow(clippy::default_trait_access)]
 
-use crate::camera::Camera;
+use crate::camera_controller::CameraController;
 use crate::raymarcher::Raymarcher;
 use crate::text_overlay::FpsOverlay;
-use glam::Vec3;
 use soyuz_sdf::SdfOp;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    dpi::{LogicalPosition, LogicalSize, PhysicalSize},
+    event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
     window::{Window, WindowId},
@@ -44,11 +43,12 @@ use winit::platform::x11::WindowAttributesExtX11;
 ///
 /// The surface is created from the window and holds a reference to it.
 /// This struct ensures the window outlives the surface by storing them together.
-/// When dropped, the surface is dropped first (Rust's drop order is field order),
-/// then the window.
+/// A custom `Drop` impl explicitly drops the surface before the window, rather
+/// than relying on field declaration order.
 struct WindowedSurface {
-    /// The surface must be dropped before the window
-    surface: wgpu::Surface<'static>,
+    /// Wrapped in `ManuallyDrop` so the custom `Drop` impl can drop it
+    /// before the window.
+    surface: std::mem::ManuallyDrop<wgpu::Surface<'static>>,
     /// The window that owns the surface's underlying handle
     #[allow(dead_code)]
     window: Arc<Window>,
@@ -61,19 +61,22 @@ impl WindowedSurface {
     /// This is safe because:
     /// 1. The surface is created from the window
     /// 2. The window is stored in the same struct
-    /// 3. Rust's drop order guarantees surface drops before window
+    /// 3. The custom `Drop` impl explicitly drops the surface before the window
     fn new(
         instance: &wgpu::Instance,
         window: Arc<Window>,
     ) -> Result<Self, wgpu::CreateSurfaceError> {
         let surface = instance.create_surface(window.clone())?;
         // SAFETY: The surface is created from `window`, and `window` is stored
-        // in this struct. Rust drops fields in declaration order, so `surface`
-        // is dropped before `window`. This guarantees the window outlives the surface.
+        // in this struct. The custom `Drop` impl explicitly drops the surface
+        // before the window, guaranteeing the window outlives the surface.
         #[allow(unsafe_code)]
         let surface =
             unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(surface) };
-        Ok(Self { surface, window })
+        Ok(Self {
+            surface: std::mem::ManuallyDrop::new(surface),
+            window,
+        })
     }
 
     fn surface(&self) -> &wgpu::Surface<'static> {
@@ -82,6 +85,17 @@ impl WindowedSurface {
 
     fn window(&self) -> &Arc<Window> {
         &self.window
+    }
+}
+
+impl Drop for WindowedSurface {
+    fn drop(&mut self) {
+        // SAFETY: Drop the surface first, while the window handle is still alive.
+        // ManuallyDrop makes this ordering explicit rather than relying on field declaration order.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::mem::ManuallyDrop::drop(&mut self.surface);
+        }
     }
 }
 
@@ -144,16 +158,6 @@ impl EmbeddedConfig {
     }
 }
 
-/// Input state for camera control
-#[derive(Debug, Default)]
-struct InputState {
-    mouse_left: bool,
-    mouse_right: bool,
-    mouse_middle: bool,
-    last_mouse_pos: Option<PhysicalPosition<f64>>,
-    shift_held: bool,
-}
-
 /// Application state for the embedded preview
 struct EmbeddedPreviewApp {
     config: EmbeddedConfig,
@@ -164,8 +168,7 @@ struct EmbeddedPreviewApp {
     queue: Option<Arc<wgpu::Queue>>,
     raymarcher: Option<Raymarcher>,
     fps_overlay: Option<FpsOverlay>,
-    camera: Camera,
-    input: InputState,
+    controller: CameraController,
     start_time: Instant,
     instance: wgpu::Instance,
     is_embedded: bool,
@@ -189,8 +192,7 @@ impl EmbeddedPreviewApp {
             queue: None,
             raymarcher: None,
             fps_overlay: None,
-            camera: Camera::default(),
-            input: InputState::default(),
+            controller: CameraController::new(),
             start_time: Instant::now(),
             instance,
             is_embedded,
@@ -207,33 +209,9 @@ impl EmbeddedPreviewApp {
                 config.width = new_size.width;
                 config.height = new_size.height;
                 ws.surface().configure(device, config);
-                self.camera.aspect = new_size.width as f32 / new_size.height as f32;
+                self.controller.camera.aspect = new_size.width as f32 / new_size.height as f32;
             }
         }
-    }
-
-    fn handle_mouse_motion(&mut self, position: PhysicalPosition<f64>) {
-        if let Some(last_pos) = self.input.last_mouse_pos {
-            let dx = (position.x - last_pos.x) as f32 * 0.005;
-            let dy = (position.y - last_pos.y) as f32 * 0.005;
-
-            if self.input.mouse_left {
-                self.camera.orbit(dx, dy);
-            } else if self.input.mouse_right || (self.input.mouse_left && self.input.shift_held) {
-                self.camera.pan(-dx * 2.0, dy * 2.0);
-            } else if self.input.mouse_middle {
-                self.camera.zoom(dy * 5.0);
-            }
-        }
-        self.input.last_mouse_pos = Some(position);
-    }
-
-    fn handle_scroll(&mut self, delta: MouseScrollDelta) {
-        let scroll = match delta {
-            MouseScrollDelta::LineDelta(_, y) => y,
-            MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
-        };
-        self.camera.zoom(scroll * 0.5);
     }
 
     fn render(&mut self) {
@@ -268,7 +246,7 @@ impl EmbeddedPreviewApp {
 
         let time = self.start_time.elapsed().as_secs_f32();
         raymarcher.update_uniforms(
-            &self.camera,
+            &self.controller.camera,
             [config.width as f32, config.height as f32],
             time,
         );
@@ -403,7 +381,7 @@ impl ApplicationHandler for EmbeddedPreviewApp {
         let fps_overlay = FpsOverlay::new(&device, &queue, format);
 
         // Update camera aspect
-        self.camera.aspect = size.width as f32 / size.height.max(1) as f32;
+        self.controller.camera.aspect = size.width as f32 / size.height.max(1) as f32;
 
         // Store everything
         self.windowed_surface = Some(windowed_surface);
@@ -436,22 +414,16 @@ impl ApplicationHandler for EmbeddedPreviewApp {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                let pressed = state == ElementState::Pressed;
-                match button {
-                    MouseButton::Left => self.input.mouse_left = pressed,
-                    MouseButton::Right => self.input.mouse_right = pressed,
-                    MouseButton::Middle => self.input.mouse_middle = pressed,
-                    _ => {}
-                }
+                self.controller.handle_mouse_button(state, button);
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_mouse_motion(position);
+                self.controller.handle_mouse_motion(position);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                self.handle_scroll(delta);
+                self.controller.handle_scroll(delta);
             }
             WindowEvent::ModifiersChanged(modifiers) => {
-                self.input.shift_held = modifiers.state().shift_key();
+                self.controller.handle_modifiers(&modifiers);
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state == ElementState::Pressed {
@@ -463,12 +435,10 @@ impl ApplicationHandler for EmbeddedPreviewApp {
                             }
                         }
                         Key::Character(ref c) if c == "r" || c == "R" => {
-                            let aspect = self.camera.aspect;
-                            self.camera = Camera::default();
-                            self.camera.aspect = aspect;
+                            self.controller.reset_camera();
                         }
                         Key::Character(ref c) if c == "f" || c == "F" => {
-                            self.camera.target = Vec3::ZERO;
+                            self.controller.focus_origin();
                         }
                         _ => {}
                     }

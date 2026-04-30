@@ -337,6 +337,9 @@ pub fn generate_mesh<S: Sdf + ?Sized + Sync>(sdf: &S, config: MeshConfig) -> Res
             .extend(cell.indices.iter().map(|&i| i + base_idx));
     }
 
+    // === Phase 4: Weld duplicate vertices at cell boundaries ===
+    mesh.weld_vertices(step.min_element() * 0.01);
+
     // Generate UVs
     mesh.generate_uvs_triplanar(1.0);
 

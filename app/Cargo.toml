@@ -10,16 +10,13 @@ description = "Soyuz Desktop Application"
 name = "soyuz-studio"
 path = "src/main.rs"
 
-[[bin]]
-name = "soyuz-preview"
-path = "src/preview_runner.rs"
-
 [dependencies]
 soyuz-core = { path = "../crates/soyuz-core" }
 soyuz-engine = { path = "../crates/soyuz-engine" }
 soyuz-script = { path = "../crates/soyuz-script" }
 
 dioxus = { workspace = true }
+dioxus-stores = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
@@ -48,6 +45,10 @@ pulldown-cmark = "0.13"
 # For fuzzy string matching in command palette
 strsim = "0.11"
 
+[features]
+default = ["desktop"]
+desktop = ["dioxus/desktop"]
+
 [lints]
 workspace = true
 
@@ -64,7 +65,6 @@ section = "graphics"
 priority = "optional"
 assets = [
     ["target/release/soyuz-studio", "usr/bin/", "755"],
-    ["target/release/soyuz-preview", "usr/bin/", "755"],
     ["../assets/icons/icon-256.png", "usr/share/icons/hicolor/256x256/apps/soyuz-studio.png", "644"],
     ["../assets/icons/icon-128.png", "usr/share/icons/hicolor/128x128/apps/soyuz-studio.png", "644"],
     ["../assets/icons/icon-64.png", "usr/share/icons/hicolor/64x64/apps/soyuz-studio.png", "644"],

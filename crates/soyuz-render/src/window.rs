@@ -11,17 +11,16 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::uninlined_format_args)]
 
-use crate::camera::Camera;
+use crate::camera_controller::CameraController;
 use crate::raymarcher::{Raymarcher, init_with_surface};
 use crate::text_overlay::FpsOverlay;
-use glam::Vec3;
 use soyuz_sdf::SdfOp;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalSize, PhysicalPosition},
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    dpi::LogicalSize,
+    event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
     window::{Window, WindowId},
@@ -45,16 +44,6 @@ impl Default for WindowConfig {
     }
 }
 
-/// Input state for camera control
-#[derive(Debug, Default)]
-struct InputState {
-    mouse_left: bool,
-    mouse_right: bool,
-    mouse_middle: bool,
-    last_mouse_pos: Option<PhysicalPosition<f64>>,
-    shift_held: bool,
-}
-
 /// Application state for the preview window
 struct PreviewApp<'a> {
     config: WindowConfig,
@@ -66,8 +55,7 @@ struct PreviewApp<'a> {
     queue: Option<Arc<wgpu::Queue>>,
     raymarcher: Option<Raymarcher>,
     fps_overlay: Option<FpsOverlay>,
-    camera: Camera,
-    input: InputState,
+    controller: CameraController,
     start_time: Instant,
     instance: wgpu::Instance,
 }
@@ -89,8 +77,7 @@ impl<'a> PreviewApp<'a> {
             queue: None,
             raymarcher: None,
             fps_overlay: None,
-            camera: Camera::default(),
-            input: InputState::default(),
+            controller: CameraController::new(),
             start_time: Instant::now(),
             instance,
         }
@@ -106,36 +93,9 @@ impl<'a> PreviewApp<'a> {
                 surface.configure(device, config);
 
                 // Update camera aspect ratio
-                self.camera.aspect = new_size.width as f32 / new_size.height as f32;
+                self.controller.camera.aspect = new_size.width as f32 / new_size.height as f32;
             }
         }
-    }
-
-    fn handle_mouse_motion(&mut self, position: PhysicalPosition<f64>) {
-        if let Some(last_pos) = self.input.last_mouse_pos {
-            let dx = (position.x - last_pos.x) as f32 * 0.005;
-            let dy = (position.y - last_pos.y) as f32 * 0.005;
-
-            if self.input.mouse_left {
-                // Orbit camera
-                self.camera.orbit(dx, dy);
-            } else if self.input.mouse_right || (self.input.mouse_left && self.input.shift_held) {
-                // Pan camera
-                self.camera.pan(-dx * 2.0, dy * 2.0);
-            } else if self.input.mouse_middle {
-                // Zoom camera
-                self.camera.zoom(dy * 5.0);
-            }
-        }
-        self.input.last_mouse_pos = Some(position);
-    }
-
-    fn handle_scroll(&mut self, delta: MouseScrollDelta) {
-        let scroll = match delta {
-            MouseScrollDelta::LineDelta(_, y) => y,
-            MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
-        };
-        self.camera.zoom(scroll * 0.5);
     }
 
     fn render(&mut self) {
@@ -170,7 +130,7 @@ impl<'a> PreviewApp<'a> {
 
         let time = self.start_time.elapsed().as_secs_f32();
         raymarcher.update_uniforms(
-            &self.camera,
+            &self.controller.camera,
             [config.width as f32, config.height as f32],
             time,
         );
@@ -197,10 +157,6 @@ impl<'a> PreviewApp<'a> {
         }
 
         output.present();
-    }
-
-    fn reset_camera(&mut self) {
-        self.camera = Camera::default();
     }
 }
 
@@ -269,7 +225,7 @@ impl ApplicationHandler for PreviewApp<'_> {
         let fps_overlay = FpsOverlay::new(&device, &queue, format);
 
         // Update camera aspect
-        self.camera.aspect = size.width as f32 / size.height as f32;
+        self.controller.camera.aspect = size.width as f32 / size.height as f32;
 
         self.window = Some(window);
         self.surface = Some(surface);
@@ -300,22 +256,16 @@ impl ApplicationHandler for PreviewApp<'_> {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                let pressed = state == ElementState::Pressed;
-                match button {
-                    MouseButton::Left => self.input.mouse_left = pressed,
-                    MouseButton::Right => self.input.mouse_right = pressed,
-                    MouseButton::Middle => self.input.mouse_middle = pressed,
-                    _ => {}
-                }
+                self.controller.handle_mouse_button(state, button);
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.handle_mouse_motion(position);
+                self.controller.handle_mouse_motion(position);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                self.handle_scroll(delta);
+                self.controller.handle_scroll(delta);
             }
             WindowEvent::ModifiersChanged(modifiers) => {
-                self.input.shift_held = modifiers.state().shift_key();
+                self.controller.handle_modifiers(&modifiers);
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state == ElementState::Pressed {
@@ -324,11 +274,10 @@ impl ApplicationHandler for PreviewApp<'_> {
                             event_loop.exit();
                         }
                         Key::Character(ref c) if c == "r" || c == "R" => {
-                            self.reset_camera();
+                            self.controller.reset_camera();
                         }
                         Key::Character(ref c) if c == "f" || c == "F" => {
-                            // Focus on origin
-                            self.camera.target = Vec3::ZERO;
+                            self.controller.focus_origin();
                         }
                         _ => {}
                     }

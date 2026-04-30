@@ -6,7 +6,8 @@
 #![allow(clippy::map_unwrap_or)]
 #![allow(clippy::needless_borrows_for_generic_args)]
 
-use crate::state::AppState;
+use crate::services::AppServices;
+use crate::state::AppStore;
 use dioxus::prelude::*;
 use std::path::{Path, PathBuf};
 use strsim::jaro_winkler;
@@ -15,7 +16,7 @@ use strsim::jaro_winkler;
 #[derive(Clone, Copy, PartialEq, Default)]
 pub enum PaletteMode {
     #[default]
-    Unified,    // Search files + commands together (default)
+    Unified, // Search files + commands together (default)
     GoToLine,   // : prefix - go to line number
     TextSearch, // % or # prefix - search text in files
     Symbols,    // @ prefix - search symbols in current file
@@ -67,49 +68,197 @@ pub struct PaletteState {
 }
 
 /// All available commands in Soyuz Studio
+#[allow(clippy::too_many_lines)]
 pub fn get_all_commands() -> Vec<Command> {
     vec![
         // File operations
-        Command { id: "file.new", label: "New File", shortcut: Some("Ctrl+N"), category: "File" },
-        Command { id: "file.open", label: "Open File", shortcut: Some("Ctrl+O"), category: "File" },
-        Command { id: "file.save", label: "Save", shortcut: Some("Ctrl+S"), category: "File" },
-        Command { id: "file.saveAs", label: "Save As", shortcut: Some("Ctrl+Shift+S"), category: "File" },
-        Command { id: "file.openFolder", label: "Open Folder", shortcut: None, category: "File" },
-        Command { id: "file.closeFolder", label: "Close Folder", shortcut: None, category: "File" },
-
+        Command {
+            id: "file.new",
+            label: "New File",
+            shortcut: Some("Ctrl+N"),
+            category: "File",
+        },
+        Command {
+            id: "file.open",
+            label: "Open File",
+            shortcut: Some("Ctrl+O"),
+            category: "File",
+        },
+        Command {
+            id: "file.save",
+            label: "Save",
+            shortcut: Some("Ctrl+S"),
+            category: "File",
+        },
+        Command {
+            id: "file.saveAs",
+            label: "Save As",
+            shortcut: Some("Ctrl+Shift+S"),
+            category: "File",
+        },
+        Command {
+            id: "file.openFolder",
+            label: "Open Folder",
+            shortcut: None,
+            category: "File",
+        },
+        Command {
+            id: "file.closeFolder",
+            label: "Close Folder",
+            shortcut: None,
+            category: "File",
+        },
         // Edit operations
-        Command { id: "edit.undo", label: "Undo", shortcut: Some("Ctrl+Z"), category: "Edit" },
-        Command { id: "edit.redo", label: "Redo", shortcut: Some("Ctrl+Shift+Z"), category: "Edit" },
-        Command { id: "edit.cut", label: "Cut", shortcut: Some("Ctrl+X"), category: "Edit" },
-        Command { id: "edit.copy", label: "Copy", shortcut: Some("Ctrl+C"), category: "Edit" },
-        Command { id: "edit.paste", label: "Paste", shortcut: Some("Ctrl+V"), category: "Edit" },
-        Command { id: "edit.selectAll", label: "Select All", shortcut: Some("Ctrl+A"), category: "Edit" },
-
+        Command {
+            id: "edit.undo",
+            label: "Undo",
+            shortcut: Some("Ctrl+Z"),
+            category: "Edit",
+        },
+        Command {
+            id: "edit.redo",
+            label: "Redo",
+            shortcut: Some("Ctrl+Shift+Z"),
+            category: "Edit",
+        },
+        Command {
+            id: "edit.cut",
+            label: "Cut",
+            shortcut: Some("Ctrl+X"),
+            category: "Edit",
+        },
+        Command {
+            id: "edit.copy",
+            label: "Copy",
+            shortcut: Some("Ctrl+C"),
+            category: "Edit",
+        },
+        Command {
+            id: "edit.paste",
+            label: "Paste",
+            shortcut: Some("Ctrl+V"),
+            category: "Edit",
+        },
+        Command {
+            id: "edit.selectAll",
+            label: "Select All",
+            shortcut: Some("Ctrl+A"),
+            category: "Edit",
+        },
         // View operations
-        Command { id: "view.commandPalette", label: "Command Palette", shortcut: Some("Ctrl+Shift+P"), category: "View" },
-        Command { id: "view.goToFile", label: "Go to File", shortcut: Some("Ctrl+P"), category: "View" },
-        Command { id: "view.goToLine", label: "Go to Line", shortcut: Some("Ctrl+G"), category: "View" },
-
+        Command {
+            id: "view.commandPalette",
+            label: "Command Palette",
+            shortcut: Some("Ctrl+Shift+P"),
+            category: "View",
+        },
+        Command {
+            id: "view.goToFile",
+            label: "Go to File",
+            shortcut: Some("Ctrl+P"),
+            category: "View",
+        },
+        Command {
+            id: "view.goToLine",
+            label: "Go to Line",
+            shortcut: Some("Ctrl+G"),
+            category: "View",
+        },
+        Command {
+            id: "view.settings",
+            label: "Settings",
+            shortcut: None,
+            category: "View",
+        },
         // Preview operations
-        Command { id: "preview.run", label: "Run Preview", shortcut: Some("F5"), category: "Preview" },
-        Command { id: "preview.stop", label: "Stop Preview", shortcut: Some("Shift+F5"), category: "Preview" },
-
+        Command {
+            id: "preview.run",
+            label: "Open/Refresh Preview",
+            shortcut: Some("F5"),
+            category: "Preview",
+        },
+        Command {
+            id: "preview.popOut",
+            label: "Pop Out Preview",
+            shortcut: None,
+            category: "Preview",
+        },
+        Command {
+            id: "preview.stop",
+            label: "Stop Preview",
+            shortcut: Some("Shift+F5"),
+            category: "Preview",
+        },
         // Export operations
-        Command { id: "export.obj", label: "Export as OBJ", shortcut: None, category: "Export" },
-        Command { id: "export.stl", label: "Export as STL", shortcut: None, category: "Export" },
-        Command { id: "export.gltf", label: "Export as GLTF", shortcut: None, category: "Export" },
-
+        Command {
+            id: "export.obj",
+            label: "Export as OBJ",
+            shortcut: None,
+            category: "Export",
+        },
+        Command {
+            id: "export.stl",
+            label: "Export as STL",
+            shortcut: None,
+            category: "Export",
+        },
+        Command {
+            id: "export.gltf",
+            label: "Export as GLTF",
+            shortcut: None,
+            category: "Export",
+        },
+        Command {
+            id: "export.open",
+            label: "Export",
+            shortcut: None,
+            category: "Export",
+        },
         // Window operations
-        Command { id: "window.new", label: "New Window", shortcut: None, category: "Window" },
-        Command { id: "window.minimize", label: "Minimize", shortcut: None, category: "Window" },
-        Command { id: "window.maximize", label: "Toggle Maximize", shortcut: None, category: "Window" },
-        Command { id: "window.close", label: "Close Window", shortcut: Some("Alt+F4"), category: "Window" },
-
+        Command {
+            id: "window.new",
+            label: "New Window",
+            shortcut: None,
+            category: "Window",
+        },
+        // Terminal
+        Command {
+            id: "terminal.toggle",
+            label: "Toggle Terminal",
+            shortcut: Some("Ctrl+`"),
+            category: "Terminal",
+        },
+        Command {
+            id: "terminal.clear",
+            label: "Clear Terminal",
+            shortcut: None,
+            category: "Terminal",
+        },
         // Help
-        Command { id: "help.cookbook", label: "Open Cookbook", shortcut: None, category: "Help" },
-        Command { id: "help.readme", label: "Open README", shortcut: None, category: "Help" },
-        Command { id: "help.documentation", label: "Open Documentation", shortcut: Some("F1"), category: "Help" },
-        Command { id: "help.about", label: "About Soyuz Studio", shortcut: None, category: "Help" },
+        Command {
+            id: "help.cookbook",
+            label: "Open Cookbook",
+            shortcut: None,
+            category: "Help",
+        },
+        Command {
+            id: "help.readme",
+            label: "Open README",
+            shortcut: None,
+            category: "Help",
+        },
+        Command {
+            id: "help.documentation",
+            label: "Open Documentation",
+            shortcut: Some("F1"),
+            category: "Help",
+        },
+        Command {
+            id: "help.about",
+            label: "About Soyuz Studio",
+            shortcut: None,
+            category: "Help",
+        },
     ]
 }
 
@@ -272,7 +421,8 @@ pub async fn unified_search(workspace: Option<&Path>, query: &str) -> Vec<Search
 /// Command Palette component
 #[component]
 pub fn CommandPalette() -> Element {
-    let state = use_context::<Signal<AppState>>();
+    let state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
     let mut palette = use_context::<Signal<PaletteState>>();
 
     let visible = palette.read().visible;
@@ -321,41 +471,40 @@ pub fn CommandPalette() -> Element {
     };
 
     // Handle keyboard navigation
-    let on_keydown = move |e: Event<KeyboardData>| {
-        match e.key() {
-            Key::Escape => {
-                palette.write().visible = false;
-                palette.write().query.clear();
-            }
-            Key::ArrowDown => {
-                e.prevent_default();
-                let max_items = get_result_count(&palette.read());
-                if max_items > 0 {
-                    let current = palette.read().selected_index;
-                    palette.write().selected_index = (current + 1) % max_items;
-                }
-            }
-            Key::ArrowUp => {
-                e.prevent_default();
-                let max_items = get_result_count(&palette.read());
-                if max_items > 0 {
-                    let current = palette.read().selected_index;
-                    palette.write().selected_index = if current == 0 {
-                        max_items - 1
-                    } else {
-                        current - 1
-                    };
-                }
-            }
-            Key::Enter => {
-                e.prevent_default();
-                execute_selected(&palette.read(), state);
-                palette.write().visible = false;
-                palette.write().query.clear();
-                palette.write().selected_index = 0;
-            }
-            _ => {}
+    let on_keydown = move |e: Event<KeyboardData>| match e.key() {
+        Key::Escape => {
+            palette.write().visible = false;
+            palette.write().query.clear();
         }
+        Key::ArrowDown => {
+            e.prevent_default();
+            let max_items = get_result_count(&palette.read());
+            if max_items > 0 {
+                let current = palette.read().selected_index;
+                palette.write().selected_index = (current + 1) % max_items;
+            }
+        }
+        Key::ArrowUp => {
+            e.prevent_default();
+            let max_items = get_result_count(&palette.read());
+            if max_items > 0 {
+                let current = palette.read().selected_index;
+                palette.write().selected_index = if current == 0 {
+                    max_items - 1
+                } else {
+                    current - 1
+                };
+            }
+        }
+        Key::Enter => {
+            e.prevent_default();
+            let palette_snapshot = palette.read().clone();
+            execute_selected(&palette_snapshot, state, services.clone(), palette);
+            palette.write().visible = false;
+            palette.write().query.clear();
+            palette.write().selected_index = 0;
+        }
+        _ => {}
     };
 
     // Get placeholder text based on mode
@@ -441,7 +590,12 @@ fn get_result_count(palette: &PaletteState) -> usize {
 }
 
 /// Execute the selected item
-fn execute_selected(palette: &PaletteState, mut state: Signal<AppState>) {
+fn execute_selected(
+    palette: &PaletteState,
+    mut state: AppStore,
+    services: AppServices,
+    command_palette: Signal<PaletteState>,
+) {
     match palette.mode {
         PaletteMode::Unified => {
             if let Some(result) = palette.unified_results.get(palette.selected_index) {
@@ -455,13 +609,23 @@ fn execute_selected(palette: &PaletteState, mut state: Signal<AppState>) {
                         });
                     }
                     SearchResult::Command { cmd, .. } => {
-                        execute_command(cmd.id, &mut state.write());
+                        crate::app_commands::execute_app_command(
+                            cmd.id,
+                            state,
+                            services,
+                            command_palette,
+                        );
                     }
                 }
             }
         }
         PaletteMode::GoToLine => {
-            if let Ok(line) = palette.query.trim_start_matches(':').trim().parse::<usize>() {
+            if let Ok(line) = palette
+                .query
+                .trim_start_matches(':')
+                .trim()
+                .parse::<usize>()
+            {
                 tracing::info!("Go to line: {}", line);
             }
         }
@@ -469,22 +633,12 @@ fn execute_selected(palette: &PaletteState, mut state: Signal<AppState>) {
     }
 }
 
-/// Execute a command by ID
-fn execute_command(id: &str, state: &mut AppState) {
-    match id {
-        "file.new" => state.new_tab(),
-        "file.closeFolder" => state.close_folder(),
-        "help.cookbook" => state.open_cookbook(),
-        "help.readme" => state.open_readme(),
-        _ => tracing::info!("Command not implemented: {}", id),
-    }
-}
-
 /// Unified search results - displays both files and commands
 #[component]
 fn UnifiedResults(selected_index: usize) -> Element {
     let mut palette = use_context::<Signal<PaletteState>>();
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
     let results = palette.read().unified_results.clone();
 
     if results.is_empty() {
@@ -529,13 +683,19 @@ fn UnifiedResults(selected_index: usize) -> Element {
                         let label = cmd.label;
                         let category = cmd.category;
                         let shortcut = cmd.shortcut;
+                        let services = services.clone();
 
                         rsx! {
                             div {
                                 key: "{cmd_id}",
                                 class: "{class}",
                                 onclick: move |_| {
-                                    execute_command(cmd_id, &mut state.write());
+                                    crate::app_commands::execute_app_command(
+                                        cmd_id,
+                                        state,
+                                        services.clone(),
+                                        palette,
+                                    );
                                     palette.write().visible = false;
                                 },
 

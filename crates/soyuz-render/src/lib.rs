@@ -22,9 +22,11 @@
 //! ```
 
 pub mod camera;
+pub mod camera_controller;
 pub mod embedded;
 pub mod raymarcher;
 pub mod text_overlay;
+pub mod theme_generated;
 pub mod watch_window;
 pub mod window;
 
@@ -39,6 +41,7 @@ pub use soyuz_sdf::{
 };
 
 pub use camera::Camera;
+pub use camera_controller::CameraController;
 pub use embedded::{EmbeddedConfig, embedded_controls_help, run_embedded_preview};
 pub use raymarcher::{Raymarcher, RaymarcherError, Uniforms, init_headless, init_with_surface};
 pub use text_overlay::{FpsCounter, FpsOverlay, TextOverlay};

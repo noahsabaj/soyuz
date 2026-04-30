@@ -9,6 +9,8 @@
 
 use super::{Mesh, Vertex};
 use glam::Vec3;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::collections::HashMap;
 
 /// Configuration for mesh optimization
@@ -187,9 +189,11 @@ impl Mesh {
             }
         }
 
-        // Build edge list with collapse cost
+        // Build edge list with collapse cost and vertex-edge adjacency
         let mut edges: Vec<Edge> = Vec::new();
         let mut edge_set: HashMap<(u32, u32), usize> = HashMap::new();
+        let mut vertex_edges: Vec<Vec<usize>> = vec![Vec::new(); self.vertices.len()];
+        let mut heap: BinaryHeap<HeapEntry> = BinaryHeap::new();
 
         for tri in self.indices.chunks(3) {
             for i in 0..3 {
@@ -210,33 +214,43 @@ impl Mesh {
                         v1,
                         cost,
                         collapsed: false,
+                        generation: 0,
                     });
                     edge_set.insert(key, edge_idx);
+                    vertex_edges[v0 as usize].push(edge_idx);
+                    vertex_edges[v1 as usize].push(edge_idx);
+                    heap.push(HeapEntry {
+                        cost,
+                        edge_idx,
+                        generation: 0,
+                    });
                 }
             }
         }
-
-        // Sort edges by cost (we'll use a simple approach - resort periodically)
-        edges.sort_by(|a, b| {
-            a.cost
-                .partial_cmp(&b.cost)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
 
         // Collapse edges until we reach target
         let mut current_triangles = self.triangle_count();
         let mut collapsed_vertices: Vec<Option<u32>> = vec![None; self.vertices.len()];
 
         while current_triangles > target_triangles {
-            // Find best edge to collapse
-            let edge_idx = edges
-                .iter()
-                .position(|e| !e.collapsed && e.cost <= max_error);
+            // Pop best edge from heap
+            let entry = loop {
+                let Some(entry) = heap.pop() else {
+                    break None;
+                };
+                let edge = &edges[entry.edge_idx];
+                // Skip stale entries and already-collapsed edges
+                if edge.collapsed || entry.generation != edge.generation || entry.cost > max_error {
+                    continue;
+                }
+                break Some(entry);
+            };
 
-            let Some(edge_idx) = edge_idx else {
+            let Some(entry) = entry else {
                 break; // No more edges below error threshold
             };
 
+            let edge_idx = entry.edge_idx;
             let edge = &edges[edge_idx];
             let v0 = self.resolve_vertex(edge.v0, &collapsed_vertices);
             let v1 = self.resolve_vertex(edge.v1, &collapsed_vertices);
@@ -256,9 +270,18 @@ impl Mesh {
             let mid = (p0 + p1) * 0.5;
             self.vertices[v0 as usize].position = mid.to_array();
 
-            // Count triangles that will be removed
+            // Count triangles that will be removed (only check triangles adjacent to v0/v1)
             let mut removed = 0;
-            for tri in self.indices.chunks(3) {
+            let mut checked_tris = Vec::new();
+            for &t in vertex_triangles[v0 as usize]
+                .iter()
+                .chain(vertex_triangles[v1 as usize].iter())
+            {
+                if checked_tris.contains(&t) {
+                    continue;
+                }
+                checked_tris.push(t);
+                let tri = &self.indices[t * 3..t * 3 + 3];
                 let t0 = self.resolve_vertex(tri[0], &collapsed_vertices);
                 let t1 = self.resolve_vertex(tri[1], &collapsed_vertices);
                 let t2 = self.resolve_vertex(tri[2], &collapsed_vertices);
@@ -268,34 +291,40 @@ impl Mesh {
             }
             current_triangles -= removed;
 
-            // Update affected edge costs (simplified - just mark nearby edges as needing update)
-            for e in &mut edges {
-                if !e.collapsed {
-                    let ev0 = self.resolve_vertex(e.v0, &collapsed_vertices);
-                    let ev1 = self.resolve_vertex(e.v1, &collapsed_vertices);
-                    if ev0 == v0 || ev1 == v0 || ev0 == ev1 {
-                        e.cost = self.compute_edge_collapse_cost(
-                            ev0,
-                            ev1,
-                            &vertex_triangles,
-                            preserve_boundaries,
-                        );
-                    }
-                }
-            }
+            // Update affected neighbor edges' costs using vertex_edges adjacency
+            let neighbor_edge_indices: Vec<usize> = vertex_edges[v0 as usize]
+                .iter()
+                .chain(vertex_edges[v1 as usize].iter())
+                .copied()
+                .collect();
 
-            // Resort edges periodically
-            if edge_idx % 100 == 0 {
-                edges.sort_by(|a, b| {
-                    a.cost
-                        .partial_cmp(&b.cost)
-                        .unwrap_or(std::cmp::Ordering::Equal)
+            for &ei in &neighbor_edge_indices {
+                if edges[ei].collapsed || ei == edge_idx {
+                    continue;
+                }
+                let ev0 = self.resolve_vertex(edges[ei].v0, &collapsed_vertices);
+                let ev1 = self.resolve_vertex(edges[ei].v1, &collapsed_vertices);
+                if ev0 == ev1 {
+                    edges[ei].collapsed = true;
+                    continue;
+                }
+                let new_cost = self.compute_edge_collapse_cost(
+                    ev0,
+                    ev1,
+                    &vertex_triangles,
+                    preserve_boundaries,
+                );
+                edges[ei].cost = new_cost;
+                edges[ei].generation += 1;
+                heap.push(HeapEntry {
+                    cost: new_cost,
+                    edge_idx: ei,
+                    generation: edges[ei].generation,
                 });
             }
         }
 
         // Apply collapsed vertices to indices
-        // Note: We need to do this in a separate pass to avoid borrow issues
         let new_indices: Vec<u32> = self
             .indices
             .iter()
@@ -438,6 +467,36 @@ struct Edge {
     v1: u32,
     cost: f32,
     collapsed: bool,
+    generation: u32,
+}
+
+struct HeapEntry {
+    cost: f32,
+    edge_idx: usize,
+    generation: u32,
+}
+
+impl PartialEq for HeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.cost == other.cost
+    }
+}
+impl Eq for HeapEntry {}
+
+impl PartialOrd for HeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HeapEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse: BinaryHeap is max-heap, we want min-cost first
+        other
+            .cost
+            .partial_cmp(&self.cost)
+            .unwrap_or(Ordering::Equal)
+    }
 }
 
 #[cfg(test)]

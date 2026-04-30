@@ -275,8 +275,11 @@ impl<S: Sdf + Send + Sync> Sdf for RepeatInfinite<S> {
     }
 
     fn bounds(&self) -> Aabb {
-        // Infinite repetition - return large bounds
-        Aabb::cube(1000.0)
+        // Show approximately 2 repetitions in each direction beyond the inner shape.
+        // For explicit bounds, use MeshConfig::with_bounds().
+        let inner = self.inner.bounds();
+        let expansion = self.spacing * 2.0;
+        Aabb::new(inner.min - expansion, inner.max + expansion)
     }
 }
 
@@ -386,6 +389,7 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::sdf::primitives::{cube, sphere};
+    use crate::sdf::transforms::Translate;
     use approx::assert_relative_eq;
 
     // ------------------------------------------------------------------------
@@ -462,9 +466,9 @@ mod tests {
     #[test]
     fn smooth_union_blends_surfaces() {
         let a = sphere(1.0);
-        let b = Translate::new(sphere(1.0), Vec3::new(1.5, 0.0, 0.0));
-        let smooth = SmoothUnion::new(a, b.clone(), 0.5);
-        let sharp = Union::new(a, b);
+        let offset = Vec3::new(1.5, 0.0, 0.0);
+        let smooth = SmoothUnion::new(a, Translate::new(sphere(1.0), offset), 0.5);
+        let sharp = Union::new(a, Translate::new(sphere(1.0), offset));
 
         // At the blend region, smooth union should have smaller distance
         let p = Vec3::new(0.75, 0.0, 0.0);
@@ -474,9 +478,9 @@ mod tests {
     #[test]
     fn smooth_union_k_zero_equals_sharp() {
         let a = sphere(1.0);
-        let b = Translate::new(sphere(1.0), Vec3::new(2.0, 0.0, 0.0));
-        let smooth = SmoothUnion::new(a, b.clone(), 0.001);
-        let sharp = Union::new(a, b);
+        let offset = Vec3::new(2.0, 0.0, 0.0);
+        let smooth = SmoothUnion::new(a, Translate::new(sphere(1.0), offset), 0.001);
+        let sharp = Union::new(a, Translate::new(sphere(1.0), offset));
 
         // With very small k, should be nearly identical
         let p = Vec3::new(1.0, 0.0, 0.0);
@@ -513,9 +517,9 @@ mod tests {
     fn smooth_intersect_rounds_edges() {
         // Use spheres for more predictable intersection behavior
         let a = sphere(1.0);
-        let b = Translate::new(sphere(1.0), Vec3::new(1.0, 0.0, 0.0));
-        let smooth = SmoothIntersect::new(a, b.clone(), 0.5);
-        let sharp = Intersect::new(a, b);
+        let offset = Vec3::new(1.0, 0.0, 0.0);
+        let smooth = SmoothIntersect::new(a, Translate::new(sphere(1.0), offset), 0.5);
+        let sharp = Intersect::new(a, Translate::new(sphere(1.0), offset));
 
         // At the intersection edge (between the two sphere surfaces)
         // Sharp intersection gives max of distances
@@ -675,32 +679,5 @@ mod tests {
         let r_bounds = r.bounds();
 
         assert_relative_eq!(r_bounds.max.x, c_bounds.max.x + 0.2, epsilon = 1e-6);
-    }
-}
-
-/// Translate operation (needed for tests, mirrors transforms.rs)
-#[cfg(test)]
-#[derive(Clone)]
-struct Translate<S: Sdf> {
-    inner: S,
-    offset: Vec3,
-}
-
-#[cfg(test)]
-impl<S: Sdf> Translate<S> {
-    fn new(inner: S, offset: Vec3) -> Self {
-        Self { inner, offset }
-    }
-}
-
-#[cfg(test)]
-impl<S: Sdf + Send + Sync> Sdf for Translate<S> {
-    fn distance(&self, p: Vec3) -> f32 {
-        self.inner.distance(p - self.offset)
-    }
-
-    fn bounds(&self) -> Aabb {
-        let b = self.inner.bounds();
-        Aabb::new(b.min + self.offset, b.max + self.offset)
     }
 }

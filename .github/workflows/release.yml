@@ -56,7 +56,6 @@ jobs:
 
           # Copy binaries
           cp target/release/soyuz-studio AppDir/usr/bin/
-          cp target/release/soyuz-preview AppDir/usr/bin/
 
           # Copy icon
           cp assets/icons/icon-256.png AppDir/usr/share/icons/hicolor/256x256/apps/soyuz-studio.png
@@ -106,10 +105,6 @@ jobs:
             target/x86_64-apple-darwin/release/soyuz-studio \
             target/aarch64-apple-darwin/release/soyuz-studio \
             -output target/universal/release/soyuz-studio
-          lipo -create \
-            target/x86_64-apple-darwin/release/soyuz-preview \
-            target/aarch64-apple-darwin/release/soyuz-preview \
-            -output target/universal/release/soyuz-preview
 
       - name: Create .icns icon
         run: |
@@ -131,7 +126,6 @@ jobs:
           mkdir -p "Soyuz Studio.app/Contents/MacOS"
           mkdir -p "Soyuz Studio.app/Contents/Resources"
           cp target/universal/release/soyuz-studio "Soyuz Studio.app/Contents/MacOS/"
-          cp target/universal/release/soyuz-preview "Soyuz Studio.app/Contents/MacOS/"
           cp soyuz.icns "Soyuz Studio.app/Contents/Resources/"
           cat > "Soyuz Studio.app/Contents/Info.plist" << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -206,7 +200,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path soyuz-windows
           Copy-Item target/release/soyuz-studio.exe soyuz-windows/
-          Copy-Item target/release/soyuz-preview.exe soyuz-windows/
           Copy-Item assets/icons/icon.ico soyuz-windows/soyuz.ico
           Copy-Item README.md soyuz-windows/
           Copy-Item LICENSE-MIT soyuz-windows/

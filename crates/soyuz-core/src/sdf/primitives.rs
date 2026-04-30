@@ -317,8 +317,9 @@ impl Sdf for Plane {
     }
 
     fn bounds(&self) -> Aabb {
-        // Infinite plane - return large bounds
-        Aabb::cube(1000.0)
+        // Infinite plane cannot have meaningful finite bounds for meshing.
+        // Use MeshConfig::with_bounds() to specify sampling region explicitly.
+        Aabb::new(Vec3::splat(-10.0), Vec3::splat(10.0))
     }
 }
 

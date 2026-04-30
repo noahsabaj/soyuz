@@ -26,22 +26,32 @@ mod terminal;
 mod undo;
 
 // Re-export all public types
-pub use editor::{EditorPane, EditorTab, MarkdownDoc, PaneId, SplitDirection, TabId};
+pub use editor::{
+    EditorPane, EditorTab, MarkdownContainer, MarkdownDoc, PaneId, SplitDirection, TabId,
+};
 pub use export::{ExportFormat, ExportSettings};
 pub use preview::PreviewState;
 pub use terminal::{TerminalBuffer, TerminalEntry, TerminalFilter, TerminalLevel};
 pub use undo::UndoHistory;
 
-use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::Arc;
-use tracing::warn;
 
+use crate::services::AppServices;
 use crate::settings::Settings;
 use undo::line_col_to_offset;
 
+/// Reactive application store type.
+pub type AppStore = dioxus_stores::Store<AppState>;
+
+/// Modal dialog currently shown above the workbench.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AppDialog {
+    /// Product information dialog.
+    About,
+}
+
 /// Global application state
-#[derive(Clone)]
+#[derive(Clone, dioxus_stores::Store)]
 pub struct AppState {
     /// Editor pane layout
     pub editor_pane: EditorPane,
@@ -51,30 +61,30 @@ pub struct AppState {
     pub next_pane_id: PaneId,
     /// Currently focused pane ID
     pub focused_pane_id: PaneId,
+    /// Most recent real source tab used by Preview/Export tool tabs
+    pub last_source_tab_id: Option<TabId>,
     /// Current workspace folder (None = no folder opened)
     pub workspace: Option<PathBuf>,
     /// Recently opened files (most recent first)
     pub recent_files: Vec<PathBuf>,
     /// Whether preview window is open
     pub is_previewing: bool,
+    /// Whether the open preview is stale relative to the editor content
+    pub preview_dirty: bool,
     /// Error message if any (None = no error)
     pub error_message: Option<String>,
     /// Export settings
     pub export_settings: ExportSettings,
     /// Application settings
     pub settings: Settings,
-    /// Shared state for preview communication
-    pub preview_state: Arc<Mutex<PreviewState>>,
-    /// Handle to the preview process (for stopping it)
-    pub preview_process: Arc<Mutex<Option<std::process::Child>>>,
-    /// Terminal output buffer (shared with tracing subscriber)
-    pub terminal_buffer: TerminalBuffer,
     /// Whether the terminal panel is visible
     pub terminal_visible: bool,
     /// Terminal panel height in pixels (for resize persistence)
     pub terminal_height: f32,
     /// Terminal output filter settings
     pub terminal_filter: TerminalFilter,
+    /// Modal dialog currently shown above the workbench.
+    pub active_dialog: Option<AppDialog>,
 }
 
 impl AppState {
@@ -91,18 +101,18 @@ impl AppState {
             next_tab_id: 2,
             next_pane_id: 2,
             focused_pane_id: 1,
+            last_source_tab_id: None,
             workspace: None,
             recent_files: Vec::new(),
             is_previewing: false,
+            preview_dirty: false,
             error_message: None,
             export_settings: ExportSettings::default(),
             settings,
-            preview_state: Arc::new(Mutex::new(PreviewState::default())),
-            preview_process: Arc::new(Mutex::new(None)),
-            terminal_buffer: TerminalBuffer::new(),
             terminal_visible: false,
             terminal_height: 200.0,
             terminal_filter: TerminalFilter::default(),
+            active_dialog: None,
         }
     }
 
@@ -125,20 +135,26 @@ impl AppState {
         self.terminal_height = height.clamp(100.0, 500.0);
     }
 
-    /// Add a message to the terminal buffer
-    pub fn terminal_log(&self, level: TerminalLevel, message: impl Into<String>) {
-        self.terminal_buffer
-            .push(TerminalEntry::new(level, message));
-    }
-
-    /// Clear the terminal buffer
-    pub fn terminal_clear(&self) {
-        self.terminal_buffer.clear();
-    }
-
     /// Toggle a terminal filter level
     pub fn toggle_terminal_filter(&mut self, level: TerminalLevel) {
         self.terminal_filter.toggle(level);
+    }
+
+    /// Open the About dialog.
+    pub fn open_about(&mut self) {
+        self.active_dialog = Some(AppDialog::About);
+    }
+
+    /// Check whether the About dialog is open.
+    pub fn is_about_open(&self) -> bool {
+        self.active_dialog == Some(AppDialog::About)
+    }
+
+    /// Close the About dialog.
+    pub fn close_about(&mut self) {
+        if self.is_about_open() {
+            self.active_dialog = None;
+        }
     }
 
     // ========================================================================
@@ -161,13 +177,8 @@ impl AppState {
     }
 
     /// Stop the preview process if running
-    pub fn stop_preview(&mut self) {
-        if let Some(ref mut process) = *self.preview_process.lock() {
-            if let Err(e) = process.kill() {
-                warn!("Failed to kill preview process: {e}");
-            }
-        }
-        *self.preview_process.lock() = None;
+    pub fn stop_preview(&mut self, services: &AppServices) {
+        services.stop_preview_process();
         self.is_previewing = false;
     }
 
@@ -178,9 +189,22 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    /// Get the source code Preview/Export should operate on.
+    pub fn source_code(&self) -> String {
+        self.source_tab()
+            .or_else(|| self.tool_snapshot_tab())
+            .map(|tab| tab.content.clone())
+            .unwrap_or_default()
+    }
+
     /// Get the current file path (from the active tab)
     pub fn current_file(&self) -> Option<PathBuf> {
         self.active_tab().and_then(|t| t.path.clone())
+    }
+
+    /// Get the file path for the source script used by Preview/Export.
+    pub fn source_file(&self) -> Option<PathBuf> {
+        self.source_tab().and_then(|tab| tab.path.clone())
     }
 
     /// Get cursor position from active tab
@@ -205,10 +229,75 @@ impl AppState {
             .and_then(|pane| pane.active_tab_mut())
     }
 
+    /// Get the source tab Preview/Export should use.
+    fn source_tab(&self) -> Option<&EditorTab> {
+        if let Some(tab) = self.active_tab()
+            && tab.is_persistable()
+        {
+            return Some(tab);
+        }
+
+        if let Some(tab_id) = self.last_source_tab_id
+            && let Some(tab) = self.editor_pane.find_tab(tab_id)
+            && tab.is_persistable()
+        {
+            return Some(tab);
+        }
+
+        self.all_tabs().into_iter().find(|tab| tab.is_persistable())
+    }
+
+    /// Get a Preview/Export snapshot when no real source tab remains open.
+    fn tool_snapshot_tab(&self) -> Option<&EditorTab> {
+        if let Some(tab) = self.active_tab()
+            && (tab.is_preview() || tab.is_export())
+            && !tab.content.trim().is_empty()
+        {
+            return Some(tab);
+        }
+
+        self.all_tabs()
+            .into_iter()
+            .find(|tab| (tab.is_preview() || tab.is_export()) && !tab.content.trim().is_empty())
+    }
+
+    fn remember_active_source_tab(&mut self) {
+        if let Some(tab_id) = self
+            .active_tab()
+            .filter(|tab| tab.is_persistable())
+            .map(|tab| tab.id)
+        {
+            self.last_source_tab_id = Some(tab_id);
+        }
+    }
+
+    fn repair_last_source_tab(&mut self) {
+        if let Some(tab_id) = self.last_source_tab_id
+            && self
+                .editor_pane
+                .find_tab(tab_id)
+                .is_some_and(|tab| tab.is_persistable())
+        {
+            return;
+        }
+
+        self.last_source_tab_id = self
+            .active_tab()
+            .filter(|tab| tab.is_persistable())
+            .map(|tab| tab.id)
+            .or_else(|| {
+                self.all_tabs()
+                    .into_iter()
+                    .find(|tab| tab.is_persistable())
+                    .map(|tab| tab.id)
+            });
+    }
+
     /// Focus a specific pane
     pub fn focus_pane(&mut self, pane_id: PaneId) {
         if self.editor_pane.find_pane(pane_id).is_some() {
             self.focused_pane_id = pane_id;
+            self.remember_active_source_tab();
         }
     }
 
@@ -219,15 +308,19 @@ impl AppState {
 
     /// Create a new blank tab in a specific pane
     pub fn new_tab_in_pane(&mut self, pane_id: PaneId) {
-        let tab = EditorTab::new_blank(self.next_tab_id);
+        let tab_id = self.next_tab_id;
+        let tab = EditorTab::new_blank(tab_id);
         self.next_tab_id += 1;
 
         if let Some(EditorPane::TabGroup {
-            tabs, active_tab_idx, ..
+            tabs,
+            active_tab_idx,
+            ..
         }) = self.editor_pane.find_pane_mut(pane_id)
         {
             tabs.push(tab);
             *active_tab_idx = tabs.len() - 1;
+            self.last_source_tab_id = Some(tab_id);
         }
 
         self.error_message = None;
@@ -248,7 +341,61 @@ impl AppState {
         self.next_tab_id += 1;
 
         if let Some(EditorPane::TabGroup {
-            tabs, active_tab_idx, ..
+            tabs,
+            active_tab_idx,
+            ..
+        }) = self.editor_pane.find_pane_mut(self.focused_pane_id)
+        {
+            tabs.push(tab);
+            *active_tab_idx = tabs.len() - 1;
+        }
+    }
+
+    /// Open the Preview tab (singleton - focuses existing if already open)
+    pub fn open_preview_tab(&mut self) {
+        let source_code = self.source_code();
+        if let Some((pane_id, tab_id)) = self.editor_pane.find_preview_tab() {
+            self.focused_pane_id = pane_id;
+            self.switch_to_tab(tab_id);
+            if let Some(tab) = self.active_tab_mut() {
+                tab.content = source_code;
+            }
+            return;
+        }
+
+        let tab = EditorTab::new_preview(self.next_tab_id, source_code);
+        self.next_tab_id += 1;
+
+        if let Some(EditorPane::TabGroup {
+            tabs,
+            active_tab_idx,
+            ..
+        }) = self.editor_pane.find_pane_mut(self.focused_pane_id)
+        {
+            tabs.push(tab);
+            *active_tab_idx = tabs.len() - 1;
+        }
+    }
+
+    /// Open the Export tab (singleton - focuses existing if already open)
+    pub fn open_export_tab(&mut self) {
+        let source_code = self.source_code();
+        if let Some((pane_id, tab_id)) = self.editor_pane.find_export_tab() {
+            self.focused_pane_id = pane_id;
+            self.switch_to_tab(tab_id);
+            if let Some(tab) = self.active_tab_mut() {
+                tab.content = source_code;
+            }
+            return;
+        }
+
+        let tab = EditorTab::new_export(self.next_tab_id, source_code);
+        self.next_tab_id += 1;
+
+        if let Some(EditorPane::TabGroup {
+            tabs,
+            active_tab_idx,
+            ..
         }) = self.editor_pane.find_pane_mut(self.focused_pane_id)
         {
             tabs.push(tab);
@@ -258,20 +405,19 @@ impl AppState {
 
     /// Open a markdown documentation tab (singleton - focuses existing if already open)
     pub fn open_markdown(&mut self, doc: MarkdownDoc) {
-        // Check if this markdown tab already exists anywhere
         if let Some((pane_id, tab_id)) = self.editor_pane.find_markdown_tab(doc) {
-            // Focus the existing tab
             self.focused_pane_id = pane_id;
             self.switch_to_tab(tab_id);
             return;
         }
 
-        // Create a new markdown tab in the focused pane
         let tab = EditorTab::new_markdown(self.next_tab_id, doc);
         self.next_tab_id += 1;
 
         if let Some(EditorPane::TabGroup {
-            tabs, active_tab_idx, ..
+            tabs,
+            active_tab_idx,
+            ..
         }) = self.editor_pane.find_pane_mut(self.focused_pane_id)
         {
             tabs.push(tab);
@@ -281,12 +427,24 @@ impl AppState {
 
     /// Open the Cookbook tab (convenience method)
     pub fn open_cookbook(&mut self) {
-        self.open_markdown(MarkdownDoc::Cookbook);
+        self.open_markdown(MarkdownDoc::COOKBOOK);
     }
 
     /// Open the README tab (convenience method)
     pub fn open_readme(&mut self) {
-        self.open_markdown(MarkdownDoc::Readme);
+        self.open_markdown(MarkdownDoc::README);
+    }
+
+    /// Open the generated documentation browser.
+    pub fn open_documentation(&mut self) {
+        self.open_markdown(MarkdownDoc::DOCS_INDEX);
+    }
+
+    /// Select a generated document inside the active markdown tab.
+    pub fn select_active_markdown_doc(&mut self, doc_id: &'static str) {
+        if let Some(tab) = self.active_tab_mut() {
+            tab.select_markdown_doc(doc_id);
+        }
     }
 
     /// Open a file in a new tab (or focus existing tab if already open)
@@ -304,18 +462,23 @@ impl AppState {
             {
                 *active_tab_idx = tab_idx;
             }
+            self.remember_active_source_tab();
             return;
         }
 
         // Create new tab in specified pane
         if let Some(EditorPane::TabGroup {
-            tabs, active_tab_idx, ..
+            tabs,
+            active_tab_idx,
+            ..
         }) = self.editor_pane.find_pane_mut(pane_id)
         {
-            let tab = EditorTab::from_file(self.next_tab_id, path.clone(), content);
+            let tab_id = self.next_tab_id;
+            let tab = EditorTab::from_file(tab_id, path.clone(), content);
             self.next_tab_id += 1;
             tabs.push(tab);
             *active_tab_idx = tabs.len() - 1;
+            self.last_source_tab_id = Some(tab_id);
         }
 
         // Set workspace to file's parent directory if no workspace is open
@@ -345,6 +508,8 @@ impl AppState {
     /// If closing the last tab in a split pane, close the entire pane
     /// If closing the last tab in the root pane, show empty welcome screen (VSCode behavior)
     pub fn close_tab_in_pane(&mut self, pane_id: PaneId, tab_id: TabId) -> bool {
+        let closing_last_source = self.last_source_tab_id == Some(tab_id);
+
         // Check if this is the last tab
         let is_last_tab = {
             if let Some(EditorPane::TabGroup { tabs, .. }) = self.editor_pane.find_pane(pane_id) {
@@ -361,7 +526,9 @@ impl AppState {
             // In a split: close the entire pane
             self.close_pane(pane_id);
         } else if let Some(EditorPane::TabGroup {
-            tabs, active_tab_idx, ..
+            tabs,
+            active_tab_idx,
+            ..
         }) = self.editor_pane.find_pane_mut(pane_id)
         {
             if let Some(idx) = tabs.iter().position(|t| t.id == tab_id) {
@@ -375,6 +542,9 @@ impl AppState {
                     *active_tab_idx -= 1;
                 }
             }
+        }
+        if closing_last_source {
+            self.repair_last_source_tab();
         }
         true
     }
@@ -426,13 +596,16 @@ impl AppState {
         if let Some(pane_id) = self.editor_pane.find_pane_containing_tab(tab_id) {
             self.focused_pane_id = pane_id;
             if let Some(EditorPane::TabGroup {
-                tabs, active_tab_idx, ..
+                tabs,
+                active_tab_idx,
+                ..
             }) = self.editor_pane.find_pane_mut(pane_id)
             {
                 if let Some(idx) = tabs.iter().position(|t| t.id == tab_id) {
                     *active_tab_idx = idx;
                 }
             }
+            self.remember_active_source_tab();
         }
     }
 
@@ -462,7 +635,9 @@ impl AppState {
                 return;
             };
             if let EditorPane::TabGroup {
-                tabs, active_tab_idx, ..
+                tabs,
+                active_tab_idx,
+                ..
             } = pane
             {
                 let Some(idx) = tabs.iter().position(|t| t.id == tab_id) else {
@@ -494,8 +669,12 @@ impl AppState {
         let is_root = self.editor_pane.is_single_pane();
 
         // Insert tab into target pane
+        let moved_tab_is_source = tab.is_persistable();
+        let moved_tab_id = tab.id;
         if let Some(EditorPane::TabGroup {
-            tabs, active_tab_idx, ..
+            tabs,
+            active_tab_idx,
+            ..
         }) = self.editor_pane.find_pane_mut(target_pane_id)
         {
             let insert_idx = target_index.min(tabs.len());
@@ -505,6 +684,9 @@ impl AppState {
 
         // Focus target pane
         self.focused_pane_id = target_pane_id;
+        if moved_tab_is_source {
+            self.last_source_tab_id = Some(moved_tab_id);
+        }
 
         // Collapse source pane if empty and not root
         if source_empty && !is_root {
@@ -519,7 +701,9 @@ impl AppState {
         }
 
         if let Some(EditorPane::TabGroup {
-            tabs, active_tab_idx, ..
+            tabs,
+            active_tab_idx,
+            ..
         }) = self.editor_pane.find_pane_mut(pane_id)
         {
             if old_index >= tabs.len() || new_index > tabs.len() {
@@ -556,7 +740,9 @@ impl AppState {
 
             match pane {
                 EditorPane::TabGroup {
-                    tabs, active_tab_idx, ..
+                    tabs,
+                    active_tab_idx,
+                    ..
                 } => tabs.get(*active_tab_idx).map(|tab| EditorTab {
                     id: self.next_tab_id,
                     kind: tab.kind.clone(),
@@ -572,6 +758,8 @@ impl AppState {
         };
 
         let new_tab = cloned_tab.unwrap_or_else(|| EditorTab::new_blank(self.next_tab_id));
+        let new_tab_id = new_tab.id;
+        let new_tab_is_source = new_tab.is_persistable();
         self.next_tab_id += 1;
 
         let new_pane_id = self.next_pane_id;
@@ -588,6 +776,9 @@ impl AppState {
 
         // Focus the new pane
         self.focused_pane_id = new_pane_id;
+        if new_tab_is_source {
+            self.last_source_tab_id = Some(new_tab_id);
+        }
     }
 
     /// Helper: recursively find and split a pane (standalone function)
@@ -640,7 +831,11 @@ impl AppState {
                         new_pane_id,
                     )),
                     second: Box::new(Self::create_split_at(
-                        *second, target_id, direction, new_tab, new_pane_id,
+                        *second,
+                        target_id,
+                        direction,
+                        new_tab,
+                        new_pane_id,
                     )),
                     ratio,
                 }
@@ -663,6 +858,7 @@ impl AppState {
                 self.focused_pane_id = *first_id;
             }
         }
+        self.repair_last_source_tab();
     }
 
     /// Helper: recursively remove a pane and collapse its parent split (standalone)
@@ -742,6 +938,9 @@ impl AppState {
 
     /// Update the code in the active tab (records to undo history)
     pub fn set_code(&mut self, code: String) {
+        let mut edited_source_tab_id = None;
+        let mut changed = false;
+
         if let Some(tab) = self.active_tab_mut() {
             if tab.content != code {
                 // Record the old state to history before changing
@@ -752,9 +951,19 @@ impl AppState {
 
                 tab.content = code;
                 tab.is_dirty = true;
+                changed = true;
+                if tab.is_persistable() {
+                    edited_source_tab_id = Some(tab.id);
+                }
             }
         }
-        self.preview_state.lock().needs_update = true;
+
+        if changed {
+            self.preview_dirty = true;
+        }
+        if let Some(tab_id) = edited_source_tab_id {
+            self.last_source_tab_id = Some(tab_id);
+        }
     }
 
     /// Undo the last edit in the active tab, returns (content, cursor_position) if successful
@@ -770,7 +979,6 @@ impl AppState {
                     tab.content = snapshot.content.clone();
                     tab.is_dirty = true;
                     tab.history.finish_undo_redo();
-                    self.preview_state.lock().needs_update = true;
                     return Some((snapshot.content, snapshot.cursor_pos));
                 }
             }
@@ -791,7 +999,6 @@ impl AppState {
                     tab.content = snapshot.content.clone();
                     tab.is_dirty = true;
                     tab.history.finish_undo_redo();
-                    self.preview_state.lock().needs_update = true;
                     return Some((snapshot.content, snapshot.cursor_pos));
                 }
             }
@@ -801,11 +1008,20 @@ impl AppState {
 
     /// Mark active tab as saved
     pub fn mark_saved(&mut self, path: Option<PathBuf>) {
+        let mut saved_source_tab_id = None;
+
         if let Some(tab) = self.active_tab_mut() {
             tab.is_dirty = false;
             if let Some(p) = path {
                 tab.path = Some(p);
             }
+            if tab.is_persistable() {
+                saved_source_tab_id = Some(tab.id);
+            }
+        }
+
+        if let Some(tab_id) = saved_source_tab_id {
+            self.last_source_tab_id = Some(tab_id);
         }
     }
 
@@ -817,30 +1033,6 @@ impl AppState {
         }
     }
 
-    /// Run the preview
-    pub fn run_preview(&mut self) {
-        self.is_previewing = true;
-
-        // Update preview state
-        {
-            let mut preview = self.preview_state.lock();
-            preview.script = self.code();
-            preview.needs_update = true;
-            preview.should_open = true;
-        }
-
-        // Validate the script
-        let engine = soyuz_script::ScriptEngine::new();
-        match engine.compile(&self.code()) {
-            Ok(_) => {
-                self.error_message = None;
-            }
-            Err(e) => {
-                self.error_message = Some(e.to_string());
-            }
-        }
-    }
-
     /// Get all tabs (flattened from the pane tree)
     pub fn all_tabs(&self) -> Vec<&EditorTab> {
         self.editor_pane.collect_tabs()
@@ -849,5 +1041,162 @@ impl AppState {
     /// Check if any tab has unsaved changes
     pub fn has_unsaved_changes(&self) -> bool {
         self.all_tabs().iter().any(|t| t.is_dirty)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn active_tab(state: &AppState) -> &EditorTab {
+        let Some(tab) = state.active_tab() else {
+            panic!("expected an active tab");
+        };
+        tab
+    }
+
+    #[test]
+    fn preview_and_export_use_last_source_tab_when_tool_tab_is_focused() {
+        let source_path = PathBuf::from("/tmp/barrel.rhai");
+        let source = "sphere(1.0)";
+        let mut state = AppState::new();
+
+        state.open_file(source_path.clone(), source.to_string());
+        let source_tab_id = active_tab(&state).id;
+
+        state.open_preview_tab();
+        assert!(active_tab(&state).is_preview());
+        assert_eq!(state.source_code(), source);
+        assert_eq!(state.source_file(), Some(source_path.clone()));
+
+        state.open_settings();
+        assert!(active_tab(&state).is_settings());
+        assert_eq!(state.source_code(), source);
+        assert_eq!(state.source_file(), Some(source_path));
+
+        state.open_export_tab();
+        assert!(active_tab(&state).is_export());
+        assert_eq!(active_tab(&state).content, source);
+
+        state.switch_to_tab(source_tab_id);
+        state.set_code("cube(1.0)".to_string());
+        state.open_preview_tab();
+        assert_eq!(active_tab(&state).content, "cube(1.0)");
+        assert_eq!(state.source_code(), "cube(1.0)");
+    }
+
+    #[test]
+    fn preview_snapshot_remains_runnable_after_source_tab_closes() {
+        let source = "sphere(2.0)";
+        let mut state = AppState::new();
+
+        state.open_file(PathBuf::from("/tmp/snapshot.rhai"), source.to_string());
+        let source_tab_id = active_tab(&state).id;
+        state.open_preview_tab();
+
+        state.close_tab_in_pane(1, source_tab_id);
+
+        assert!(active_tab(&state).is_preview());
+        assert_eq!(state.source_file(), None);
+        assert_eq!(state.source_code(), source);
+    }
+
+    #[test]
+    fn about_dialog_visibility_opens_and_closes() {
+        let mut state = AppState::new();
+
+        assert!(!state.is_about_open());
+        state.open_about();
+        assert!(state.is_about_open());
+        state.close_about();
+        assert!(!state.is_about_open());
+    }
+
+    #[test]
+    fn markdown_help_docs_are_three_container_tabs_with_local_sidebar_state() {
+        let mut state = AppState::new();
+
+        state.open_cookbook();
+        let cookbook_tab_id = active_tab(&state).id;
+        assert_eq!(active_tab(&state).display_name(), "Cookbook");
+        assert_eq!(
+            active_tab(&state).markdown_doc(),
+            Some(MarkdownDoc::COOKBOOK)
+        );
+
+        state.select_active_markdown_doc("cookbook/patterns");
+        assert_eq!(active_tab(&state).id, cookbook_tab_id);
+        assert_eq!(state.all_tabs().len(), 1);
+        assert_eq!(
+            active_tab(&state).markdown_doc(),
+            Some(MarkdownDoc {
+                selected_id: "cookbook/patterns",
+                ..MarkdownDoc::COOKBOOK
+            })
+        );
+
+        state.select_active_markdown_doc("getting-started/installation");
+        assert_eq!(
+            active_tab(&state).markdown_doc(),
+            Some(MarkdownDoc {
+                selected_id: "cookbook/patterns",
+                ..MarkdownDoc::COOKBOOK
+            })
+        );
+
+        state.open_readme();
+        let readme_tab_id = active_tab(&state).id;
+        assert_ne!(readme_tab_id, cookbook_tab_id);
+        assert_eq!(active_tab(&state).display_name(), "README");
+        assert_eq!(active_tab(&state).markdown_doc(), Some(MarkdownDoc::README));
+        assert_eq!(state.all_tabs().len(), 2);
+
+        state.select_active_markdown_doc("cookbook/tips");
+        assert_eq!(active_tab(&state).markdown_doc(), Some(MarkdownDoc::README));
+
+        state.open_cookbook();
+        assert_eq!(active_tab(&state).id, cookbook_tab_id);
+        assert_eq!(active_tab(&state).display_name(), "Cookbook");
+        assert_eq!(
+            active_tab(&state).markdown_doc(),
+            Some(MarkdownDoc {
+                selected_id: "cookbook/patterns",
+                ..MarkdownDoc::COOKBOOK
+            })
+        );
+        assert_eq!(state.all_tabs().len(), 2);
+
+        state.open_documentation();
+        let docs_tab_id = active_tab(&state).id;
+        assert_eq!(active_tab(&state).display_name(), "Documentation");
+        assert_eq!(
+            active_tab(&state).markdown_doc(),
+            Some(MarkdownDoc::DOCS_INDEX)
+        );
+        assert_eq!(state.all_tabs().len(), 3);
+
+        state.select_active_markdown_doc("getting-started/installation");
+        assert_eq!(active_tab(&state).id, docs_tab_id);
+        assert_eq!(state.all_tabs().len(), 3);
+        assert_eq!(
+            active_tab(&state).markdown_doc(),
+            Some(MarkdownDoc {
+                selected_id: "getting-started/installation",
+                ..MarkdownDoc::DOCS_INDEX
+            })
+        );
+
+        state.select_active_markdown_doc("cookbook/tips");
+        assert_eq!(
+            active_tab(&state).markdown_doc(),
+            Some(MarkdownDoc {
+                selected_id: "getting-started/installation",
+                ..MarkdownDoc::DOCS_INDEX
+            })
+        );
+
+        state.open_documentation();
+        assert_eq!(active_tab(&state).id, docs_tab_id);
+        assert_eq!(state.all_tabs().len(), 3);
     }
 }

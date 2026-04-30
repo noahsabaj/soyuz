@@ -80,7 +80,15 @@ impl CameraAngle {
 
     /// Get all available angle names
     pub fn all_names() -> &'static [&'static str] {
-        &["front", "back", "left", "right", "top", "bottom", "isometric"]
+        &[
+            "front",
+            "back",
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "isometric",
+        ]
     }
 }
 

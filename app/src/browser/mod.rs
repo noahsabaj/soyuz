@@ -11,9 +11,9 @@
 
 mod tree;
 
-use tree::{format_size, get_icon, load_directory, TreeNode};
+use tree::{TreeNode, format_size, get_icon, load_directory};
 
-use crate::state::AppState;
+use crate::state::AppStore;
 use dioxus::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -47,7 +47,7 @@ struct RenameState {
 /// Empty state component shown when no folder is opened
 #[component]
 fn EmptyExplorerState() -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
 
     let open_folder = move |_| {
         spawn(async move {
@@ -80,7 +80,7 @@ fn EmptyExplorerState() -> Element {
 /// Explorer component - VSCode style expandable file tree
 #[component]
 pub fn AssetBrowser() -> Element {
-    let mut state = use_context::<Signal<AppState>>();
+    let mut state = use_context::<AppStore>();
 
     // Check if workspace is set - if not, show empty state
     let Some(workspace_dir) = state.read().workspace.clone() else {
@@ -328,8 +328,7 @@ pub fn AssetBrowser() -> Element {
                                             if let Ok(children) =
                                                 load_directory(&exp_path, parent_depth + 1).await
                                             {
-                                                for (i, child) in children.into_iter().enumerate()
-                                                {
+                                                for (i, child) in children.into_iter().enumerate() {
                                                     all_nodes.insert(parent_idx + 1 + i, child);
                                                 }
                                             }
@@ -517,8 +516,7 @@ pub fn AssetBrowser() -> Element {
                     if let Some(dir) = workspace
                         && let Ok(mut all_nodes) = load_directory(&dir, 0).await
                     {
-                        let mut expanded_paths: Vec<_> =
-                            expanded.read().iter().cloned().collect();
+                        let mut expanded_paths: Vec<_> = expanded.read().iter().cloned().collect();
                         expanded_paths.sort_by_key(|p| p.components().count());
                         for exp_path in expanded_paths {
                             if let Some(parent_idx) = all_nodes
