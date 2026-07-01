@@ -16,11 +16,9 @@
 .explorer-header {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 0 8px;
-    height: 35px;
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border);
+    padding: 0 12px;
+    height: 30px;
+    flex-shrink: 0;
 }
 
 .explorer-title {
@@ -28,28 +26,30 @@
     font-weight: 600;
     font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-secondary);
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
 }
 
 .explorer-path {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-/* Folder row with name and action buttons */
+/* Folder row: the workspace section header with hover-revealed actions */
 .folder-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 8px;
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border);
+    height: 22px;
+    padding: 0 8px 0 12px;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 .folder-row:hover .explorer-actions {
@@ -71,15 +71,14 @@
     justify-content: center;
     background: transparent;
     border: none;
-    color: var(--text-secondary);
-    font-size: 12px;
+    color: var(--text-muted);
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: 4px;
     transition: background 0.1s, color 0.1s;
 }
 
 .action-btn:hover {
-    background: var(--bg-tertiary);
+    background: var(--hover-bg);
     color: var(--text-primary);
 }
 
@@ -121,7 +120,7 @@
 
 /* Highlight empty space as drop target for moving to root */
 .explorer-content.drop-target-root {
-    background: var(--subtle-bg);
+    background: var(--drop-target-bg);
 }
 
 /* Inline input for creating files/folders */
@@ -149,19 +148,25 @@
 .tree-item {
     display: flex;
     align-items: center;
-    gap: 2px;
-    padding: 2px 8px;
+    gap: 3px;
+    height: 22px;
+    padding: 0 8px;
     cursor: pointer;
     font-size: 13px;
+    color: var(--text-primary);
     user-select: none;
+    position: relative;
 }
 
 .tree-item:hover {
     background: var(--hover-bg);
 }
 
+/* Selected row: subtle accent tint plus a thin accent stripe at the panel edge
+   (mirrors VS Code's active-file indicator), not a harsh solid block. */
 .tree-item.selected {
     background: var(--selection-bg);
+    box-shadow: inset 2px 0 0 0 var(--accent);
 }
 
 .tree-item.selected:hover {
@@ -169,7 +174,7 @@
 }
 
 .tree-item.drop-target {
-    background: var(--strong-bg);
+    background: var(--drop-target-bg);
 }
 
 .tree-item.dragging {
@@ -182,16 +187,22 @@
     min-width: 50px;
 }
 
+/* Chevron column: a fixed-width twistie slot. Files reuse it (via .hidden) so
+   their icons still line up under the chevrons. */
 .tree-arrow {
-    width: 12px;
-    height: 16px;
+    width: 16px;
+    height: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
-    font-size: 8px;
+    font-size: 9px;
     flex-shrink: 0;
-    transition: transform 0.15s ease;
+    transition: transform 0.12s ease;
+}
+
+.tree-item:hover .tree-arrow {
+    color: var(--text-secondary);
 }
 
 .tree-arrow.expanded {
@@ -202,36 +213,22 @@
     visibility: hidden;
 }
 
+/* Icon column: holds the colored per-type SVG (each SVG sets its own hue). */
 .tree-icon {
-    width: 14px;
-    height: 16px;
+    width: 16px;
+    height: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
     flex-shrink: 0;
-    color: var(--text-muted);
-}
-
-.tree-icon.file {
-    visibility: hidden;
-}
-
-.tree-icon.folder {
-    color: var(--accent);
 }
 
 .tree-name {
     flex: 1;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-}
-
-.tree-size {
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-left: 8px;
 }
 
 .tree-empty {

@@ -9,9 +9,11 @@
 // map_or_else is less readable for file path operations
 #![allow(clippy::map_unwrap_or)]
 
+mod icons;
 mod tree;
 
-use tree::{TreeNode, format_size, get_icon, load_directory};
+use icons::{chevron, collapse_all_icon, file_icon, new_file_icon, new_folder_icon, refresh_icon};
+use tree::{TreeNode, load_directory};
 
 use crate::components::ConfirmDialog;
 use crate::state::{AppStateStoreExt, AppStore};
@@ -364,8 +366,8 @@ fn CreateEntryInput(
             style: "padding-left: {indent}px;",
             // Invisible arrow spacer for alignment
             span { class: "tree-arrow hidden" }
-            // Invisible icon spacer for alignment
-            span { class: "tree-icon file" }
+            // Empty icon spacer keeps the input aligned under sibling rows
+            span { class: "tree-icon" }
             input {
                 class: "inline-input",
                 r#type: "text",
@@ -419,8 +421,8 @@ fn TreeItem(
     let path = node.path.clone();
     let is_dir = node.is_dir;
     let depth = node.depth;
-    let indent = 4 + (depth * 12); // Base 4px + depth indentation
-    let child_indent = 4 + ((depth + 1) * 12); // Indent for child items
+    let indent = 8 + (depth * 8); // Base 8px + ~8px per depth level (VS Code-like)
+    let child_indent = 8 + ((depth + 1) * 8); // Indent for child items
     let path_str = path.to_string_lossy().to_string();
 
     // Check if this item is being renamed
@@ -448,6 +450,8 @@ fn TreeItem(
             class: "{class}",
             style: "padding-left: {indent}px;",
             draggable: true,
+            // Full name as a native tooltip so ellipsis-truncated rows stay readable
+            title: "{node.name}",
             // Data attributes for JavaScript drag-drop handling
             "data-path": "{path_str}",
             "data-is-dir": if is_dir { "true" } else { "false" },
@@ -464,20 +468,17 @@ fn TreeItem(
                 }
             },
 
-            // Expand/collapse arrow (or spacer for files)
+            // Expand/collapse chevron (or spacer for files)
             span { class: "{arrow_class}",
                 if is_loading {
                     "○" // Loading indicator
                 } else if is_dir {
-                    "▶"
+                    {chevron()}
                 }
             }
 
-            // File/folder icon
-            span {
-                class: if is_dir { "tree-icon folder" } else { "tree-icon file" },
-                {get_icon(&path, is_dir)}
-            }
+            // Colored file/folder type icon
+            span { class: "tree-icon", {file_icon(&node)} }
 
             // Name or rename input
             if is_renaming {
@@ -507,11 +508,6 @@ fn TreeItem(
                 }
             } else {
                 span { class: "tree-name", "{node.name}" }
-            }
-
-            // Size (files only)
-            if !is_dir && !is_renaming {
-                span { class: "tree-size", {format_size(node.size)} }
             }
         }
 
@@ -943,7 +939,7 @@ pub fn AssetBrowser() -> Element {
                                             r#type: "button",
                                             aria_label: "New File",
                                             onclick: start_new_file,
-                                            "+"
+                                            {new_file_icon()}
                                         }
                                     }
                                     TooltipContent {
@@ -959,7 +955,7 @@ pub fn AssetBrowser() -> Element {
                                             r#type: "button",
                                             aria_label: "New Folder",
                                             onclick: start_new_folder,
-                                            "+/"
+                                            {new_folder_icon()}
                                         }
                                     }
                                     TooltipContent {
@@ -970,15 +966,19 @@ pub fn AssetBrowser() -> Element {
                                 }
                                 button {
                                     class: "action-btn",
+                                    r#type: "button",
+                                    aria_label: "Refresh Explorer",
                                     title: "Refresh Explorer",
                                     onclick: reload_root,
-                                    "↻"
+                                    {refresh_icon()}
                                 }
                                 button {
                                     class: "action-btn",
+                                    r#type: "button",
+                                    aria_label: "Collapse All",
                                     title: "Collapse All",
                                     onclick: reload_root,
-                                    "⊟"
+                                    {collapse_all_icon()}
                                 }
                             }
                         }
