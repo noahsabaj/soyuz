@@ -32,7 +32,8 @@ jobs:
             libspeechd-dev libxkbcommon-dev libssl-dev libgtk-3-dev libatk1.0-dev \
             libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libcairo2-dev \
             libsoup-3.0-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
-            libxdo-dev
+            libxdo-dev \
+            rpm
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -52,13 +53,15 @@ jobs:
           cp README.md LICENSE-MIT LICENSE-APACHE soyuz-linux/
           tar -czf soyuz-${{ github.ref_name }}-linux-x86_64.tar.gz soyuz-linux
 
-      - name: Bundle .deb and .AppImage
-        run: dx bundle --release --package soyuz-app --package-types deb --package-types appimage
+      - name: Bundle .deb, .rpm and .AppImage
+        run: dx bundle --release --package soyuz-app --package-types deb --package-types rpm --package-types appimage
 
       - name: Collect installers
         run: |
           cp target/dx/soyuz-studio/bundle/linux/deb/*.deb \
             soyuz-${{ github.ref_name }}-linux-x86_64.deb
+          cp target/dx/soyuz-studio/bundle/linux/rpm/*.rpm \
+            soyuz-${{ github.ref_name }}-linux-x86_64.rpm
           cp target/dx/soyuz-studio/bundle/linux/appimage/*.AppImage \
             soyuz-studio-${{ github.ref_name }}-linux-x86_64.AppImage
 
@@ -69,6 +72,7 @@ jobs:
           path: |
             soyuz-${{ github.ref_name }}-linux-x86_64.tar.gz
             soyuz-${{ github.ref_name }}-linux-x86_64.deb
+            soyuz-${{ github.ref_name }}-linux-x86_64.rpm
             soyuz-studio-${{ github.ref_name }}-linux-x86_64.AppImage
 
   build-macos:

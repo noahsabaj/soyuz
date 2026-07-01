@@ -15,12 +15,12 @@ publisher = "Noah Sabaj"
 category = "DeveloperTool"
 short_description = "Desktop IDE for procedural 3D asset generation."
 long_description = "Soyuz Studio is a desktop IDE for writing SDF scripts, previewing procedural 3D assets, and exporting common 3D formats."
+# icon.ico already embeds 48/64/128/256 PNGs; listing those sizes as separate
+# .png files too makes `dx bundle --package-types rpm` fail with duplicate
+# hicolor paths. Keep only the 16/32 PNGs (not in the .ico) plus the .ico, which
+# covers 48-256 for Linux and is the Windows (.msi) icon source.
 icon = [
     "assets/icons/icon-16.png",
     "assets/icons/icon-32.png",
-    "assets/icons/icon-48.png",
-    "assets/icons/icon-64.png",
-    "assets/icons/icon-128.png",
-    "assets/icons/icon-256.png",
     "assets/icons/icon.ico",
 ]
