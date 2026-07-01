@@ -104,11 +104,15 @@ fn spawn_preview_with_code(
         match placement {
             PreviewPlacement::Docked => {
                 let Some(parent) = parent_handle else {
-                    report_docked_preview_unavailable(
-                        state,
-                        &services,
-                        "Docked preview requires an X11 parent window handle. This desktop session did not expose one, so Soyuz did not open a pop-out window automatically. Use Pop Out for a separate preview window.",
+                    // No X11 parent handle (e.g. a Wayland session): the preview
+                    // can't be embedded into the main window. Rather than leave a
+                    // dead pane, open a pop-out window automatically — it works on
+                    // any session.
+                    services.terminal_log(
+                        TerminalLevel::Info,
+                        "Docked preview needs an X11 parent window, which this session (e.g. Wayland) doesn't expose \u{2014} opening a pop-out preview window instead. Tip: launch with GDK_BACKEND=x11 for an embedded docked preview.",
                     );
+                    run_popout_preview(state, services, &temp_path, generation).await;
                     return;
                 };
 
@@ -149,23 +153,9 @@ fn spawn_preview_with_code(
                 let process_handle_wait = services.preview_process();
                 wait_for_process_exit(state, services, process_handle_wait, generation).await;
             }
-            PreviewPlacement::PopOut => match spawn_preview_process(&temp_path) {
-                Ok(child) => {
-                    services.terminal_log(TerminalLevel::Info, "Preview window opened");
-                    services.set_preview_process(child);
-
-                    let process_handle_wait = services.preview_process();
-                    wait_for_process_exit(state, services, process_handle_wait, generation).await;
-                }
-                Err(e) => {
-                    let error_msg = format!("Failed to spawn preview: {e}");
-                    services.terminal_log(TerminalLevel::Error, &error_msg);
-                    tracing::error!("{error_msg}");
-                    let mut s = state.write();
-                    s.error_message = Some(format!("Failed to spawn preview: {e}"));
-                    s.is_previewing = false;
-                }
-            },
+            PreviewPlacement::PopOut => {
+                run_popout_preview(state, services, &temp_path, generation).await;
+            }
         }
     });
 }
@@ -197,6 +187,34 @@ fn report_docked_preview_unavailable(
     let mut s = state.write();
     s.error_message = Some(message.to_string());
     s.is_previewing = false;
+}
+
+/// Spawn a standalone pop-out preview window and track it to completion. Used
+/// both for an explicit Pop Out and as the fallback when a docked preview can't
+/// obtain an X11 parent handle (e.g. on a Wayland session).
+async fn run_popout_preview(
+    mut state: AppStore,
+    services: AppServices,
+    script_path: &Path,
+    generation: u64,
+) {
+    match spawn_preview_process(script_path) {
+        Ok(child) => {
+            services.terminal_log(TerminalLevel::Info, "Preview window opened");
+            services.set_preview_process(child);
+
+            let process_handle_wait = services.preview_process();
+            wait_for_process_exit(state, services, process_handle_wait, generation).await;
+        }
+        Err(e) => {
+            let error_msg = format!("Failed to spawn preview: {e}");
+            services.terminal_log(TerminalLevel::Error, &error_msg);
+            tracing::error!("{error_msg}");
+            let mut s = state.write();
+            s.error_message = Some(error_msg);
+            s.is_previewing = false;
+        }
+    }
 }
 
 async fn wait_for_process_exit(
