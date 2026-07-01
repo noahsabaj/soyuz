@@ -21,6 +21,13 @@ console_error_panic_hook = "0.1"
 # Required for WASM: enable js backend for getrandom used by rhai's ahash
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
+# On wasm, rhai pulls `instant`, whose `now()` is only defined when the
+# `wasm-bindgen` backend is enabled (otherwise the wasm link fails with
+# `undefined symbol: now`). Depend on rhai directly for the wasm target with its
+# `wasm-bindgen` feature so unification turns it on across the build.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rhai = { workspace = true, features = ["wasm-bindgen"] }
+
 # WASM optimization settings for wasm-pack
 # Uses wasm-opt for binary size reduction
 [package.metadata.wasm-pack.profile.release]
