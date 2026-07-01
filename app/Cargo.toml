@@ -50,6 +50,16 @@ pulldown-cmark = "0.13"
 # For fuzzy string matching in command palette
 strsim = "0.11"
 
+# For the startup "check for updates" against the GitHub Releases API.
+# ureq is a light blocking HTTP client on rustls (no OpenSSL); it reuses the
+# rustls/ring stack already in the tree and runs inside spawn_blocking so the
+# check never blocks the UI. semver does the strict version comparison.
+# webbrowser opens the release page in the default browser (already pulled in
+# transitively by dioxus-desktop, so it adds no new transitive dependencies).
+ureq = "3"
+semver = "1"
+webbrowser = "1"
+
 [features]
 default = ["desktop"]
 desktop = ["dioxus/desktop"]

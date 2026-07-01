@@ -20,6 +20,7 @@ mod state;
 mod statusbar;
 mod terminal;
 mod toolbar;
+mod updater;
 
 use dioxus::desktop::tao::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use dioxus::desktop::tao::window::Icon;
@@ -72,6 +73,13 @@ fn ActivityBar() -> Element {
     let export_active = active_tab.is_some_and(|tab| tab.is_export());
     drop(pane_ref);
     let terminal_visible = *state.terminal_visible().read();
+    // Subtle, always-visible cue that a newer release exists (see `updater`).
+    let update_available = state.available_update().read().is_some();
+    let settings_title = if update_available {
+        "Settings — update available"
+    } else {
+        "Settings"
+    };
 
     rsx! {
         div { class: "activity-bar",
@@ -216,13 +224,17 @@ fn ActivityBar() -> Element {
             components::ActivityButton {
                 active: false,
                 label: "Settings",
-                title: "Settings",
+                title: settings_title,
                 on_click: move |()| { state.write().open_settings(); },
                 svg {
                     width: "16",
                     height: "16",
                     view_box: "0 0 32 32",
                     path { d: GEAR_ICON_PATH }
+                }
+                // Accent dot overlaid on the gear when an update is available.
+                if update_available {
+                    span { class: "activity-badge", aria_hidden: "true" }
                 }
             }
         }
@@ -232,11 +244,14 @@ fn ActivityBar() -> Element {
 #[component]
 fn AboutDialog() -> Element {
     use dioxus_primitives::dialog::{DialogContent, DialogDescription, DialogRoot, DialogTitle};
+    use updater::UpdateInfo;
 
     let state = use_context::<state::AppStore>();
     // F73: subscribe only to the dialog field, not the whole store.
     let visible = matches!(*state.active_dialog().read(), Some(state::AppDialog::About));
     let version = env!("CARGO_PKG_VERSION");
+    // Newer release found by the startup check, if any (see `updater`).
+    let update = state.available_update().read().clone();
 
     rsx! {
         DialogRoot {
@@ -279,6 +294,25 @@ fn AboutDialog() -> Element {
                         span { class: "about-label", "Theme" }
                         span { "Soyuz Graphite" }
                     }
+                }
+                div { class: "about-update",
+                    {match update {
+                        Some(UpdateInfo { version: latest, url }) => rsx! {
+                            div { class: "about-update-row",
+                                span { class: "about-update-text", "Update available: v{latest}" }
+                                button {
+                                    class: "about-update-download",
+                                    r#type: "button",
+                                    aria_label: "Download the latest release",
+                                    onclick: move |_| updater::open_release_page(&url),
+                                    "Download"
+                                }
+                            }
+                        },
+                        None => rsx! {
+                            span { class: "about-update-latest", "You're on the latest version." }
+                        },
+                    }}
                 }
             }
         }
@@ -491,6 +525,17 @@ fn App() -> Element {
     let mut state = use_context::<state::AppStore>();
     let palette = use_context::<Signal<command_palette::PaletteState>>();
     let services = use_context::<AppServices>();
+
+    // One-shot, non-blocking "check for updates". Runs once on startup; on a
+    // strictly-newer GitHub release it records the result in the store so the
+    // About dialog and the Settings badge can surface it. Every failure is
+    // swallowed inside `check_for_update`, so a failed check just leaves the
+    // `available_update` field `None` and nothing is shown.
+    use_future(move || async move {
+        if let Some(info) = updater::check_for_update().await {
+            state.available_update().set(Some(info));
+        }
+    });
 
     // Periodically checkpoint the session for crash recovery. The cadence follows
     // the `auto_save` setting when set, falling back to 30s (auto-save Off still

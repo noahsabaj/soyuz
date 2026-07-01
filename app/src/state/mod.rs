@@ -81,6 +81,12 @@ pub struct AppState {
     pub terminal_filter: TerminalFilter,
     /// Modal dialog currently shown above the workbench.
     pub active_dialog: Option<AppDialog>,
+    /// Newer release discovered by the startup update check, if any.
+    ///
+    /// Populated once, asynchronously, at startup by `crate::updater`. `None`
+    /// means either up to date or the check has not completed / failed — a
+    /// failed check is intentionally indistinguishable so it stays silent.
+    pub available_update: Option<crate::updater::UpdateInfo>,
 }
 
 impl AppState {
@@ -109,6 +115,7 @@ impl AppState {
             terminal_height: 200.0,
             terminal_filter: TerminalFilter::default(),
             active_dialog: None,
+            available_update: None,
         }
     }
 

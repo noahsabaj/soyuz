@@ -109,6 +109,21 @@
     flex: 1;
 }
 
+/* Update-available cue: a small accent dot overlaid on the Settings gear.
+   Positioned against .activity-tooltip (the relative 48x48 wrapper). */
+.activity-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    /* Ring in the bar's own colour so the dot reads cleanly over the icon. */
+    box-shadow: 0 0 0 2px var(--bg-secondary);
+    pointer-events: none;
+}
+
 /* ==================== About Dialog ==================== */
 
 .about-backdrop {
@@ -221,6 +236,57 @@
 .about-label {
     color: var(--text-muted);
     text-transform: uppercase;
+}
+
+/* Update section: an emphasized notice + Download when a newer release exists,
+   or a subtle "latest version" line otherwise. */
+.about-update {
+    display: flex;
+    padding: 14px 22px 20px;
+    border-top: 1px solid var(--border);
+}
+
+.about-update-row {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+}
+
+.about-update-text {
+    flex: 1;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.about-update-download {
+    padding: 5px 14px;
+    border: none;
+    border-radius: 4px;
+    background: var(--accent);
+    color: var(--button-text-on-accent);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color 0.15s ease;
+}
+
+.about-update-download:hover {
+    background: var(--accent-hover);
+}
+
+.about-update-download:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.about-update-latest {
+    color: var(--text-muted);
+    font-size: 12px;
 }
 
 .editor-panel {
