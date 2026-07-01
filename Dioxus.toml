@@ -24,3 +24,12 @@ icon = [
     "assets/icons/icon-32.png",
     "assets/icons/icon.ico",
 ]
+
+# Ship the AppStream metainfo at /usr/share/metainfo/ so software centres show
+# "Soyuz Studio" by "Noah Sabaj" with the app icon (not the filename +
+# "Unknown author"). Paths are relative to the app package dir, like `icon`.
+[bundle.deb]
+files = { "/usr/share/metainfo/dev.soyuz.studio.metainfo.xml" = "packaging/dev.soyuz.studio.metainfo.xml" }
+
+[bundle.rpm]
+files = { "/usr/share/metainfo/dev.soyuz.studio.metainfo.xml" = "packaging/dev.soyuz.studio.metainfo.xml" }

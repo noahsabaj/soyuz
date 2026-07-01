@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream metainfo. Software centres (KDE Discover, GNOME Software) read this
+  as the primary source for an app's name, developer, icon and description. Ship
+  it at /usr/share/metainfo/ in the .deb/.rpm so a local install shows "Soyuz
+  Studio" by "Noah Sabaj" (not the filename + "Unknown author"). The <id> matches
+  the bundle identifier and <launchable> points at the generated .desktop file.
+-->
+<component type="desktop-application">
+  <id>dev.soyuz.studio</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Soyuz Studio</name>
+  <summary>Procedural 3D asset generation through code</summary>
+  <developer id="dev.soyuz">
+    <name>Noah Sabaj</name>
+  </developer>
+  <description>
+    <p>
+      Soyuz Studio is a desktop IDE for procedural 3D asset generation. Write
+      Signed Distance Field (SDF) scripts, preview the resulting geometry in real
+      time, and export to common 3D formats such as glTF, OBJ and STL.
+    </p>
+  </description>
+  <launchable type="desktop-id">soyuz-studio.desktop</launchable>
+  <icon type="stock">soyuz-studio</icon>
+  <categories>
+    <category>Development</category>
+    <category>Graphics</category>
+  </categories>
+  <keywords>
+    <keyword>SDF</keyword>
+    <keyword>procedural</keyword>
+    <keyword>3D</keyword>
+    <keyword>modeling</keyword>
+  </keywords>
+  <url type="homepage">https://github.com/noahsabaj/soyuz</url>
+  <url type="bugtracker">https://github.com/noahsabaj/soyuz/issues</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.7.0" date="2026-07-01" />
+  </releases>
+</component>
