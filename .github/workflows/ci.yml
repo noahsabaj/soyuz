@@ -35,6 +35,13 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      # The docs/theme checks verify that BOTH soyuz's own generated files and the
+      # website's (docs.generated.ts, generated-theme.css) are up to date, so the
+      # website must be present as a sibling (mirrors how the website CI clones
+      # soyuz). Keeps soyuz -> website generated-artifact drift from slipping in.
+      - name: Checkout soyuz-website (for cross-repo generated-artifact check)
+        run: git clone --depth 1 https://github.com/noahsabaj/soyuz-website.git ../soyuz-website
+
       - name: Check generated artifacts are up to date
         run: |
           cargo run -p xtask -- docs check

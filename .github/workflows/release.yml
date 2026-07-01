@@ -91,8 +91,9 @@ jobs:
 
       - name: Collect installer
         run: |
-          cp target/dx/soyuz-studio/bundle/macos/dmg/*.dmg \
-            soyuz-${{ github.ref_name }}-macos-aarch64.dmg
+          # dx nests the dmg under bundle/macos/macos/; find it rather than guess.
+          dmg=$(find target/dx/soyuz-studio/bundle -name '*.dmg' | head -1)
+          cp "$dmg" soyuz-${{ github.ref_name }}-macos-aarch64.dmg
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
