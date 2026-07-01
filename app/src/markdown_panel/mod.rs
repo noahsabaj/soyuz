@@ -157,31 +157,15 @@ pub fn MarkdownPanel(doc: MarkdownDoc) -> Element {
                     }
                 }
             }
-            div { class: "docs-content-scroll",
-                script {
-                    dangerous_inner_html: "
-                        (function() {{
-                            var panel = document.currentScript.parentElement;
-                            panel.addEventListener('click', function(e) {{
-                                var link = e.target.closest('a');
-                                if (link) {{
-                                    var href = link.getAttribute('href');
-                                    if (href && href.charAt(0) === String.fromCharCode(35)) {{
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        e.stopImmediatePropagation();
-                                        var targetId = href.substring(1);
-                                        var target = document.getElementById(targetId);
-                                        if (target) {{
-                                            target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-                                        }}
-                                        return false;
-                                    }}
-                                }}
-                            }}, true);
-                        }})();
-                    "
-                }
+            div {
+                class: "docs-content-scroll",
+                // Stable hook for the anchor-scroll listener; not subject to
+                // CSS-module class hashing the way `class` names are.
+                "data-docs-anchor-scroll": "true",
+                // Smooth in-page anchor scrolling. Deduplicated by `src`, so it
+                // installs a single delegated listener instead of re-adding one on
+                // every render (the previous inline `<script>` did the latter).
+                document::Script { src: asset!("/src/markdown_panel/anchor_scroll.js") }
                 div { class: "content body",
                     dangerous_inner_html: "{html_content}"
                 }

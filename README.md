@@ -107,11 +107,22 @@ All primitives are centered at the origin. Dimensions are in world units.
 sphere(radius)                              // Ball
 cube(size)                                  // Box with equal sides
 box3(width, height, depth)                  // Rectangular box
+rounded_box(width, height, depth, radius)   // Box with rounded edges
 cylinder(radius, height)                    // Cylinder along Y axis
 capsule(radius, height)                     // Pill shape
 torus(major_radius, minor_radius)           // Donut
-cone(radius, height)                        // Cone pointing up
+cone(radius, height)                        // Cone, apex at origin, opens +Y
+ellipsoid(rx, ry, rz)                       // Stretched sphere
+octahedron(size)                            // 8-faced diamond
+hex_prism(radius, height)                   // Hexagonal prism (Y axis)
+tri_prism(width, height)                    // Triangular prism (Z axis)
+pyramid(height)                             // Square-base pyramid (unit base)
+link(length, major_radius, minor_radius)    // Chain link
+plane(nx, ny, nz, offset)                   // Infinite plane
+ground_plane()                              // Infinite plane at Y = 0
 ```
+
+See **[SOYUZ_COOKBOOK.md](SOYUZ_COOKBOOK.md)** for the complete, always-up-to-date list (generated from the API).
 
 ### Combining Shapes
 

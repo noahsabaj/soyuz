@@ -6,6 +6,7 @@ use anyhow::{Result, anyhow};
 use notify::RecursiveMode;
 use notify_debouncer_mini::{DebouncedEvent, new_debouncer};
 use parking_lot::Mutex;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
@@ -30,6 +31,9 @@ pub struct ScriptWatcher {
     _debouncer: notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
     /// Receiver for watch events
     receiver: Receiver<WatchEvent>,
+    /// Events drained from `receiver` but not yet consumed. Lets `has_events`
+    /// peek without discarding queued events.
+    pending: Mutex<VecDeque<WatchEvent>>,
     /// Paths being watched
     watched_paths: Arc<Mutex<Vec<PathBuf>>>,
 }
@@ -66,8 +70,15 @@ impl ScriptWatcher {
                                 let is_exact = watched.contains(&path);
 
                                 if is_rhai || is_exact {
-                                    // All debounced events are treated as modifications
-                                    let _ = tx.send(WatchEvent::Modified(path));
+                                    // The mini debouncer doesn't report the event kind;
+                                    // infer deletion from the file no longer existing so
+                                    // a delete isn't mis-reported as a modification.
+                                    let evt = if path.exists() {
+                                        WatchEvent::Modified(path)
+                                    } else {
+                                        WatchEvent::Deleted(path)
+                                    };
+                                    let _ = tx.send(evt);
                                 }
                             }
                         }
@@ -83,6 +94,7 @@ impl ScriptWatcher {
         Ok(Self {
             _debouncer: debouncer,
             receiver: rx,
+            pending: Mutex::new(VecDeque::new()),
             watched_paths,
         })
     }
@@ -129,30 +141,47 @@ impl ScriptWatcher {
         Ok(())
     }
 
+    /// Drain the channel into the internal buffer so peeking is non-destructive.
+    fn pump(&self) {
+        let mut pending = self.pending.lock();
+        while let Ok(event) = self.receiver.try_recv() {
+            pending.push_back(event);
+        }
+    }
+
     /// Try to receive a watch event (non-blocking)
     pub fn try_recv(&self) -> Option<WatchEvent> {
-        self.receiver.try_recv().ok()
+        self.pump();
+        self.pending.lock().pop_front()
     }
 
     /// Receive a watch event (blocking)
     pub fn recv(&self) -> Option<WatchEvent> {
+        if let Some(event) = self.try_recv() {
+            return Some(event);
+        }
         self.receiver.recv().ok()
     }
 
     /// Receive a watch event with timeout
     pub fn recv_timeout(&self, timeout: Duration) -> Option<WatchEvent> {
+        if let Some(event) = self.try_recv() {
+            return Some(event);
+        }
         self.receiver.recv_timeout(timeout).ok()
     }
 
-    /// Check if there are pending events
+    /// Check if there are pending events (non-destructive — events are buffered,
+    /// not consumed).
     pub fn has_events(&self) -> bool {
-        // This is a bit hacky but works for checking if there are events
-        !self.receiver.try_iter().collect::<Vec<_>>().is_empty()
+        self.pump();
+        !self.pending.lock().is_empty()
     }
 
     /// Get all pending events
     pub fn drain_events(&self) -> Vec<WatchEvent> {
-        self.receiver.try_iter().collect()
+        self.pump();
+        self.pending.lock().drain(..).collect()
     }
 }
 

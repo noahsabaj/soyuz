@@ -6,9 +6,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
-/// Maximum number of undo steps to keep per tab
-const MAX_UNDO_HISTORY: usize = 100;
-
 /// Time window in milliseconds for grouping consecutive edits
 const EDIT_GROUP_MS: u128 = 500;
 
@@ -67,11 +64,16 @@ impl PartialEq for UndoHistory {
 
 impl UndoHistory {
     /// Record a new edit, potentially grouping with previous edit
-    pub fn record_edit(&mut self, old_content: &str, old_cursor: usize) {
+    ///
+    /// `limit` is the maximum number of undo steps to keep (from settings).
+    pub fn record_edit(&mut self, old_content: &str, old_cursor: usize, limit: usize) {
         // Don't record if we're in an undo/redo operation
         if self.in_undo_redo {
             return;
         }
+
+        // Guard against a pathological 0 limit which would discard all history.
+        let limit = limit.max(1);
 
         let now = Instant::now();
         let should_group = self
@@ -87,7 +89,7 @@ impl UndoHistory {
             });
 
             // Trim history if too long
-            while self.undo_stack.len() > MAX_UNDO_HISTORY {
+            while self.undo_stack.len() > limit {
                 self.undo_stack.remove(0);
             }
 

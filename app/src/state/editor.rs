@@ -8,10 +8,21 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use super::undo::UndoHistory;
+use super::undo::{UndoHistory, line_col_to_offset};
 
 /// Unique identifier for editor tabs
 pub type TabId = u64;
+
+/// Result of `EditorPane::set_active_code` — lets the caller perform the
+/// `preview_dirty` / `last_source_tab_id` follow-up writes through their own
+/// (scoped) store selectors instead of a whole-`AppState` root write.
+#[derive(Default, Clone, Copy)]
+pub struct SetCodeOutcome {
+    /// The active tab's content actually changed.
+    pub changed: bool,
+    /// The edited tab, if it is a persistable (file) tab.
+    pub edited_source_tab_id: Option<TabId>,
+}
 
 /// The kind of tab - determines rendering and behavior
 #[derive(Clone, PartialEq, Default)]
@@ -355,6 +366,48 @@ impl EditorPane {
                 ..
             } => tabs.get_mut(*active_tab_idx),
             EditorPane::Split { first, .. } => first.active_tab_mut(),
+        }
+    }
+
+    /// Set the active tab's content (in the focused pane), recording undo
+    /// history. Returns whether the content changed and the id of the edited
+    /// persistable tab. Mirrors `AppState::set_code`'s tab logic so callers can
+    /// write through the `editor_pane` store node (scoped) instead of the whole
+    /// `AppState` root on every keystroke.
+    pub fn set_active_code(
+        &mut self,
+        focused: PaneId,
+        code: String,
+        undo_limit: usize,
+    ) -> SetCodeOutcome {
+        let mut outcome = SetCodeOutcome::default();
+        if let Some(tab) = self
+            .find_pane_mut(focused)
+            .and_then(|pane| pane.active_tab_mut())
+            && tab.content != code
+        {
+            let old_content = tab.content.clone();
+            let old_cursor = line_col_to_offset(&old_content, tab.cursor_line, tab.cursor_col);
+            tab.history
+                .record_edit(&old_content, old_cursor, undo_limit);
+            tab.content = code;
+            tab.is_dirty = true;
+            outcome.changed = true;
+            if tab.is_persistable() {
+                outcome.edited_source_tab_id = Some(tab.id);
+            }
+        }
+        outcome
+    }
+
+    /// Set the active tab's cursor position (in the focused pane).
+    pub fn set_active_cursor(&mut self, focused: PaneId, line: usize, col: usize) {
+        if let Some(tab) = self
+            .find_pane_mut(focused)
+            .and_then(|pane| pane.active_tab_mut())
+        {
+            tab.cursor_line = line;
+            tab.cursor_col = col;
         }
     }
 

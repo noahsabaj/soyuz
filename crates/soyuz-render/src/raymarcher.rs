@@ -31,6 +31,10 @@ pub enum RaymarcherError {
     BufferMapping(#[from] wgpu::BufferAsyncError),
     #[error("Buffer mapping channel closed unexpectedly")]
     ChannelClosed,
+    #[error("Unsupported surface format for image readback: {0:?}")]
+    UnsupportedFormat(wgpu::TextureFormat),
+    #[error("Surface reported no supported texture formats")]
+    NoSurfaceFormat,
 }
 
 /// Uniform buffer data sent to the GPU
@@ -372,6 +376,16 @@ impl Raymarcher {
         // Render
         self.render(&view);
 
+        // Determine the channel order for readback from the actual surface format.
+        // Window surfaces are typically BGRA; the MCP headless path forces RGBA.
+        // Reading BGRA bytes as RGBA swaps red/blue, so handle both explicitly and
+        // reject formats we can't interpret as 8-bit RGBA rather than emitting garbage.
+        let bgra = match self.surface_format {
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => false,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb => true,
+            other => return Err(RaymarcherError::UnsupportedFormat(other)),
+        };
+
         // Create buffer to read back
         let bytes_per_pixel = 4u32;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
@@ -440,7 +454,12 @@ impl Raymarcher {
             for x in 0..width {
                 let pixel_start = (x * bytes_per_pixel) as usize;
                 let pixel = &row_data[pixel_start..pixel_start + 4];
-                img.put_pixel(x, y, image::Rgba([pixel[0], pixel[1], pixel[2], pixel[3]]));
+                let rgba = if bgra {
+                    [pixel[2], pixel[1], pixel[0], pixel[3]]
+                } else {
+                    [pixel[0], pixel[1], pixel[2], pixel[3]]
+                };
+                img.put_pixel(x, y, image::Rgba(rgba));
             }
         }
 
@@ -539,12 +558,15 @@ pub async fn init_with_surface(
         .await?;
 
     let surface_caps = surface.get_capabilities(&adapter);
+    // Prefer an sRGB format; fall back to the first available. `formats` can be
+    // empty on some backends, so don't index it eagerly (that would panic).
     let surface_format = surface_caps
         .formats
         .iter()
         .copied()
-        .find(|f| f.is_srgb())
-        .unwrap_or(surface_caps.formats[0]);
+        .find(wgpu::TextureFormat::is_srgb)
+        .or_else(|| surface_caps.formats.first().copied())
+        .ok_or(RaymarcherError::NoSurfaceFormat)?;
 
     Ok((Arc::new(device), Arc::new(queue), surface_format))
 }

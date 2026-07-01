@@ -320,14 +320,32 @@ impl WgslGenerator {
                 var
             }
             SdfOp::Elongate { inner, h } => {
-                let new_pos = self.next_pos_var();
+                // IQ elongation: evaluate the inner SDF at the clamped position and
+                // ADD the negative core term to the DISTANCE (not the position).
+                // MUST match cpu_eval.rs Elongate.
+                let q_var = self.next_pos_var();
                 writeln!(
                     code,
-                    "    let {} = op_elongate({}, vec3<f32>({:.6}, {:.6}, {:.6}));",
-                    new_pos, pos_var, h[0], h[1], h[2]
+                    "    let {} = abs({}) - vec3<f32>({:.6}, {:.6}, {:.6});",
+                    q_var, pos_var, h[0], h[1], h[2]
                 )
                 .unwrap();
-                self.generate_op(inner, &new_pos, code)
+                let clamped = self.next_pos_var();
+                writeln!(
+                    code,
+                    "    let {} = max({}, vec3<f32>(0.0));",
+                    clamped, q_var
+                )
+                .unwrap();
+                let inner_var = self.generate_op(inner, &clamped, code);
+                let var = self.next_var();
+                writeln!(
+                    code,
+                    "    let {} = {} + min(max({}.x, max({}.y, {}.z)), 0.0);",
+                    var, inner_var, q_var, q_var, q_var
+                )
+                .unwrap();
+                var
             }
 
             // Transforms
@@ -343,13 +361,15 @@ impl WgslGenerator {
             }
             SdfOp::RotateX { inner, angle } => {
                 let new_pos = self.next_pos_var();
-                // Pre-compute sin/cos at code generation time for better GPU performance
+                // Transform the point by R(-angle) so the shape rotates by +angle
+                // (CCW, right-hand rule). Coefficients are parenthesized so a
+                // negative value can't form "--". MUST match cpu_eval.rs rotations.
                 let c = angle.cos();
                 let s = angle.sin();
                 writeln!(
                     code,
-                    "    let {} = vec3<f32>({}.x, {:.8} * {}.y - {:.8} * {}.z, {:.8} * {}.y + {:.8} * {}.z);",
-                    new_pos, pos_var, c, pos_var, s, pos_var, s, pos_var, c, pos_var
+                    "    let {} = vec3<f32>({}.x, ({:.8}) * {}.y + ({:.8}) * {}.z, ({:.8}) * {}.y + ({:.8}) * {}.z);",
+                    new_pos, pos_var, c, pos_var, s, pos_var, -s, pos_var, c, pos_var
                 ).unwrap();
                 self.generate_op(inner, &new_pos, code)
             }
@@ -359,8 +379,8 @@ impl WgslGenerator {
                 let s = angle.sin();
                 writeln!(
                     code,
-                    "    let {} = vec3<f32>({:.8} * {}.x + {:.8} * {}.z, {}.y, -{:.8} * {}.x + {:.8} * {}.z);",
-                    new_pos, c, pos_var, s, pos_var, pos_var, s, pos_var, c, pos_var
+                    "    let {} = vec3<f32>(({:.8}) * {}.x + ({:.8}) * {}.z, {}.y, ({:.8}) * {}.x + ({:.8}) * {}.z);",
+                    new_pos, c, pos_var, -s, pos_var, pos_var, s, pos_var, c, pos_var
                 ).unwrap();
                 self.generate_op(inner, &new_pos, code)
             }
@@ -370,8 +390,8 @@ impl WgslGenerator {
                 let s = angle.sin();
                 writeln!(
                     code,
-                    "    let {} = vec3<f32>({:.8} * {}.x - {:.8} * {}.y, {:.8} * {}.x + {:.8} * {}.y, {}.z);",
-                    new_pos, c, pos_var, s, pos_var, s, pos_var, c, pos_var, pos_var
+                    "    let {} = vec3<f32>(({:.8}) * {}.x + ({:.8}) * {}.y, ({:.8}) * {}.x + ({:.8}) * {}.y, {}.z);",
+                    new_pos, c, pos_var, s, pos_var, -s, pos_var, c, pos_var, pos_var
                 ).unwrap();
                 self.generate_op(inner, &new_pos, code)
             }
@@ -684,5 +704,62 @@ mod tests {
         assert!(code.contains("1.0"));
         assert!(code.contains("2.0"));
         assert!(code.contains("3.0"));
+    }
+
+    /// Build a full shader exercising every op whose codegen or WGSL body was
+    /// changed and confirm it parses and type-checks with naga (no GPU needed).
+    #[test]
+    fn generated_shader_validates_with_naga() {
+        let sphere = || Arc::new(SdfOp::Sphere { radius: 0.5 });
+        let tree = SdfOp::Union {
+            a: Arc::new(SdfOp::Union {
+                a: Arc::new(SdfOp::Cone {
+                    radius: 0.5,
+                    height: 1.0,
+                }),
+                b: Arc::new(SdfOp::Ellipsoid {
+                    radii: [0.6, 0.4, 0.5],
+                }),
+            }),
+            b: Arc::new(SdfOp::Union {
+                a: Arc::new(SdfOp::RotateZ {
+                    inner: Arc::new(SdfOp::RotateY {
+                        inner: Arc::new(SdfOp::RotateX {
+                            inner: Arc::new(SdfOp::Elongate {
+                                inner: sphere(),
+                                h: [0.2, 0.0, 0.1],
+                            }),
+                            angle: 0.5,
+                        }),
+                        angle: 0.5,
+                    }),
+                    angle: 0.5,
+                }),
+                b: Arc::new(SdfOp::Union {
+                    a: Arc::new(SdfOp::RepeatInfinite {
+                        inner: sphere(),
+                        spacing: [1.0, 0.0, 1.0],
+                    }),
+                    b: Arc::new(SdfOp::HexPrism {
+                        half_height: 0.3,
+                        radius: 0.4,
+                    }),
+                }),
+            }),
+        };
+
+        let shader = crate::build_shader(&tree);
+        let module = naga::front::wgsl::parse_str(&shader).unwrap_or_else(|e| {
+            panic!(
+                "generated WGSL failed to parse:\n{}",
+                e.emit_to_string(&shader)
+            )
+        });
+        let mut validator = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        );
+        // unwrap_used is allowed in this file; a failure prints the validation error.
+        validator.validate(&module).unwrap();
     }
 }

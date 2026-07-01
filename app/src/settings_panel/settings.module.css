@@ -83,6 +83,7 @@
 }
 
 .label {
+    display: block;
     font-size: 13px;
     color: var(--text-primary);
     margin-bottom: 4px;
@@ -129,87 +130,208 @@
     margin: 0;
 }
 
-/* Custom checkbox styling for consistent dark theme */
-.checkbox {
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    cursor: pointer;
+/*
+ * Primitive-based controls (dioxus_primitives), themed to the app's CSS
+ * variables. Headless primitives ship no styles, so every visual is defined
+ * here against theme vars via the primitives' data-attributes.
+ */
+
+/* Boolean toggle (dioxus_primitives::switch) */
+.settings-switch {
+    all: unset;
     position: relative;
+    width: 34px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    background: var(--border-strong);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.settings-switch[data-state="checked"] {
+    background: var(--accent);
+}
+
+.settings-switch:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.settings-switch[data-disabled="true"] {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.settings-switch-thumb {
+    display: block;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--text-primary);
+    transform: translateX(2px);
+    transition: transform 0.15s ease, background-color 0.15s ease;
+    will-change: transform;
+}
+
+.settings-switch[data-state="checked"] .settings-switch-thumb {
+    background: var(--button-text-on-accent);
+    transform: translateX(16px);
+}
+
+/* Font-size slider (dioxus_primitives::slider) */
+.settings-slider-wrap {
     display: flex;
     align-items: center;
-    justify-content: center;
-    transition: background-color 0.15s, border-color 0.15s;
+    min-width: 200px;
+    gap: 12px;
 }
 
-.checkbox:hover {
-    border-color: var(--accent);
+.settings-slider {
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-items: center;
+    padding: 6px 0;
+    touch-action: none;
 }
 
-.checkbox:checked {
-    background: var(--accent);
-    border-color: var(--accent);
+.settings-slider-track {
+    position: relative;
+    height: 4px;
+    flex-grow: 1;
+    border-radius: 9999px;
+    background: var(--border-strong);
 }
 
-.checkbox:checked::after {
-    content: '';
+.settings-slider-range {
     position: absolute;
-    width: 5px;
-    height: 9px;
-    border: solid var(--button-text-on-accent);
-    border-width: 0 2px 2px 0;
+    height: 100%;
+    border-radius: 9999px;
+    background: var(--accent);
+}
+
+.settings-slider-thumb {
+    all: unset;
+    position: absolute;
     top: 50%;
-    left: 50%;
-    transform: translate(-50%, -60%) rotate(45deg);
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    box-shadow: 0 0 0 1px var(--accent);
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+    transition: box-shadow 0.15s ease;
+    will-change: left;
 }
 
-.checkbox:focus {
+.settings-slider-thumb:hover,
+.settings-slider-thumb:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--focus-ring);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--focus-ring);
 }
 
-/* Select/Dropdown - dark theme styling */
-.select {
-    padding: 6px 32px 6px 10px;
-    background: var(--bg-secondary);
+.settings-slider[data-disabled="true"] {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.settings-slider-value {
+    min-width: 28px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Enum/string select (dioxus_primitives::select) */
+.settings-select {
+    position: relative;
+    min-width: 180px;
+}
+
+.settings-select-trigger {
+    display: flex;
+    width: 100%;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 4px;
+    background: var(--bg-input);
     color: var(--text-primary);
-    font-size: 13px;
-    min-width: 180px;
     cursor: pointer;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-}
-
-.select:hover {
-    border-color: var(--text-muted);
-}
-
-.select:focus {
+    font-size: 13px;
+    gap: 8px;
     outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.settings-select-trigger:hover,
+.settings-select-trigger:focus-visible {
     border-color: var(--accent);
 }
 
-/* Style the dropdown options */
-.select option {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    padding: 8px;
+.settings-select-icon {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    transition: transform 0.15s ease;
 }
 
-/* When dropdown is open, ensure options have proper styling */
-.select:focus option:checked,
-.select option:hover {
-    background: var(--accent);
-    color: var(--button-text-on-accent);
+.settings-select[data-state="open"] .settings-select-icon {
+    transform: rotate(180deg);
+}
+
+.settings-select-list {
+    position: absolute;
+    z-index: 1000;
+    top: 100%;
+    left: 0;
+    min-width: 100%;
+    max-height: 260px;
+    box-sizing: border-box;
+    padding: 4px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    margin-top: 4px;
+    background: var(--bg-elevated);
+    box-shadow: 0 8px 24px var(--shadow-medium);
+    overflow-y: auto;
+}
+
+.settings-select-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    gap: 8px;
+    outline: none;
+    user-select: none;
+}
+
+.settings-select-option:hover,
+.settings-select-option:focus-visible {
+    background: var(--hover-bg);
+}
+
+.settings-select-option[aria-selected="true"] {
+    color: var(--accent);
+}
+
+.settings-select-option[data-disabled="true"] {
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.settings-select-indicator {
+    display: flex;
+    align-items: center;
+    color: var(--accent);
 }

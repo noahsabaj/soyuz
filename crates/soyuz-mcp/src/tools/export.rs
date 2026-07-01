@@ -25,7 +25,10 @@ pub struct ExportMeshRequest {
     pub format: String,
 
     /// Mesh resolution - higher values produce more detailed meshes but take longer.
-    /// Typical values: 32 (fast/low), 64 (default), 128 (high), 256 (very high)
+    /// Typical values: 32 (fast/low), 64 (default), 128 (high), 256 (very high).
+    /// Clamped to the range 8-512; values outside this range are capped, since
+    /// very large resolutions drive marching cubes into excessive memory use and
+    /// multi-minute hangs.
     #[serde(default = "default_resolution")]
     pub resolution: u32,
 

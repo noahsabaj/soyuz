@@ -14,4 +14,6 @@ pub const PALETTE_CSS: Asset = asset!("/src/command_palette/palette.module.css")
 pub const SETTINGS_CSS: Asset = asset!("/src/settings_panel/settings.module.css");
 pub const MARKDOWN_CSS: Asset = asset!("/src/markdown_panel/markdown.module.css");
 pub const EXPORT_CSS: Asset = asset!("/src/export/export.module.css");
+/// Styling for the shared `dioxus-primitives`-based components (`components/`).
+pub const COMPONENTS_CSS: Asset = asset!("/src/components/components.module.css");
 pub const APP_ICON_32: Asset = asset!("/assets/icons/icon-32.png");

@@ -1,0 +1,142 @@
+/* Styling for the shared dioxus-primitives-based components, themed to the app's
+   CSS variables (see assets/theme.css). Headless primitives ship no styles, so
+   every visual is defined here against theme vars — never raw colors. */
+
+/* ── Confirm / alert dialog (dioxus_primitives::alert_dialog) ───────────────
+   AlertDialogRoot renders the backdrop; AlertDialogContent the centered box.
+   `data-state` ("open"/"closed") drives the fade. */
+.confirm-dialog-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    background: var(--shadow-medium);
+    opacity: 0;
+    will-change: opacity;
+}
+
+.confirm-dialog-backdrop[data-state="open"] {
+    animation: confirm-dialog-fade-in 120ms ease-out forwards;
+}
+
+.confirm-dialog-backdrop[data-state="closed"] {
+    animation: confirm-dialog-fade-out 120ms ease-in forwards;
+}
+
+@keyframes confirm-dialog-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes confirm-dialog-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.confirm-dialog {
+    position: fixed;
+    z-index: 1001;
+    top: 40%;
+    left: 50%;
+    display: flex;
+    box-sizing: border-box;
+    min-width: 320px;
+    max-width: min(32rem, calc(100% - 2rem));
+    flex-direction: column;
+    padding: 18px 20px 16px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--bg-elevated);
+    box-shadow: 0 8px 24px var(--shadow-medium);
+    color: var(--text-primary);
+    gap: 12px;
+    transform: translate(-50%, -50%);
+}
+
+.confirm-dialog-title {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.confirm-dialog-description {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    word-break: break-word;
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+    gap: 8px;
+}
+
+.confirm-dialog-btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color 0.15s ease;
+}
+
+.confirm-dialog-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.confirm-dialog-btn-cancel {
+    background: var(--bg-tertiary);
+}
+
+.confirm-dialog-btn-cancel:hover {
+    background: var(--border-strong);
+}
+
+.confirm-dialog-btn-confirm {
+    background: var(--accent);
+    color: var(--button-text-on-accent);
+}
+
+.confirm-dialog-btn-confirm:hover {
+    background: var(--accent-hover);
+}
+
+.confirm-dialog-btn-confirm.destructive {
+    background: var(--toolbar-stop-bg);
+    color: var(--text-primary);
+}
+
+.confirm-dialog-btn-confirm.destructive:hover {
+    background: var(--toolbar-stop-hover-bg);
+}
+
+/* ── Activity-bar icon-button tooltip (dioxus_primitives::tooltip) ──────────
+   The <button> is rendered as the trigger, so the Tooltip wrapper only needs to
+   be the flex item (matching the old bare button) and the positioning context
+   for the bubble. */
+.activity-tooltip {
+    position: relative;
+    display: flex;
+}
+
+.activity-tooltip-content {
+    position: absolute;
+    z-index: 1100;
+    top: 50%;
+    left: 100%;
+    padding: 4px 9px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    margin-left: 8px;
+    background: var(--bg-elevated);
+    box-shadow: 0 4px 12px var(--shadow-medium);
+    color: var(--text-primary);
+    font-size: 12px;
+    pointer-events: none;
+    transform: translateY(-50%);
+    white-space: nowrap;
+}

@@ -31,6 +31,36 @@ pub struct ScriptEngine {
     env: Arc<Mutex<Environment>>,
 }
 
+/// Maximum SDF tree depth before a script is rejected. The recursive passes
+/// (validate, CPU eval, WGSL codegen) would otherwise overflow the stack on a
+/// pathologically deep tree built in a script loop.
+const MAX_SDF_DEPTH: usize = 4096;
+/// Maximum SDF node count before a script is rejected (bounds memory/time).
+const MAX_SDF_NODES: usize = 500_000;
+
+/// Convert a script-produced SDF into an `SdfOp`, enforcing complexity bounds
+/// (iteratively, so it can't overflow) and float validity. Every entry point
+/// that hands an SDF to the renderer or mesher must go through this.
+fn finalize_sdf(rhai_sdf: &RhaiSdf) -> Result<SdfOp> {
+    let sdf = rhai_sdf.to_sdf_op();
+    sdf.check_complexity(MAX_SDF_DEPTH, MAX_SDF_NODES)
+        .map_err(|e| {
+            anyhow!(
+                "Script produced an SDF that is too complex to process: {}",
+                e
+            )
+        })?;
+    sdf.validate().map_err(|e| {
+        anyhow!(
+            "Script produced invalid geometry: {}. This usually happens when using \
+             expressions like 1.0/0.0 (infinity) or 0.0/0.0 (NaN). \
+             Please ensure all numeric values are finite.",
+            e
+        )
+    })?;
+    Ok(sdf)
+}
+
 impl ScriptEngine {
     /// Create a new script engine with all SDF and environment functions registered
     pub fn new() -> Self {
@@ -45,6 +75,11 @@ impl ScriptEngine {
 
         // Configure engine for better errors
         engine.set_max_expr_depths(64, 64);
+        // Bound runaway scripts: cap total operations so an infinite/huge loop
+        // (e.g. `while true {}`) returns an error instead of hanging the eval
+        // thread forever, and cap script call recursion.
+        engine.set_max_operations(50_000_000);
+        engine.set_max_call_levels(256);
 
         Self { engine, env }
     }
@@ -97,13 +132,13 @@ impl ScriptEngine {
     /// Evaluate a script and return the SdfOp (for the renderer)
     pub fn eval_to_sdf_op(&self, script: &str) -> Result<SdfOp> {
         let rhai_sdf = self.eval_sdf(script)?;
-        Ok(rhai_sdf.to_sdf_op())
+        finalize_sdf(&rhai_sdf)
     }
 
     /// Evaluate a script file and return the SdfOp (for the renderer)
     pub fn eval_file_to_sdf_op(&self, path: &Path) -> Result<SdfOp> {
         let rhai_sdf = self.eval_sdf_file(path)?;
-        Ok(rhai_sdf.to_sdf_op())
+        finalize_sdf(&rhai_sdf)
     }
 
     /// Evaluate a script and return both SDF and environment settings
@@ -138,16 +173,8 @@ impl ScriptEngine {
         // Get the environment that was configured during script execution
         let environment = self.env.lock().unwrap().clone();
 
-        // Convert to SdfOp and validate for invalid float values
-        let sdf = rhai_sdf.to_sdf_op();
-        sdf.validate().map_err(|e| {
-            anyhow!(
-                "Script produced invalid geometry: {}. \
-            This usually happens when using expressions like 1.0/0.0 (infinity) or 0.0/0.0 (NaN). \
-            Please ensure all numeric values are finite.",
-                e
-            )
-        })?;
+        // Convert to SdfOp, bound complexity, and validate for invalid floats.
+        let sdf = finalize_sdf(&rhai_sdf)?;
 
         Ok(SceneResult { sdf, environment })
     }

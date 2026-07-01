@@ -83,6 +83,35 @@
     color: var(--text-primary);
 }
 
+/* Explorer action-button tooltips (dioxus_primitives::tooltip, nested trigger).
+   Wrappers stay display:flex so the buttons keep their .explorer-actions row. */
+.action-tooltip {
+    position: relative;
+    display: flex;
+}
+
+.action-tooltip-trigger {
+    display: flex;
+}
+
+.action-tooltip-content {
+    position: absolute;
+    z-index: 1100;
+    top: 100%;
+    left: 50%;
+    padding: 3px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    margin-top: 6px;
+    background: var(--bg-elevated);
+    box-shadow: 0 4px 12px var(--shadow-medium);
+    color: var(--text-primary);
+    font-size: 12px;
+    pointer-events: none;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
 /* Explorer content area */
 .explorer-content {
     flex: 1;
@@ -250,25 +279,57 @@
     background: var(--accent-hover);
 }
 
-/* Context menu styles */
-.context-menu-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 999;
+/* Context menu (dioxus_primitives::context_menu) — themed to the app's menu
+   vars. The primitive is headless: ContextMenuContent positions itself (inline
+   position:fixed + left/top) and toggles [data-state]; these rules supply the
+   surface, items, open/close animation and destructive styling. */
+
+/* display:contents so the ContextMenu wrapper adds no box and its trigger
+   (.explorer-content) keeps behaving as a direct flex child of the container. */
+.explorer-menu-root {
+    display: contents;
 }
 
 .context-menu {
-    position: fixed;
     z-index: 1000;
     min-width: 160px;
-    background: var(--bg-secondary);
+    padding: 4px 0;
+    background: var(--menu-bg);
     border: 1px solid var(--border);
     border-radius: 4px;
     box-shadow: 0 4px 12px var(--shadow-medium);
-    padding: 4px 0;
+    opacity: 0;
+    will-change: transform, opacity;
+}
+
+.context-menu[data-state="open"] {
+    animation: context-menu-in 120ms ease-out forwards;
+}
+
+.context-menu[data-state="closed"] {
+    animation: context-menu-out 120ms ease-in forwards;
+}
+
+@keyframes context-menu-in {
+    from {
+        opacity: 0;
+        transform: scale(0.97) translateY(-2px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes context-menu-out {
+    from {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.97) translateY(-2px);
+    }
 }
 
 .context-menu-item {
@@ -281,15 +342,28 @@
     border: none;
     color: var(--text-primary);
     font-size: 13px;
-    cursor: pointer;
     text-align: left;
+    cursor: pointer;
+    outline: none;
+    user-select: none;
 }
 
-.context-menu-item:hover {
-    background: var(--bg-tertiary);
+.context-menu-item:hover:not([data-disabled="true"]),
+.context-menu-item:focus-visible {
+    background: var(--menu-hover-bg);
 }
 
-.context-menu-item.danger:hover {
+.context-menu-item:active:not([data-disabled="true"]) {
+    background: var(--menu-active-bg);
+}
+
+.context-menu-item[data-disabled="true"] {
+    color: var(--menu-disabled-text);
+    cursor: not-allowed;
+}
+
+.context-menu-item.danger:hover:not([data-disabled="true"]),
+.context-menu-item.danger:focus-visible {
     background: var(--danger-bg);
     color: var(--danger-text);
 }
@@ -303,6 +377,6 @@
 
 .context-menu-separator {
     height: 1px;
-    background: var(--border);
     margin: 4px 0;
+    background: var(--border);
 }

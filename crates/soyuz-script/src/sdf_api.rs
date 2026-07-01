@@ -4,10 +4,16 @@
 //!
 //! # Precision Notes
 //!
-//! Rhai scripts use `f64` for numeric literals, but all values are
-//! converted to `f32` when constructing SDF operations. This is
-//! required for GPU shader compatibility. For most use cases,
-//! the precision loss is negligible.
+//! Floating-point script literals are `f64`, converted to `f32` when
+//! constructing SDF operations (required for GPU shader compatibility). For
+//! most use cases the precision loss is negligible.
+//!
+//! # Numeric literals must be floats
+//!
+//! Rhai does not auto-convert integer literals (`1`, which is `i64`) to the
+//! `f64` these functions expect, so write `sphere(0.5)`, `cylinder(1.0, 2.0)`,
+//! `box3(1.0, 1.0, 1.0)` etc. — `cylinder(1, 2)` raises a "function not found"
+//! error. As a convenience, `sphere(..)` and `cube(..)` also accept integers.
 
 use rhai::{Engine, Module};
 use soyuz_sdf::{ExtrudeProfile, RevolveProfile, SdfOp};
@@ -119,9 +125,11 @@ impl RhaiSdf {
     }
 
     pub fn onion(&mut self, thickness: f64) -> RhaiSdf {
+        // Onion takes `d % (2*thickness)`; a zero thickness divides by zero (NaN).
+        let thickness = (thickness as f32).max(1e-4);
         RhaiSdf::new(SdfOp::Onion {
             inner: Arc::clone(&self.op),
-            thickness: thickness as f32,
+            thickness,
         })
     }
 
@@ -270,9 +278,12 @@ impl RhaiSdf {
     }
 
     pub fn repeat_polar(&mut self, count: i64) -> RhaiSdf {
+        // Clamp to a sane range: <=0 would divide by zero (NaN) and a negative
+        // i64 would wrap to a ~4.3e9 u32. 1024 angular sectors is already extreme.
+        let count = count.clamp(1, 1024) as u32;
         RhaiSdf::new(SdfOp::RepeatPolar {
             inner: Arc::clone(&self.op),
-            count: count as u32,
+            count,
         })
     }
 }
@@ -344,8 +355,17 @@ pub fn cone(radius: f64, height: f64) -> RhaiSdf {
 }
 
 pub fn plane(nx: f64, ny: f64, nz: f64, offset: f64) -> RhaiSdf {
+    // Normalize at construction so the stored normal is unit-length; the CPU and
+    // GPU plane evaluators both use it raw (and so must agree). Fall back to +Y
+    // for a degenerate zero normal.
+    let len = (nx * nx + ny * ny + nz * nz).sqrt();
+    let normal = if len > 1e-12 {
+        [(nx / len) as f32, (ny / len) as f32, (nz / len) as f32]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
     RhaiSdf::new(SdfOp::Plane {
-        normal: [nx as f32, ny as f32, nz as f32],
+        normal,
         offset: offset as f32,
     })
 }

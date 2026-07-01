@@ -179,6 +179,11 @@ impl SoyuzState {
                         respond,
                     } => {
                         let result = (|| -> Result<ExportInfo> {
+                            // Clamp resolution to a safe range before meshing (F23).
+                            // Unbounded values can drive marching cubes into OOM /
+                            // multi-hour hangs on this single engine thread.
+                            let resolution = resolution.clamp(8, 512);
+
                             let scene = engine.scene().ok_or_else(|| anyhow!("No scene loaded"))?;
 
                             // Create CPU SDF
@@ -199,18 +204,25 @@ impl SoyuzState {
                             let vertex_count = mesh.vertex_count();
                             let triangle_count = mesh.triangle_count();
 
-                            // Export to temp file
+                            // Export to a temp file with a hard-to-predict name, then read
+                            // it back. The temp file MUST be removed on every path (success,
+                            // export error, or read error), so capture the fallible work and
+                            // always attempt cleanup before propagating any error (F26).
                             let temp_dir = std::env::temp_dir();
                             let temp_path = temp_dir.join(format!(
                                 "soyuz_export_{}.{}",
-                                std::process::id(),
+                                unique_temp_token(),
                                 format.extension()
                             ));
 
-                            mesh.export(&temp_path)?;
-
-                            let bytes = std::fs::read(&temp_path)?;
+                            let export_and_read = (|| -> Result<Vec<u8>> {
+                                mesh.export(&temp_path)?;
+                                let bytes = std::fs::read(&temp_path)?;
+                                Ok(bytes)
+                            })();
+                            // Always remove the temp file, regardless of success or failure.
                             let _ = std::fs::remove_file(&temp_path);
+                            let bytes = export_and_read?;
 
                             Ok(ExportInfo {
                                 format,
@@ -341,6 +353,30 @@ impl SoyuzState {
         let _ = self.sender.send(Command::ClearScene { respond: tx });
         let _ = rx.await;
     }
+}
+
+/// Generate a hard-to-predict, process-unique token for temp file names.
+///
+/// Mixes the PID, a monotonic counter, and a high-resolution timestamp through a
+/// hasher so export temp files avoid a predictable `soyuz_export_{pid}` name
+/// (which enabled temp-file pre-creation / symlink races) and never collide
+/// across repeated exports. (F26)
+fn unique_temp_token() -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let mut hasher = DefaultHasher::new();
+    std::process::id().hash(&mut hasher);
+    COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher);
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos())
+        .hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 /// Information about the current scene

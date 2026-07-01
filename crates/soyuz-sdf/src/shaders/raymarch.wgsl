@@ -113,14 +113,21 @@ fn sd_torus(p: vec3<f32>, t: vec2<f32>) -> f32 {
     return length(q) - t.y;
 }
 
+// Exact solid cone: apex at the origin, opening upward along +Y, base radius `r`
+// at height y = h. This is IQ's capped-cone with a=(0,0,0) ra=0, b=(0,h,0) rb=r,
+// simplified for the Y axis. MUST stay identical to the CPU eval in
+// soyuz-script/src/cpu_eval.rs (sd_cone) so preview matches the exported mesh.
 fn sd_cone(p: vec3<f32>, r: f32, h: f32) -> f32 {
-    let q = vec2<f32>(length(p.xz), p.y);
-    let k1 = vec2<f32>(h, r);
-    let k2 = vec2<f32>(h, -r);
-    let ca = vec2<f32>(q.x - min(q.x, select(r, 0.0, q.y < 0.0)), abs(q.y) - h);
-    let cb = q - k1 + k2 * clamp(dot(k1 - q, k2) / dot(k2, k2), 0.0, 1.0);
-    let s = select(1.0, -1.0, cb.x < 0.0 && ca.y < 0.0);
-    return s * sqrt(min(dot(ca, ca), dot(cb, cb)));
+    let q = length(p.xz);
+    let paba = p.y / h;
+    let cax = max(0.0, q - select(r, 0.0, paba < 0.5));
+    let cay = abs(paba - 0.5) - 0.5;
+    let k = r * r + h * h;
+    let f = clamp((r * q + p.y * h) / k, 0.0, 1.0);
+    let cbx = q - f * r;
+    let cby = paba - f;
+    let s = select(1.0, -1.0, cbx < 0.0 && cay < 0.0);
+    return s * sqrt(min(cax * cax + cay * cay * h * h, cbx * cbx + cby * cby * h * h));
 }
 
 fn sd_plane(p: vec3<f32>, n: vec3<f32>, d: f32) -> f32 {
@@ -130,6 +137,11 @@ fn sd_plane(p: vec3<f32>, n: vec3<f32>, d: f32) -> f32 {
 fn sd_ellipsoid(p: vec3<f32>, r: vec3<f32>) -> f32 {
     let k0 = length(p / r);
     let k1 = length(p / (r * r));
+    // At the center k0 and k1 are both ~0 (0/0 -> NaN). Return the inradius
+    // (negative = inside). Must stay identical to the CPU eval.
+    if (k1 < 1e-6) {
+        return -min(r.x, min(r.y, r.z));
+    }
     return k0 * (k0 - 1.0) / k1;
 }
 
@@ -264,22 +276,25 @@ fn op_translate(p: vec3<f32>, offset: vec3<f32>) -> vec3<f32> {
     return p - offset;
 }
 
+// Rotation transforms the query point by the INVERSE rotation R(-angle) so the
+// shape rotates by +angle (counter-clockwise, right-hand rule). MUST match the
+// CPU eval (cpu_eval.rs) and the inline rotation emitted by wgsl_gen.rs.
 fn op_rotate_x(p: vec3<f32>, angle: f32) -> vec3<f32> {
     let c = cos(angle);
     let s = sin(angle);
-    return vec3<f32>(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
+    return vec3<f32>(p.x, c * p.y + s * p.z, -s * p.y + c * p.z);
 }
 
 fn op_rotate_y(p: vec3<f32>, angle: f32) -> vec3<f32> {
     let c = cos(angle);
     let s = sin(angle);
-    return vec3<f32>(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
+    return vec3<f32>(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
 }
 
 fn op_rotate_z(p: vec3<f32>, angle: f32) -> vec3<f32> {
     let c = cos(angle);
     let s = sin(angle);
-    return vec3<f32>(c * p.x - s * p.y, s * p.x + c * p.y, p.z);
+    return vec3<f32>(c * p.x + s * p.y, -s * p.x + c * p.y, p.z);
 }
 
 fn op_scale(p: vec3<f32>, s: f32) -> vec3<f32> {
@@ -328,7 +343,12 @@ fn op_elongate(p: vec3<f32>, h: vec3<f32>) -> vec3<f32> {
 // ============================================================================
 
 fn op_repeat(p: vec3<f32>, c: vec3<f32>) -> vec3<f32> {
-    return (p + 0.5 * c) % c - 0.5 * c;
+    // Euclidean fold (WGSL `%` is a truncated remainder and tiles wrongly for
+    // negative coordinates). Axes with spacing <= 0 are left un-repeated.
+    // MUST match the CPU eval's per-axis rem_euclid in cpu_eval.rs.
+    let q = p + 0.5 * c;
+    let folded = q - c * floor(q / c) - 0.5 * c;
+    return select(p, folded, c > vec3<f32>(0.0));
 }
 
 fn op_repeat_limited(p: vec3<f32>, c: vec3<f32>, l: vec3<f32>) -> vec3<f32> {
@@ -383,7 +403,6 @@ fn scene_sdf(p: vec3<f32>) -> f32 {
 // ============================================================================
 
 const MAX_STEPS: i32 = 128;  // Reduced from 256 - adaptive precision compensates
-const MAX_DIST: f32 = 100.0;
 const MIN_SURF_DIST: f32 = 0.0001;  // Base precision for close objects
 const DIST_SCALE: f32 = 0.0005;     // How much precision degrades with distance
 
@@ -419,7 +438,9 @@ fn raymarch(ro: vec3<f32>, rd: vec3<f32>) -> RayResult {
             return result;
         }
 
-        if (result.dist > MAX_DIST) {
+        // Ray budget = the camera's far plane (floored so a zero far can't blank
+        // the whole image). This is what makes camera.far actually do something.
+        if (result.dist > max(uniforms.far, 1.0)) {
             result.steps = i;
             return result;
         }
@@ -441,11 +462,18 @@ fn calc_normal(p: vec3<f32>) -> vec3<f32> {
     let dist_from_cam = length(p - uniforms.camera_pos);
     let eps = 0.0001 + 0.0002 * dist_from_cam;
     let e = vec2<f32>(eps, 0.0);
-    return normalize(vec3<f32>(
+    let grad = vec3<f32>(
         scene_sdf(p + e.xyy) - scene_sdf(p - e.xyy),
         scene_sdf(p + e.yxy) - scene_sdf(p - e.yxy),
         scene_sdf(p + e.yyx) - scene_sdf(p - e.yyx)
-    ));
+    );
+    // On a locally flat field the gradient is zero; normalize() would yield NaN
+    // and poison the lighting. Fall back to an up normal.
+    let len = length(grad);
+    if (len < 1e-12) {
+        return vec3<f32>(0.0, 1.0, 0.0);
+    }
+    return grad / len;
 }
 
 // ============================================================================
@@ -485,8 +513,10 @@ fn calc_soft_shadow(ro: vec3<f32>, rd: vec3<f32>, mint: f32, maxt: f32, k: f32) 
         }
         // Improved soft shadow calculation
         let y = h * h / (2.0 * ph);
-        let d = sqrt(h * h - y * y);
-        res = min(res, k * d / max(0.0, t - y));
+        let d = sqrt(max(h * h - y * y, 0.0));
+        // Floor the denominator: max(0.0, t - y) can be exactly 0, and with d == 0
+        // that is 0/0 = NaN which then sticks in `res`.
+        res = min(res, k * d / max(t - y, 1e-4));
         ph = h;
 
         // Adaptive step: take larger steps when far from surfaces
@@ -593,8 +623,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         col = get_background(rd);
     }
 
-    // Gamma correction
-    col = pow(col, vec3<f32>(1.0 / 2.2));
+    // NOTE: do NOT gamma-encode here. Every render target is an sRGB-format
+    // texture, so the hardware applies the linear->sRGB encode on store. Doing
+    // pow(col, 1/2.2) as well double-encodes and washes the image out.
 
     // Vignette
     let vignette = 1.0 - 0.3 * length(ndc);

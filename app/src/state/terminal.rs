@@ -5,6 +5,8 @@
 
 use parking_lot::RwLock;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::Notify;
 
 /// Maximum number of terminal entries to retain
 pub const MAX_TERMINAL_ENTRIES: usize = 1000;
@@ -161,9 +163,22 @@ impl TerminalEntry {
 }
 
 /// Thread-safe terminal buffer for collecting log output
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct TerminalBuffer {
     entries: Arc<RwLock<Vec<TerminalEntry>>>,
+    /// Stable id of `entries[0]`. Increases as the front is trimmed so every
+    /// entry keeps a unique, monotonic id usable as a stable list key (F72).
+    first_id: Arc<AtomicU64>,
+    /// Wakes the terminal panel when output changes so it re-renders live.
+    /// Signalled via `notify_one`, which retains a single wake permit when the
+    /// panel is not currently parked, so a change is never lost (F72).
+    notify: Arc<Notify>,
+}
+
+impl Default for TerminalBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TerminalBuffer {
@@ -171,29 +186,70 @@ impl TerminalBuffer {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(RwLock::new(Vec::with_capacity(MAX_TERMINAL_ENTRIES))),
+            first_id: Arc::new(AtomicU64::new(0)),
+            notify: Arc::new(Notify::new()),
         }
     }
 
     /// Add an entry to the buffer
     pub fn push(&self, entry: TerminalEntry) {
-        let mut entries = self.entries.write();
-        entries.push(entry);
+        {
+            let mut entries = self.entries.write();
+            entries.push(entry);
 
-        // Trim oldest entries if over limit
-        if entries.len() > MAX_TERMINAL_ENTRIES {
-            let excess = entries.len() - MAX_TERMINAL_ENTRIES;
-            entries.drain(0..excess);
+            // Trim oldest entries if over limit, advancing the stable id base so
+            // surviving entries keep their ids.
+            if entries.len() > MAX_TERMINAL_ENTRIES {
+                let excess = entries.len() - MAX_TERMINAL_ENTRIES;
+                entries.drain(0..excess);
+                self.first_id.fetch_add(excess as u64, Ordering::Relaxed);
+            }
         }
+        self.mark_changed();
     }
 
     /// Clear all entries
     pub fn clear(&self) {
-        self.entries.write().clear();
+        {
+            let mut entries = self.entries.write();
+            // Advance the id base past the cleared entries so a refilled buffer
+            // never reuses a key.
+            self.first_id
+                .fetch_add(entries.len() as u64, Ordering::Relaxed);
+            entries.clear();
+        }
+        self.mark_changed();
     }
 
-    /// Get a snapshot of all entries
-    pub fn snapshot(&self) -> Vec<TerminalEntry> {
-        self.entries.read().clone()
+    /// Wake the observer waiting on the next change to the buffer.
+    ///
+    /// Uses `notify_one` rather than `notify_waiters`: `notify_one` stores a
+    /// single wake permit when no waiter is currently parked, so a push that
+    /// lands between the panel's snapshot and its `notified().await` is still
+    /// delivered on the next await. `notify_waiters` only woke already-parked
+    /// waiters, dropping that wakeup — the lost wakeup the old 250ms UI poll
+    /// used to mask (F72).
+    fn mark_changed(&self) {
+        self.notify.notify_one();
+    }
+
+    /// Handle used to await the next change to the buffer. Consumers should
+    /// register interest (e.g. `Notified::enable`) before taking their snapshot
+    /// so the permit stored by `notify_one` is observed even when the change
+    /// races the snapshot (register-before-snapshot, F72).
+    pub fn notifier(&self) -> Arc<Notify> {
+        self.notify.clone()
+    }
+
+    /// Snapshot paired with each entry's stable id, for use as list keys (F72).
+    pub fn snapshot_with_ids(&self) -> Vec<(u64, TerminalEntry)> {
+        let base = self.first_id.load(Ordering::Relaxed);
+        self.entries
+            .read()
+            .iter()
+            .enumerate()
+            .map(|(i, entry)| (base + i as u64, entry.clone()))
+            .collect()
     }
 }
 
@@ -212,12 +268,14 @@ mod tests {
         let buffer = TerminalBuffer::new();
         buffer.push(TerminalEntry::new(TerminalLevel::Info, "Test message"));
 
-        let snapshot = buffer.snapshot();
+        let snapshot = buffer.snapshot_with_ids();
         assert_eq!(snapshot.len(), 1);
-        assert_eq!(snapshot[0].message, "Test message");
-        assert_eq!(snapshot[0].level, TerminalLevel::Info);
+        assert_eq!(snapshot[0].1.message, "Test message");
+        assert_eq!(snapshot[0].1.level, TerminalLevel::Info);
+        // First entry has stable id 0
+        assert_eq!(snapshot[0].0, 0);
         // Verify timestamp is set (non-zero)
-        assert!(snapshot[0].timestamp_secs > 0);
+        assert!(snapshot[0].1.timestamp_secs > 0);
     }
 
     #[test]
@@ -226,9 +284,13 @@ mod tests {
         buffer.push(TerminalEntry::new(TerminalLevel::Info, "Message 1"));
         buffer.push(TerminalEntry::new(TerminalLevel::Error, "Message 2"));
 
-        assert_eq!(buffer.snapshot().len(), 2);
+        assert_eq!(buffer.snapshot_with_ids().len(), 2);
         buffer.clear();
-        assert!(buffer.snapshot().is_empty());
+        assert!(buffer.snapshot_with_ids().is_empty());
+
+        // Ids keep advancing after a clear so keys are never reused.
+        buffer.push(TerminalEntry::new(TerminalLevel::Info, "Message 3"));
+        assert_eq!(buffer.snapshot_with_ids()[0].0, 2);
     }
 
     #[test]
@@ -243,11 +305,13 @@ mod tests {
             ));
         }
 
-        let snapshot = buffer.snapshot();
+        let snapshot = buffer.snapshot_with_ids();
         assert_eq!(snapshot.len(), MAX_TERMINAL_ENTRIES);
 
         // Verify oldest entries were trimmed
-        assert!(snapshot[0].message.contains("100")); // First remaining is message 100
+        assert!(snapshot[0].1.message.contains("100")); // First remaining is message 100
+        // The first surviving entry's stable id reflects the 100 trimmed entries.
+        assert_eq!(snapshot[0].0, 100);
     }
 
     #[test]

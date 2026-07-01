@@ -13,6 +13,15 @@ const PREVIEW_HOST_ID: &str = "soyuz-preview-host";
 const PREVIEW_HOST_RETRY_ATTEMPTS: usize = 20;
 const PREVIEW_HOST_RETRY_DELAY_MS: u64 = 50;
 
+/// Per-process temporary path for the preview script.
+///
+/// Keyed by the studio process id so the writer here and the cleanup in
+/// `AppServices::stop_preview_process` agree on the same path, and concurrent
+/// Soyuz instances do not clobber each other's preview script.
+pub(crate) fn preview_temp_path() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("soyuz_preview_{}.rhai", std::process::id()))
+}
+
 /// Open the docked preview tab and render the current script there.
 pub fn open_docked_preview(mut state: AppStore, services: AppServices) {
     let code = state.read().source_code();
@@ -51,9 +60,13 @@ fn spawn_preview_with_code(
     placement: PreviewPlacement,
 ) {
     services.stop_preview_process();
+    // F53: claim a new preview generation. Any wait-loop from a previous preview
+    // will see the generation has moved on and stop mutating shared state, so it
+    // can no longer flip `is_previewing` off under this newer preview.
+    let generation = services.bump_preview_generation();
     services.terminal_log(TerminalLevel::Info, "Starting preview...");
 
-    let temp_path = std::env::temp_dir().join("soyuz_preview.rhai");
+    let temp_path = preview_temp_path();
     if let Err(e) = std::fs::write(&temp_path, code) {
         let error_msg = format!("Failed to write temp script: {e}");
         services.terminal_log(TerminalLevel::Error, &error_msg);
@@ -67,7 +80,6 @@ fn spawn_preview_with_code(
         s.preview_dirty = false;
         s.error_message = None;
     }
-    services.publish_preview_script(code.to_string());
 
     let engine = Engine::new();
     if let Err(e) = engine.compile(code) {
@@ -135,7 +147,7 @@ fn spawn_preview_with_code(
                 services.set_preview_process(child);
 
                 let process_handle_wait = services.preview_process();
-                wait_for_process_exit(state, services, process_handle_wait).await;
+                wait_for_process_exit(state, services, process_handle_wait, generation).await;
             }
             PreviewPlacement::PopOut => match spawn_preview_process(&temp_path) {
                 Ok(child) => {
@@ -143,7 +155,7 @@ fn spawn_preview_with_code(
                     services.set_preview_process(child);
 
                     let process_handle_wait = services.preview_process();
-                    wait_for_process_exit(state, services, process_handle_wait).await;
+                    wait_for_process_exit(state, services, process_handle_wait, generation).await;
                 }
                 Err(e) => {
                     let error_msg = format!("Failed to spawn preview: {e}");
@@ -188,12 +200,19 @@ fn report_docked_preview_unavailable(
 }
 
 async fn wait_for_process_exit(
-    mut state: AppStore,
+    state: AppStore,
     services: AppServices,
     process_handle: std::sync::Arc<parking_lot::Mutex<Option<Child>>>,
+    generation: u64,
 ) {
     loop {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // F53: a newer preview superseded this one. Stop polling and leave
+        // `is_previewing` for the current generation's wait-loop to manage.
+        if services.preview_generation() != generation {
+            return;
+        }
 
         let mut guard = process_handle.lock();
         if let Some(ref mut process) = *guard {
@@ -209,7 +228,7 @@ async fn wait_for_process_exit(
                             format!("Preview exited with status: {status}"),
                         );
                     }
-                    state.write().is_previewing = false;
+                    set_idle_if_current(state, &services, generation);
                     break;
                 }
                 Ok(None) => {}
@@ -220,16 +239,25 @@ async fn wait_for_process_exit(
                         TerminalLevel::Error,
                         format!("Error checking preview status: {e}"),
                     );
-                    state.write().is_previewing = false;
+                    set_idle_if_current(state, &services, generation);
                     break;
                 }
             }
         } else {
             drop(guard);
             services.terminal_log(TerminalLevel::Info, "Preview stopped");
-            state.write().is_previewing = false;
+            set_idle_if_current(state, &services, generation);
             break;
         }
+    }
+}
+
+/// Clear `is_previewing`, but only while this wait-loop's preview is still the
+/// current generation, so a stale loop can never flip the flag off after a newer
+/// preview has already set it true (F53).
+fn set_idle_if_current(mut state: AppStore, services: &AppServices, generation: u64) {
+    if services.preview_generation() == generation {
+        state.write().is_previewing = false;
     }
 }
 

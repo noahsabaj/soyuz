@@ -5,8 +5,10 @@
 use dioxus::prelude::*;
 use tracing::warn;
 
-use crate::settings::{AutoSave, ControlType, SettingCategory, all_settings_meta, save_settings};
-use crate::state::AppStore;
+use crate::settings::{
+    AutoSave, ControlType, SettingCategory, SettingsStoreExt, all_settings_meta, save_settings,
+};
+use crate::state::{AppStateStoreExt, AppStore};
 use soyuz_core::export::ExportFormat;
 
 /// Main settings panel component
@@ -99,239 +101,456 @@ fn SettingRow(
     description: &'static str,
     control_type: ControlType,
 ) -> Element {
+    use dioxus_primitives::label::Label;
+
+    let state = use_context::<AppStore>();
     rsx! {
         div { class: "row",
             div { class: "info",
-                div { class: "label", "{label}" }
+                // `Label`'s `html_for` ties the visible name to the control's `id`
+                // (each control forwards the setting id to its focusable element).
+                Label { class: "label", html_for: id, "{label}" }
                 div { class: "description", "{description}" }
             }
             div { class: "control",
-                match control_type {
-                    ControlType::Text => {
-                        rsx! {
-                            TextControl { id }
-                        }
-                    }
-                    ControlType::Number { min, max } => {
-                        rsx! {
-                            NumberControl { id, min, max }
-                        }
-                    }
-                    ControlType::Checkbox => {
-                        rsx! {
-                            CheckboxControl { id }
-                        }
-                    }
-                    ControlType::Dropdown { options } => {
-                        rsx! {
-                            DropdownControl { id, options }
-                        }
-                    }
-                }
+                {setting_control(id, label, &control_type, state)}
             }
         }
     }
 }
 
-/// Text input control
-#[component]
-fn TextControl(id: &'static str) -> Element {
-    let mut state = use_context::<AppStore>();
-
-    let value = {
-        let s = state.read();
-        match id {
-            "font_family" => s.settings.font_family.clone(),
-            _ => String::new(),
-        }
+/// Bind a single setting to its control in one place.
+///
+/// Each arm reads the current value through a field selector (fine-grained
+/// reactivity: this row only re-renders when *its* field changes) and constructs
+/// an `on_change` handler that writes back through the same selector, then
+/// schedules a debounced off-thread save. This replaces the old pattern where
+/// every control matched `id` twice — once to read and once to write.
+#[allow(clippy::too_many_lines)] // One arm per setting; splitting hurts readability.
+fn setting_control(
+    id: &'static str,
+    label: &'static str,
+    control_type: &ControlType,
+    state: AppStore,
+) -> Element {
+    // Control-shape parameters still come from the metadata (single source of truth).
+    let (num_min, num_max) = match control_type {
+        ControlType::Number { min, max } => (*min, *max),
+        _ => (u32::MIN, u32::MAX),
+    };
+    let options = match control_type {
+        ControlType::Dropdown { options } => options.clone(),
+        _ => Vec::new(),
     };
 
+    match id {
+        // --- Text ---
+        "font_family" => rsx! {
+            TextControl {
+                id,
+                value: state.settings().font_family().cloned(),
+                on_change: move |v: String| {
+                    state.settings().font_family().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+
+        // --- Slider ---
+        "font_size" => rsx! {
+            SliderControl {
+                id,
+                label,
+                value: state.settings().font_size().cloned(),
+                min: num_min,
+                max: num_max,
+                on_change: move |v: u32| {
+                    state.settings().font_size().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+
+        // --- Number ---
+        "tab_size" => rsx! {
+            NumberControl {
+                id,
+                value: state.settings().tab_size().cloned(),
+                min: num_min,
+                max: num_max,
+                on_change: move |v: u32| {
+                    state.settings().tab_size().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+        "export_resolution" => rsx! {
+            NumberControl {
+                id,
+                value: state.settings().export_resolution().cloned(),
+                min: num_min,
+                max: num_max,
+                on_change: move |v: u32| {
+                    state.settings().export_resolution().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+        "recent_files_limit" => rsx! {
+            NumberControl {
+                id,
+                value: state.settings().recent_files_limit().cloned() as u32,
+                min: num_min,
+                max: num_max,
+                on_change: move |v: u32| {
+                    state.settings().recent_files_limit().set(v as usize);
+                    schedule_save(state);
+                },
+            }
+        },
+        "undo_history_limit" => rsx! {
+            NumberControl {
+                id,
+                value: state.settings().undo_history_limit().cloned() as u32,
+                min: num_min,
+                max: num_max,
+                on_change: move |v: u32| {
+                    state.settings().undo_history_limit().set(v as usize);
+                    schedule_save(state);
+                },
+            }
+        },
+
+        // --- Switch ---
+        "word_wrap" => rsx! {
+            SwitchControl {
+                id,
+                value: state.settings().word_wrap().cloned(),
+                on_change: move |v: bool| {
+                    state.settings().word_wrap().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+        "line_numbers" => rsx! {
+            SwitchControl {
+                id,
+                value: state.settings().line_numbers().cloned(),
+                on_change: move |v: bool| {
+                    state.settings().line_numbers().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+        "export_optimize" => rsx! {
+            SwitchControl {
+                id,
+                value: state.settings().export_optimize().cloned(),
+                on_change: move |v: bool| {
+                    state.settings().export_optimize().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+        "export_close_after" => rsx! {
+            SwitchControl {
+                id,
+                value: state.settings().export_close_after().cloned(),
+                on_change: move |v: bool| {
+                    state.settings().export_close_after().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+        "restore_session" => rsx! {
+            SwitchControl {
+                id,
+                value: state.settings().restore_session().cloned(),
+                on_change: move |v: bool| {
+                    state.settings().restore_session().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+        "remember_workspace" => rsx! {
+            SwitchControl {
+                id,
+                value: state.settings().remember_workspace().cloned(),
+                on_change: move |v: bool| {
+                    state.settings().remember_workspace().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+
+        // --- Dropdown ---
+        "theme" => rsx! {
+            DropdownControl {
+                id,
+                value: state.settings().theme().cloned(),
+                options,
+                on_change: move |v: String| {
+                    state.settings().theme().set(v);
+                    schedule_save(state);
+                },
+            }
+        },
+        "auto_save" => {
+            let value = match state.settings().auto_save().cloned() {
+                AutoSave::Off => "off".to_string(),
+                AutoSave::AfterDelay(secs) => secs.to_string(),
+            };
+            rsx! {
+                DropdownControl {
+                    id,
+                    value,
+                    options,
+                    on_change: move |v: String| {
+                        let parsed = if v == "off" {
+                            AutoSave::Off
+                        } else if let Ok(secs) = v.parse::<u32>() {
+                            AutoSave::AfterDelay(secs)
+                        } else {
+                            AutoSave::Off
+                        };
+                        state.settings().auto_save().set(parsed);
+                        schedule_save(state);
+                    },
+                }
+            }
+        }
+        "export_format" => {
+            let value = match state.settings().export_format().cloned() {
+                ExportFormat::Glb => "glb",
+                ExportFormat::Gltf => "gltf",
+                ExportFormat::Obj => "obj",
+                ExportFormat::Stl => "stl",
+            }
+            .to_string();
+            rsx! {
+                DropdownControl {
+                    id,
+                    value,
+                    options,
+                    on_change: move |v: String| {
+                        let format = match v.as_str() {
+                            "gltf" => ExportFormat::Gltf,
+                            "obj" => ExportFormat::Obj,
+                            "stl" => ExportFormat::Stl,
+                            _ => ExportFormat::Glb,
+                        };
+                        state.settings().export_format().set(format);
+                        schedule_save(state);
+                    },
+                }
+            }
+        }
+        "timezone_offset" => {
+            let value = state.settings().timezone_offset().cloned().to_string();
+            rsx! {
+                DropdownControl {
+                    id,
+                    value,
+                    options,
+                    on_change: move |v: String| {
+                        if let Ok(offset) = v.parse::<i8>() {
+                            state.settings().timezone_offset().set(offset.clamp(-12, 14));
+                            schedule_save(state);
+                        }
+                    },
+                }
+            }
+        }
+        "time_format_24h" => {
+            let value = state.settings().time_format_24h().cloned().to_string();
+            rsx! {
+                DropdownControl {
+                    id,
+                    value,
+                    options,
+                    on_change: move |v: String| {
+                        state.settings().time_format_24h().set(v == "true");
+                        schedule_save(state);
+                    },
+                }
+            }
+        }
+
+        _ => rsx! {},
+    }
+}
+
+/// Persist settings off the UI thread.
+///
+/// The change has already been applied to the store, so we snapshot the current
+/// settings synchronously (never lost) and hand the blocking `save_settings` to a
+/// blocking thread. `spawn_blocking` runs its closure to completion even if this
+/// task is later dropped (e.g. the Settings tab closes), so the write always lands
+/// — unlike a debounced timer, which could be cancelled mid-wait. This replaces
+/// the old synchronous `save_settings` call that ran on the UI thread inside every
+/// `onchange` handler.
+fn schedule_save(state: AppStore) {
+    let settings = state.peek().settings.clone();
+    spawn(async move {
+        match tokio::task::spawn_blocking(move || save_settings(&settings)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => warn!("Failed to save settings: {e}"),
+            Err(e) => warn!("Settings save task failed: {e}"),
+        }
+    });
+}
+
+/// Text input control. Presentational: reads its value and reports changes
+/// through props, so the caller owns the single read/write binding.
+#[component]
+fn TextControl(id: &'static str, value: String, on_change: EventHandler<String>) -> Element {
     rsx! {
         input {
+            id,
             class: "input",
             r#type: "text",
             value: "{value}",
-            onchange: move |evt| {
-                let new_value = evt.value();
-                {
-                    let mut s = state.write();
-                    if id == "font_family" {
-                        s.settings.font_family = new_value;
-                    }
-                }
-                if let Err(e) = save_settings(&state.read().settings) {
-                    warn!("Failed to save settings: {e}");
-                }
-            },
+            onchange: move |evt| on_change.call(evt.value()),
         }
     }
 }
 
-/// Number input control
+/// Number input control (clamps to `[min, max]` before reporting).
 #[component]
-fn NumberControl(id: &'static str, min: u32, max: u32) -> Element {
-    let mut state = use_context::<AppStore>();
-
-    let value = {
-        let s = state.read();
-        match id {
-            "font_size" => s.settings.font_size,
-            "tab_size" => s.settings.tab_size,
-            "export_resolution" => s.settings.export_resolution,
-            "recent_files_limit" => s.settings.recent_files_limit as u32,
-            "undo_history_limit" => s.settings.undo_history_limit as u32,
-            _ => 0,
-        }
-    };
-
+fn NumberControl(
+    id: &'static str,
+    value: u32,
+    min: u32,
+    max: u32,
+    on_change: EventHandler<u32>,
+) -> Element {
     rsx! {
         input {
+            id,
             class: "input number",
             r#type: "number",
             min: "{min}",
             max: "{max}",
             value: "{value}",
             onchange: move |evt| {
-                if let Ok(new_value) = evt.value().parse::<u32>() {
-                    let clamped = new_value.clamp(min, max);
-                    {
-                        let mut s = state.write();
-                        match id {
-                            "font_size" => s.settings.font_size = clamped,
-                            "tab_size" => s.settings.tab_size = clamped,
-                            "export_resolution" => s.settings.export_resolution = clamped,
-                            "recent_files_limit" => s.settings.recent_files_limit = clamped as usize,
-                            "undo_history_limit" => s.settings.undo_history_limit = clamped as usize,
-                            _ => {}
-                        }
-                    }
-                    if let Err(e) = save_settings(&state.read().settings) {
-                    warn!("Failed to save settings: {e}");
-                }
+                if let Ok(parsed) = evt.value().parse::<u32>() {
+                    on_change.call(parsed.clamp(min, max));
                 }
             },
         }
     }
 }
 
-/// Checkbox control
+/// Boolean toggle, built on the `dioxus_primitives` `Switch` (reads better than a
+/// checkbox for on/off preferences). The store value is mirrored into a stable,
+/// reactive signal so the primitive's controlled state tracks external changes.
 #[component]
-fn CheckboxControl(id: &'static str) -> Element {
-    let mut state = use_context::<AppStore>();
+fn SwitchControl(id: &'static str, value: bool, on_change: EventHandler<bool>) -> Element {
+    use dioxus_primitives::switch::{Switch, SwitchThumb};
 
-    let checked = {
-        let s = state.read();
-        match id {
-            "word_wrap" => s.settings.word_wrap,
-            "line_numbers" => s.settings.line_numbers,
-            "export_optimize" => s.settings.export_optimize,
-            "export_close_after" => s.settings.export_close_after,
-            "restore_session" => s.settings.restore_session,
-            "remember_workspace" => s.settings.remember_workspace,
-            _ => false,
-        }
-    };
+    let checked = use_memo(use_reactive!(|value| Some(value)));
 
     rsx! {
-        input {
-            class: "checkbox",
-            r#type: "checkbox",
-            checked: "{checked}",
-            onchange: move |evt| {
-                let new_value = evt.checked();
-                {
-                    let mut s = state.write();
-                    match id {
-                        "word_wrap" => s.settings.word_wrap = new_value,
-                        "line_numbers" => s.settings.line_numbers = new_value,
-                        "export_optimize" => s.settings.export_optimize = new_value,
-                        "export_close_after" => s.settings.export_close_after = new_value,
-                        "restore_session" => s.settings.restore_session = new_value,
-                        "remember_workspace" => s.settings.remember_workspace = new_value,
-                        _ => {}
-                    }
-                }
-                if let Err(e) = save_settings(&state.read().settings) {
-                    warn!("Failed to save settings: {e}");
-                }
-            },
+        Switch {
+            id,
+            class: "settings-switch",
+            checked,
+            on_checked_change: move |v: bool| on_change.call(v),
+            SwitchThumb { class: "settings-switch-thumb" }
         }
     }
 }
 
-/// Dropdown control
+/// Numeric control rendered as a `dioxus_primitives` `Slider` (used where a slider
+/// reads better than a number field, e.g. font size). The primitive snaps to
+/// `step` and clamps to `[min, max]`; the live value is shown alongside it.
 #[component]
-fn DropdownControl(id: &'static str, options: Vec<(&'static str, &'static str)>) -> Element {
-    let mut state = use_context::<AppStore>();
+fn SliderControl(
+    id: &'static str,
+    label: &'static str,
+    value: u32,
+    min: u32,
+    max: u32,
+    on_change: EventHandler<u32>,
+) -> Element {
+    use dioxus_primitives::slider::{Slider, SliderRange, SliderThumb, SliderTrack};
 
-    let current_value = {
-        let s = state.read();
-        match id {
-            "theme" => s.settings.theme.clone(),
-            "auto_save" => match &s.settings.auto_save {
-                AutoSave::Off => "off".to_string(),
-                AutoSave::AfterDelay(secs) => secs.to_string(),
-            },
-            "export_format" => match s.settings.export_format {
-                ExportFormat::Glb => "glb".to_string(),
-                ExportFormat::Gltf => "gltf".to_string(),
-                ExportFormat::Obj => "obj".to_string(),
-                ExportFormat::Stl => "stl".to_string(),
-            },
-            "timezone_offset" => s.settings.timezone_offset.to_string(),
-            "time_format_24h" => s.settings.time_format_24h.to_string(),
-            _ => String::new(),
-        }
-    };
+    let current = use_memo(use_reactive!(|value| Some(value as f64)));
 
     rsx! {
-        select {
-            class: "select",
-            value: "{current_value}",
-            onchange: move |evt| {
-                let new_value = evt.value();
-                {
-                    let mut s = state.write();
-                    match id {
-                        "theme" => s.settings.theme = new_value,
-                        "auto_save" => {
-                            s.settings.auto_save = if new_value == "off" {
-                                AutoSave::Off
-                            } else if let Ok(secs) = new_value.parse::<u32>() {
-                                AutoSave::AfterDelay(secs)
-                            } else {
-                                AutoSave::Off
-                            };
-                        }
-                        "export_format" => {
-                            s.settings.export_format = match new_value.as_str() {
-                                "gltf" => ExportFormat::Gltf,
-                                "obj" => ExportFormat::Obj,
-                                "stl" => ExportFormat::Stl,
-                                _ => ExportFormat::Glb,
-                            };
-                        }
-                        "timezone_offset" => {
-                            if let Ok(offset) = new_value.parse::<i8>() {
-                                s.settings.timezone_offset = offset.clamp(-12, 14);
-                            }
-                        }
-                        "time_format_24h" => {
-                            s.settings.time_format_24h = new_value == "true";
-                        }
-                        _ => {}
-                    }
+        div { class: "settings-slider-wrap",
+            Slider {
+                class: "settings-slider",
+                value: current,
+                min: min as f64,
+                max: max as f64,
+                step: 1.0,
+                label,
+                on_value_change: move |v: f64| on_change.call(v as u32),
+                SliderTrack { class: "settings-slider-track",
+                    SliderRange { class: "settings-slider-range" }
+                    SliderThumb { id, class: "settings-slider-thumb" }
                 }
-                if let Err(e) = save_settings(&state.read().settings) {
-                    warn!("Failed to save settings: {e}");
+            }
+            span { class: "settings-slider-value", "{value}" }
+        }
+    }
+}
+
+/// Enum/string choice, built on the `dioxus_primitives` `Select`. Reads the
+/// current value and reports the chosen option through props. `text_value` carries
+/// the human-readable label so the trigger shows it (the primitive otherwise falls
+/// back to the programmatic option value).
+#[component]
+fn DropdownControl(
+    id: &'static str,
+    value: String,
+    options: Vec<(&'static str, &'static str)>,
+    on_change: EventHandler<String>,
+) -> Element {
+    use dioxus_primitives::select::{
+        Select, SelectItemIndicator, SelectList, SelectOption, SelectTrigger, SelectValue,
+    };
+
+    let selected = use_memo(use_reactive!(|value| Some(value)));
+
+    rsx! {
+        Select::<String> {
+            class: "settings-select",
+            value: Some(ReadSignal::from(selected)),
+            on_value_change: move |v: Option<String>| {
+                if let Some(v) = v {
+                    on_change.call(v);
                 }
             },
-
-            for (value, label) in options {
-                option {
-                    value: "{value}",
-                    selected: current_value == value,
-                    "{label}"
+            SelectTrigger { id, class: "settings-select-trigger",
+                SelectValue {}
+                svg {
+                    class: "settings-select-icon",
+                    width: "12",
+                    height: "12",
+                    view_box: "0 0 12 12",
+                    path {
+                        d: "M2 4l4 4 4-4",
+                        fill: "none",
+                        stroke: "currentColor",
+                        stroke_width: "1.5",
+                    }
+                }
+            }
+            SelectList { class: "settings-select-list",
+                for (index, (option_value, option_label)) in options.into_iter().enumerate() {
+                    SelectOption::<String> {
+                        key: "{option_value}",
+                        index,
+                        value: option_value,
+                        text_value: option_label,
+                        class: "settings-select-option",
+                        "{option_label}"
+                        SelectItemIndicator {
+                            span { class: "settings-select-indicator", "✓" }
+                        }
+                    }
                 }
             }
         }

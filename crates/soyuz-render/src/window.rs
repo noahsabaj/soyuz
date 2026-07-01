@@ -118,8 +118,15 @@ impl<'a> PreviewApp<'a> {
                 }
                 return;
             }
+            Err(wgpu::SurfaceError::Timeout) => {
+                // Transient: the GPU didn't hand us a frame in time. Skip quietly
+                // instead of logging every frame.
+                return;
+            }
             Err(e) => {
-                eprintln!("Surface error: {:?}", e);
+                // OutOfMemory / Other: surface a clear diagnostic (was a raw
+                // eprintln). Full device re-init on permanent loss is not handled.
+                tracing::error!("Surface error: {e:?}");
                 return;
             }
         };

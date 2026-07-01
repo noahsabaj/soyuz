@@ -9,6 +9,7 @@
 use crate::services::AppServices;
 use crate::state::AppStore;
 use dioxus::prelude::*;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use strsim::jaro_winkler;
 
@@ -65,6 +66,9 @@ pub struct PaletteState {
     pub mode: PaletteMode,
     pub selected_index: usize,
     pub unified_results: Vec<SearchResult>,
+    /// Monotonic search id. Bumped on each query change so debounced / async
+    /// searches only apply when they are still the latest request (F74).
+    pub search_generation: u64,
 }
 
 /// All available commands in Soyuz Studio
@@ -359,12 +363,34 @@ pub async fn search_files(workspace: &Path, query: &str) -> Vec<FileResult> {
     results
 }
 
-/// Recursively walk a directory and return all file paths
+/// Maximum directory depth walked. Backstop against pathologically deep trees
+/// (and, together with the visited-set, runaway symlink cycles) (F70).
+const MAX_WALK_DEPTH: usize = 32;
+
+/// Recursively walk a directory and return all file paths.
+///
+/// Guards against symlink cycles with a visited-set of canonicalized directory
+/// paths plus a depth cap, so a directory that links back into itself can no
+/// longer loop forever (F70).
 async fn walk_directory(root: &Path, base: &Path) -> anyhow::Result<Vec<(PathBuf, String)>> {
     let mut results = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
+    let mut visited: HashSet<PathBuf> = HashSet::new();
+    let mut stack = vec![(root.to_path_buf(), 0usize)];
 
-    while let Some(dir) = stack.pop() {
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > MAX_WALK_DEPTH {
+            continue;
+        }
+
+        // Resolve symlinks so a directory reached more than one way (or one that
+        // links back to an ancestor) is only walked once.
+        let canonical = tokio::fs::canonicalize(&dir)
+            .await
+            .unwrap_or_else(|_| dir.clone());
+        if !visited.insert(canonical) {
+            continue;
+        }
+
         if let Ok(mut entries) = tokio::fs::read_dir(&dir).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let path = entry.path();
@@ -376,7 +402,7 @@ async fn walk_directory(root: &Path, base: &Path) -> anyhow::Result<Vec<(PathBuf
                 }
 
                 if path.is_dir() {
-                    stack.push(path);
+                    stack.push((path, depth + 1));
                 } else {
                     let relative = path
                         .strip_prefix(base)
@@ -461,11 +487,26 @@ pub fn CommandPalette() -> Element {
 
         // Trigger search in unified mode
         if mode == PaletteMode::Unified {
-            let workspace = state.read().workspace.clone();
+            let workspace = state.peek().workspace.clone();
             let search_term = search_term.to_string();
+            // F74: bump the search generation so only the latest keystroke's task
+            // applies results; out-of-order completions are dropped.
+            let generation = {
+                let mut p = palette.write();
+                p.search_generation = p.search_generation.wrapping_add(1);
+                p.search_generation
+            };
             spawn(async move {
+                // Debounce: coalesce rapid keystrokes, then bail if superseded.
+                tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                if palette.read().search_generation != generation {
+                    return;
+                }
                 let results = unified_search(workspace.as_deref(), &search_term).await;
-                palette.write().unified_results = results;
+                // Apply only if this is still the most recent query.
+                if palette.read().search_generation == generation {
+                    palette.write().unified_results = results;
+                }
             });
         }
     };
@@ -626,7 +667,12 @@ fn execute_selected(
                 .trim()
                 .parse::<usize>()
             {
-                tracing::info!("Go to line: {}", line);
+                let pane_id = state.peek().focused_pane_id;
+                // Keep the stored cursor (and the status bar) in sync with the jump.
+                state.write().set_cursor(line, 1);
+                spawn(async move {
+                    crate::js_interop::go_to_line(pane_id, line).await;
+                });
             }
         }
         _ => {}

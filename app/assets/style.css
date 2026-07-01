@@ -122,12 +122,19 @@
 }
 
 .about-dialog {
+    position: fixed;
+    z-index: 10001;
+    top: 50%;
+    left: 50%;
     width: min(420px, calc(100vw - 48px));
     border: 1px solid var(--border-strong);
     border-radius: 8px;
     background: var(--bg-elevated);
     color: var(--text-primary);
     box-shadow: 0 24px 72px var(--shadow-medium);
+    /* The Dialog primitive portals its content, so center the box itself rather
+       than relying on the backdrop's flex centering. */
+    transform: translate(-50%, -50%);
 }
 
 .about-header {

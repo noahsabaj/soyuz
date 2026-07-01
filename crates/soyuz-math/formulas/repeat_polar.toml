@@ -144,7 +144,7 @@ template = """
 // Verified: {verified_date}
 // WARNING: Do not modify - generated from formulas/repeat_polar.toml
 fn op_{name}(p: vec3<f32>, n: f32) -> vec3<f32> {{
-    let angle = 3.14159265 / n;
+    let angle = 3.1415927 / n;
     let sector = 2.0 * angle;
     let a = atan2(p.z, p.x);
     let r = length(p.xz);

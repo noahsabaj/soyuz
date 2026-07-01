@@ -87,8 +87,11 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             radius,
             half_height,
         } => {
-            let p_clamped = Vec3::new(p.x, p.y.clamp(-*half_height, *half_height), p.z);
-            (p - p_clamped).length() - *radius
+            // Distance to the central Y segment, minus radius. The previous code
+            // subtracted a point that shared p's x/z, cancelling the radial term
+            // and collapsing the pill into a Y slab. Matches GPU sd_capsule.
+            let py = p.y.clamp(-*half_height, *half_height);
+            (p - Vec3::new(0.0, py, 0.0)).length() - *radius
         }
 
         SdfOp::Torus {
@@ -100,18 +103,28 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
         }
 
         SdfOp::Cone { radius, height } => {
-            let q = Vec2::new(*height, -*radius).normalize();
-            let w = Vec2::new(Vec2::new(p.x, p.z).length(), p.y);
-            let a = w - q * w.dot(q).clamp(0.0, *height / q.x);
-            let b = w - q * Vec2::new(*height / q.x, 0.0).min(w);
-            let k = q.y.signum();
-            let d = a.length_squared().min(b.length_squared());
-            let s = (k * (w.x * q.y - w.y * q.x)).max(k * (w.y - *height));
-            d.sqrt() * s.signum()
+            // Exact solid cone: apex at origin, opening upward to base radius
+            // `radius` at y = `height`. Identical to GPU sd_cone in raymarch.wgsl.
+            let r = *radius;
+            let h = *height;
+            let q = Vec2::new(p.x, p.z).length();
+            let paba = p.y / h;
+            let cax = (q - if paba < 0.5 { 0.0 } else { r }).max(0.0);
+            let cay = (paba - 0.5).abs() - 0.5;
+            let k = r * r + h * h;
+            let f = ((r * q + p.y * h) / k).clamp(0.0, 1.0);
+            let cbx = q - f * r;
+            let cby = paba - f;
+            let s = if cbx < 0.0 && cay < 0.0 { -1.0 } else { 1.0 };
+            let da = cax * cax + cay * cay * h * h;
+            let db = cbx * cbx + cby * cby * h * h;
+            s * da.min(db).sqrt()
         }
 
         SdfOp::Plane { normal, offset } => {
-            let n = Vec3::new(normal[0], normal[1], normal[2]).normalize();
+            // Use the stored normal as-is (GPU sd_plane does not normalize). The
+            // script API normalizes at construction so the stored normal is unit.
+            let n = Vec3::new(normal[0], normal[1], normal[2]);
             p.dot(n) + *offset
         }
 
@@ -119,6 +132,10 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             let r = Vec3::new(radii[0], radii[1], radii[2]);
             let k0 = (p / r).length();
             let k1 = (p / (r * r)).length();
+            // At the center k0,k1 ~ 0 (0/0 -> NaN). Return the inradius. Matches GPU.
+            if k1 < 1e-6 {
+                return -r.x.min(r.y).min(r.z);
+            }
             k0 * (k0 - 1.0) / k1
         }
 
@@ -148,7 +165,9 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             const K: Vec3 = Vec3::new(-0.866025404, 0.5, 0.577350269);
             let p_abs = p.abs();
             let xy = Vec2::new(p_abs.x, p_abs.z);
-            let xy = xy - 2.0 * K.x.min(xy.dot(Vec2::new(K.x, K.y))) * Vec2::new(K.x, K.y);
+            // Fold: the second factor must be min(dot, 0.0), not min(K.x, dot).
+            // The old form clamped to the constant -0.866 and broke the hexagon.
+            let xy = xy - 2.0 * xy.dot(Vec2::new(K.x, K.y)).min(0.0) * Vec2::new(K.x, K.y);
             let d = Vec2::new(
                 (xy - Vec2::new(xy.x.clamp(-K.z * *radius, K.z * *radius), *radius)).length()
                     * (xy.y - *radius).signum(),
@@ -255,10 +274,16 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
         SdfOp::Scale { inner, factor } => eval_distance(inner, p / *factor) * *factor,
 
         SdfOp::Mirror { inner, axis } => {
-            // Mirror along arbitrary axis by reflecting the point
-            let axis = Vec3::new(axis[0], axis[1], axis[2]).normalize();
-            let d = p.dot(axis);
-            let q = if d < 0.0 { p - 2.0 * d * axis } else { p };
+            // Fold across the dominant axis plane, matching the GPU codegen which
+            // maps Mirror to op_symmetry_{x,y,z}. The script only exposes the
+            // axis-aligned mirror_x/y/z, so this is exact for every reachable case.
+            let q = if axis[0].abs() > 0.5 {
+                Vec3::new(p.x.abs(), p.y, p.z)
+            } else if axis[1].abs() > 0.5 {
+                Vec3::new(p.x, p.y.abs(), p.z)
+            } else {
+                Vec3::new(p.x, p.y, p.z.abs())
+            };
             eval_distance(inner, q)
         }
 
@@ -297,11 +322,12 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             amount,
             frequency,
         } => {
-            // Simple noise-based displacement
+            // Two-octave noise identical to GPU noise3d(p * freq) so the meshed
+            // surface matches the preview.
             let d = eval_distance(inner, p);
-            let noise = (p.x * *frequency).sin()
-                * (p.y * *frequency * 1.1).sin()
-                * (p.z * *frequency * 0.9).sin();
+            let pf = p * *frequency;
+            let noise = pf.x.sin() * (pf.y * 1.1).sin() * (pf.z * 0.9).sin()
+                + (pf.x * 2.3).sin() * (pf.y * 2.1).sin() * (pf.z * 2.5).sin() * 0.5;
             d + *amount * noise
         }
 
@@ -519,13 +545,18 @@ fn eval_bounds(op: &SdfOp) -> Aabb {
 
         // Deformations
         SdfOp::Twist { inner, .. } | SdfOp::Bend { inner, .. } => {
-            // Conservative bounds for deformations
-            eval_bounds(inner).expand(0.5)
+            // Twist/bend rotate space by an amount that varies across the shape;
+            // bound by the inner shape's enclosing sphere, which scales with the
+            // shape (a fixed 0.5 margin clipped large shapes).
+            let bounds = eval_bounds(inner);
+            let r = bounds.size().length() * 0.5;
+            Aabb::from_center(bounds.center(), Vec3::splat(r))
         }
 
         SdfOp::Displacement { inner, amount, .. } => {
-            // Displacement can push the surface outward by at most the amount
-            eval_bounds(inner).expand(amount.abs())
+            // Two-octave noise has peak amplitude 1.5, so the surface can move out
+            // by up to 1.5 * amount; expand bounds to avoid clipping the mesh.
+            eval_bounds(inner).expand(amount.abs() * 1.5)
         }
 
         // 2D-to-3D operations
@@ -676,6 +707,166 @@ fn profile_bounds_2d_for_revolve(profile: &RevolveProfile) -> (Vec2, Vec2) {
         RevolveProfile::Rectangle { width, height } => {
             let half = Vec2::new(*width * 0.5, *height * 0.5);
             (-half, half)
+        }
+    }
+}
+
+/// Regression tests for the CPU evaluator. These lock in the behaviours that
+/// were fixed so the CPU mesh stays in agreement with the GPU preview (RC-A).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dist(op: &SdfOp, p: [f32; 3]) -> f32 {
+        eval_distance(op, Vec3::new(p[0], p[1], p[2]))
+    }
+
+    #[test]
+    fn capsule_has_radial_distance() {
+        // r=0.3, half-height 0.5. A point 0.5 out radially at y=0 is 0.2 OUTSIDE.
+        // The old code cancelled the radial term and returned -0.3 (inside).
+        let op = SdfOp::Capsule {
+            radius: 0.3,
+            half_height: 0.5,
+        };
+        assert!((dist(&op, [0.5, 0.0, 0.0]) - 0.2).abs() < 1e-5);
+    }
+
+    #[test]
+    fn cone_apex_at_origin_and_solid() {
+        let op = SdfOp::Cone {
+            radius: 1.0,
+            height: 2.0,
+        };
+        assert!(
+            dist(&op, [0.0, 1.0, 0.0]) < 0.0,
+            "interior should be inside"
+        );
+        assert!(
+            dist(&op, [0.0, -0.5, 0.0]) > 0.0,
+            "below the apex should be outside"
+        );
+    }
+
+    #[test]
+    fn rotate_z_90_sends_plus_x_to_plus_y() {
+        let feature = Arc::new(SdfOp::Translate {
+            inner: Arc::new(SdfOp::Sphere { radius: 0.2 }),
+            offset: [1.0, 0.0, 0.0],
+        });
+        let op = SdfOp::RotateZ {
+            inner: feature,
+            angle: std::f32::consts::FRAC_PI_2,
+        };
+        // +90deg about Z (CCW, right-hand rule) takes the +X feature to +Y.
+        assert!(dist(&op, [0.0, 1.0, 0.0]) < 0.0, "feature should be at +Y");
+        assert!(
+            dist(&op, [0.0, -1.0, 0.0]) > 0.0,
+            "feature should not be at -Y"
+        );
+    }
+
+    #[test]
+    fn repeat_tiles_negative_coordinates() {
+        let op = SdfOp::RepeatInfinite {
+            inner: Arc::new(SdfOp::Sphere { radius: 0.3 }),
+            spacing: [2.0, 0.0, 0.0],
+        };
+        let at_neg = dist(&op, [-2.0, 0.0, 0.0]);
+        let at_zero = dist(&op, [0.0, 0.0, 0.0]);
+        assert!(
+            (at_neg - at_zero).abs() < 1e-4,
+            "negative-coord cell ({at_neg}) must equal the origin cell ({at_zero})"
+        );
+    }
+
+    #[test]
+    fn ellipsoid_center_is_finite_and_inside() {
+        let op = SdfOp::Ellipsoid {
+            radii: [1.0, 0.5, 0.8],
+        };
+        let v = dist(&op, [0.0, 0.0, 0.0]);
+        assert!(
+            v.is_finite() && v < 0.0,
+            "center must be finite & inside, got {v}"
+        );
+    }
+
+    /// Every primitive must evaluate to a finite, bounded value across a grid of
+    /// points. Finiteness catches NaN/Inf regressions; the magnitude bound also
+    /// catches a primitive falling through to the `_ => f32::MAX` arm (that
+    /// sentinel is ~3.4e38). Each primitive must also report at least one inside
+    /// point so it isn't silently empty.
+    #[test]
+    fn all_primitives_evaluate_finitely() {
+        let prims = [
+            SdfOp::Sphere { radius: 0.6 },
+            SdfOp::Box {
+                half_extents: [0.5, 0.4, 0.3],
+            },
+            SdfOp::RoundedBox {
+                half_extents: [0.5, 0.4, 0.3],
+                radius: 0.1,
+            },
+            SdfOp::Cylinder {
+                radius: 0.5,
+                half_height: 0.6,
+            },
+            SdfOp::Capsule {
+                radius: 0.3,
+                half_height: 0.5,
+            },
+            SdfOp::Torus {
+                major_radius: 0.6,
+                minor_radius: 0.2,
+            },
+            SdfOp::Cone {
+                radius: 0.5,
+                height: 1.0,
+            },
+            SdfOp::Plane {
+                normal: [0.0, 1.0, 0.0],
+                offset: 0.0,
+            },
+            SdfOp::Ellipsoid {
+                radii: [0.6, 0.4, 0.5],
+            },
+            SdfOp::Octahedron { size: 0.6 },
+            SdfOp::HexPrism {
+                half_height: 0.4,
+                radius: 0.5,
+            },
+            SdfOp::TriPrism { size: [0.6, 0.4] },
+            SdfOp::Pyramid { height: 0.8 },
+            SdfOp::Link {
+                length: 0.3,
+                major_radius: 0.4,
+                minor_radius: 0.15,
+            },
+        ];
+        // A grid dense enough that every shape above contains at least one point.
+        let mut samples = Vec::new();
+        let mut g = -0.9_f32;
+        while g <= 0.9 {
+            samples.push([g, 0.1, 0.0]);
+            samples.push([0.0, g, 0.0]);
+            samples.push([0.35, g, 0.0]);
+            samples.push([g, 0.0, g]);
+            g += 0.15;
+        }
+        for op in prims {
+            let mut any_inside = false;
+            for p in &samples {
+                let v = dist(&op, *p);
+                assert!(
+                    v.is_finite() && v.abs() < 1e6,
+                    "{op:?} at {p:?} produced {v} (NaN/Inf or f32::MAX fallthrough?)"
+                );
+                if v < 0.0 {
+                    any_inside = true;
+                }
+            }
+            assert!(any_inside, "{op:?} never reported an inside point");
         }
     }
 }

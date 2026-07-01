@@ -11,7 +11,9 @@ use crate::js_interop::{self, position_to_line_col};
 use crate::markdown_panel::MarkdownPanel;
 use crate::services::AppServices;
 use crate::settings_panel::SettingsPanel;
-use crate::state::{AppStore, EditorPane, EditorTab, PaneId, SplitDirection, TabId};
+use crate::state::{
+    AppStateStoreExt, AppStore, EditorPane, EditorTab, PaneId, SplitDirection, TabId,
+};
 use dioxus::prelude::*;
 
 /// State for tab drag-and-drop operations (shared via context)
@@ -21,6 +23,75 @@ pub struct TabDragState {
     pub source: Option<(PaneId, TabId, usize)>,
     /// Current drop target: (pane_id, insert_index, is_content_area)
     pub target: Option<(PaneId, usize, bool)>,
+}
+
+/// A tab whose close is awaiting confirmation because it has unsaved changes (F71).
+/// Shared via context so every close entry point (X button, middle-click, Ctrl+W
+/// in the editor, and the global Ctrl+W handler) can route through one dialog.
+#[derive(Clone, Copy, PartialEq)]
+pub struct PendingCloseTab {
+    pub pane_id: PaneId,
+    pub tab_id: TabId,
+}
+
+/// Request closing a tab. Stops the preview first when closing the Preview tab,
+/// then closes immediately - unless the tab has unsaved changes, in which case it
+/// defers to a confirmation dialog so edits are never silently discarded (F71).
+pub fn request_close_tab(
+    mut state: AppStore,
+    services: &AppServices,
+    mut pending_close: Signal<Option<PendingCloseTab>>,
+    pane_id: PaneId,
+    tab_id: TabId,
+) {
+    let (is_dirty, is_preview) = state
+        .read()
+        .editor_pane
+        .find_tab(tab_id)
+        .map(|tab| (tab.is_dirty, tab.is_preview()))
+        .unwrap_or((false, false));
+
+    if is_preview {
+        crate::preview::stop_preview(state, services);
+    }
+
+    if is_dirty {
+        pending_close.set(Some(PendingCloseTab { pane_id, tab_id }));
+    } else {
+        state.write().close_tab_in_pane(pane_id, tab_id);
+    }
+}
+
+/// Confirmation dialog shown when closing a tab that has unsaved changes (F71).
+#[component]
+pub fn CloseTabConfirmDialog() -> Element {
+    let mut state = use_context::<AppStore>();
+    let mut pending_close = use_context::<Signal<Option<PendingCloseTab>>>();
+
+    let Some(pending) = *pending_close.read() else {
+        return rsx! {};
+    };
+
+    let name = state
+        .read()
+        .editor_pane
+        .find_tab(pending.tab_id)
+        .map(EditorTab::display_name)
+        .unwrap_or_default();
+
+    rsx! {
+        crate::components::ConfirmDialog {
+            title: "Unsaved changes",
+            message: format!("Close \"{name}\" without saving? Your changes will be lost."),
+            confirm_label: "Close Without Saving",
+            destructive: true,
+            on_confirm: move |_| {
+                pending_close.set(None);
+                state.write().close_tab_in_pane(pending.pane_id, pending.tab_id);
+            },
+            on_cancel: move |_| pending_close.set(None),
+        }
+    }
 }
 
 /// Welcome screen shown when no tabs are open (VSCode-style)
@@ -70,9 +141,10 @@ fn WelcomeScreen() -> Element {
 pub fn PaneTree() -> Element {
     let state = use_context::<AppStore>();
 
-    // Memoize the pane tree clone to avoid cloning on every render
-    // Only re-clones when the pane structure actually changes
-    let pane = use_memo(move || state.read().editor_pane.clone());
+    // Memoize the pane tree clone. Subscribing through the `editor_pane` store
+    // selector (not the whole store) means this only re-runs when the pane tree
+    // actually changes, not on unrelated state changes.
+    let pane = use_memo(move || state.editor_pane().read().clone());
 
     // Provide drag state context for all child components
     let _drag_state: Signal<TabDragState> =
@@ -249,7 +321,7 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
     let mut drag_state = use_context::<Signal<TabDragState>>();
     let tabs_len = tabs.len();
 
-    let is_focused = state.read().focused_pane_id == pane_id;
+    let is_focused = *state.focused_pane_id().read() == pane_id;
 
     // If no tabs, show welcome screen (VSCode behavior)
     if tabs.is_empty() {
@@ -344,15 +416,50 @@ fn TabGroupPane(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_idx: usize) ->
                     drag_state.set(TabDragState::default());
                 },
 
-                // Render panel based on tab type
+                // Render panel based on tab type. Each embedded panel gets its own
+                // ErrorBoundary so a panic/`Err` inside one panel renders an inline
+                // fallback instead of collapsing the whole pane tree. (The editor
+                // path is covered by the outer boundary in main.rs.)
                 if is_settings_tab {
-                    SettingsPanel {}
+                    ErrorBoundary {
+                        handle_error: |error| rsx! {
+                            crate::PanelError {
+                                panel_name: "Settings".to_string(),
+                                error_msg: format!("{error:?}"),
+                            }
+                        },
+                        SettingsPanel {}
+                    }
                 } else if is_preview_tab {
-                    crate::preview::PreviewPanel {}
+                    ErrorBoundary {
+                        handle_error: |error| rsx! {
+                            crate::PanelError {
+                                panel_name: "Preview".to_string(),
+                                error_msg: format!("{error:?}"),
+                            }
+                        },
+                        crate::preview::PreviewPanel {}
+                    }
                 } else if is_export_tab {
-                    crate::export::ExportPanel {}
+                    ErrorBoundary {
+                        handle_error: |error| rsx! {
+                            crate::PanelError {
+                                panel_name: "Export".to_string(),
+                                error_msg: format!("{error:?}"),
+                            }
+                        },
+                        crate::export::ExportPanel {}
+                    }
                 } else if let Some(doc) = markdown_doc {
-                    MarkdownPanel { doc }
+                    ErrorBoundary {
+                        handle_error: |error| rsx! {
+                            crate::PanelError {
+                                panel_name: "Documentation".to_string(),
+                                error_msg: format!("{error:?}"),
+                            }
+                        },
+                        MarkdownPanel { doc }
+                    }
                 } else {
                     EditorArea {
                         pane_id,
@@ -372,6 +479,7 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
     let mut state = use_context::<AppStore>();
     let services = use_context::<AppServices>();
     let mut drag_state = use_context::<Signal<TabDragState>>();
+    let pending_close = use_context::<Signal<Option<PendingCloseTab>>>();
     let tabs_len = tabs.len();
 
     rsx! {
@@ -470,10 +578,8 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                                 // Middle button (button index 1)
                                 if evt.trigger_button() == Some(dioxus_elements::input_data::MouseButton::Auxiliary) {
                                     evt.stop_propagation();
-                                    if is_preview {
-                                        crate::preview::stop_preview(state, &services_for_middle);
-                                    }
-                                    state.write().close_tab_in_pane(pane_id, tab_id);
+                                    // F71: confirm before discarding unsaved edits.
+                                    request_close_tab(state, &services_for_middle, pending_close, pane_id, tab_id);
                                 }
                             },
 
@@ -515,10 +621,8 @@ fn TabBar(pane_id: PaneId, tabs: Vec<EditorTab>, active_tab_id: u64, is_focused:
                                 class: "tab-close",
                                 onclick: move |evt| {
                                     evt.stop_propagation();
-                                    if is_preview {
-                                        crate::preview::stop_preview(state, &services_for_close);
-                                    }
-                                    state.write().close_tab_in_pane(pane_id, tab_id);
+                                    // F71: confirm before discarding unsaved edits.
+                                    request_close_tab(state, &services_for_close, pending_close, pane_id, tab_id);
                                 },
                                 "x"
                             }
@@ -588,15 +692,39 @@ fn EditorArea(
 ) -> Element {
     let mut state = use_context::<AppStore>();
     let services = use_context::<AppServices>();
+    let pending_close = use_context::<Signal<Option<PendingCloseTab>>>();
     let editor_id = format!("editor-{}", pane_id);
+
+    // F61/F73: read editor display settings through a field selector so only
+    // changes to `settings` (not every keystroke elsewhere) re-render here, then
+    // apply them to the editor's rendering.
+    let (font_family, font_size, tab_size, word_wrap, line_numbers) = {
+        let settings = state.settings();
+        let s = settings.read();
+        (
+            s.font_family.clone(),
+            s.font_size,
+            s.tab_size,
+            s.word_wrap,
+            s.line_numbers,
+        )
+    };
+    let white_space = if word_wrap { "pre-wrap" } else { "pre" };
+    // Shared text metrics keep the gutter, syntax overlay and textarea aligned.
+    let text_style =
+        format!("font-family: {font_family}; font-size: {font_size}px; tab-size: {tab_size};");
+    let editor_style = format!("{text_style} white-space: {white_space};");
 
     rsx! {
         div { class: "editor-content",
-            // Line numbers
-            div {
-                id: "line-numbers-{pane_id}",
-                class: "line-numbers",
-                LineNumbers { code: code.clone() }
+            // Line numbers (hidden when the line_numbers setting is off)
+            if line_numbers {
+                div {
+                    id: "line-numbers-{pane_id}",
+                    class: "line-numbers",
+                    style: "{text_style}",
+                    LineNumbers { code: code.clone() }
+                }
             }
             // Code area
             div {
@@ -605,11 +733,13 @@ fn EditorArea(
                 pre {
                     id: "syntax-{pane_id}",
                     class: "syntax-highlight",
+                    style: "{editor_style}",
                     dangerous_inner_html: "{highlighted_html}"
                 }
                 textarea {
                     id: "{editor_id}",
                     class: "code-input",
+                    style: "{editor_style}",
                     // Data attribute for JS scroll sync (CSS module class names are hashed)
                     "data-editor-pane": "{pane_id}",
                     spellcheck: false,
@@ -623,11 +753,25 @@ fn EditorArea(
                     },
                     oninput: {
                         let editor_id = editor_id.clone();
-                        let services = services.clone();
                         move |evt| {
                             let new_code = evt.value().clone();
-                            state.write().set_code(new_code.clone());
-                            services.mark_preview_dirty();
+                            // Scope the per-keystroke write to the `editor_pane`
+                            // store node (and the two affected fields) instead of
+                            // a whole-AppState root write, so a keystroke no longer
+                            // re-renders settings/terminal/workspace subscribers.
+                            let focused = *state.focused_pane_id().peek();
+                            let undo_limit = state.settings().peek().undo_history_limit;
+                            let outcome = state.editor_pane().write().set_active_code(
+                                focused,
+                                new_code.clone(),
+                                undo_limit,
+                            );
+                            if outcome.changed {
+                                state.preview_dirty().set(true);
+                            }
+                            if let Some(id) = outcome.edited_source_tab_id {
+                                state.last_source_tab_id().set(Some(id));
+                            }
                             update_cursor_position(state, &editor_id, &new_code);
                         }
                     },
@@ -647,8 +791,10 @@ fn EditorArea(
                             handle_editor_keydown(
                                 state,
                                 &services,
+                                pending_close,
                                 pane_id,
                                 active_tab_id,
+                                tab_size,
                                 &evt,
                             );
                         }
@@ -660,76 +806,94 @@ fn EditorArea(
 }
 
 /// Update cursor position from the DOM
-fn update_cursor_position(mut state: AppStore, editor_id: &str, code: &str) {
+fn update_cursor_position(state: AppStore, editor_id: &str, code: &str) {
     let editor_id = editor_id.to_string();
     let code = code.to_string();
     spawn(async move {
         if let Some(pos) = js_interop::get_cursor_position(&editor_id).await {
             let (line, col) = position_to_line_col(&code, pos);
-            state.write().set_cursor(line, col);
+            // Scoped write: cursor lives in the editor_pane node.
+            let focused = *state.focused_pane_id().peek();
+            state
+                .editor_pane()
+                .write()
+                .set_active_cursor(focused, line, col);
         }
     });
 }
 
-/// Handle keyboard shortcuts in the editor
+/// Handle keyboard shortcuts in the editor.
+///
+/// Shortcuts handled here call `stop_propagation()` so the global handler in
+/// `main.rs` does not run them a second time when focus is in the editor.
 fn handle_editor_keydown(
     mut state: AppStore,
     services: &AppServices,
+    pending_close: Signal<Option<PendingCloseTab>>,
     pane_id: PaneId,
     active_tab_id: u64,
+    tab_size: u32,
     evt: &KeyboardEvent,
 ) {
+    let key = evt.key();
+    // Accept Cmd (meta) in addition to Ctrl so shortcuts also work on macOS.
+    let ctrl = evt.modifiers().ctrl() || evt.modifiers().meta();
+    let shift = evt.modifiers().shift();
+    // Lowercase character keys so Caps Lock / Shift do not break matching.
+    let key_char = match &key {
+        Key::Character(s) => Some(s.to_lowercase()),
+        _ => None,
+    };
+    let is_char = |c: &str| key_char.as_deref() == Some(c);
+
     // Ctrl+Enter: Run preview
-    if evt.modifiers().ctrl() && evt.key() == Key::Enter {
+    if ctrl && key == Key::Enter {
         evt.prevent_default();
+        evt.stop_propagation();
         crate::preview::open_docked_preview(state, services.clone());
+        return;
     }
 
-    // Ctrl+Z: Undo
-    if evt.modifiers().ctrl()
-        && !evt.modifiers().shift()
-        && evt.key() == Key::Character("z".to_string())
-    {
+    // Ctrl+Z: Undo / Ctrl+Shift+Z: Redo
+    if ctrl && is_char("z") {
         evt.prevent_default();
-        if let Some((new_content, cursor_pos)) = state.write().undo() {
-            services.mark_preview_dirty();
+        evt.stop_propagation();
+        let restored = if shift {
+            state.write().redo()
+        } else {
+            state.write().undo()
+        };
+        if let Some((new_content, cursor_pos)) = restored {
             spawn(async move {
                 js_interop::set_editor_content(pane_id, &new_content, cursor_pos).await;
             });
         }
-    }
-
-    // Ctrl+Shift+Z: Redo
-    if evt.modifiers().ctrl()
-        && evt.modifiers().shift()
-        && evt.key() == Key::Character("Z".to_string())
-    {
-        evt.prevent_default();
-        if let Some((new_content, cursor_pos)) = state.write().redo() {
-            services.mark_preview_dirty();
-            spawn(async move {
-                js_interop::set_editor_content(pane_id, &new_content, cursor_pos).await;
-            });
-        }
+        return;
     }
 
     // Ctrl+N: New tab
-    if evt.modifiers().ctrl() && evt.key() == Key::Character("n".to_string()) {
+    if ctrl && !shift && is_char("n") {
         evt.prevent_default();
+        evt.stop_propagation();
         state.write().new_tab_in_pane(pane_id);
+        return;
     }
 
-    // Ctrl+W: Close tab
-    if evt.modifiers().ctrl() && evt.key() == Key::Character("w".to_string()) {
+    // Ctrl+W: Close tab. Stops the preview when closing the Preview tab and, via
+    // request_close_tab, confirms before discarding unsaved edits (F71).
+    if ctrl && !shift && is_char("w") {
         evt.prevent_default();
-        state.write().close_tab_in_pane(pane_id, active_tab_id);
+        evt.stop_propagation();
+        request_close_tab(state, services, pending_close, pane_id, active_tab_id);
+        return;
     }
 
-    // Tab: Insert 4 spaces or indent selection
-    if evt.key() == Key::Tab && !evt.modifiers().shift() {
+    // Tab: Insert `tab_size` spaces or indent selection (F61)
+    if key == Key::Tab && !shift {
         evt.prevent_default();
+        evt.stop_propagation();
         spawn(async move {
-            js_interop::insert_indent(pane_id).await;
+            js_interop::insert_indent(pane_id, tab_size).await;
         });
     }
 }

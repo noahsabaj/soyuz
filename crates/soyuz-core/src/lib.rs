@@ -46,7 +46,9 @@ pub mod prelude {
     pub use crate::texture::{Texture, TextureExt, noise::*, pattern::*};
 
     // Mesh generation
-    pub use crate::mesh::{LodConfig, LodMesh, Mesh, MeshConfig, OptimizeConfig, Vertex};
+    pub use crate::mesh::{
+        LodConfig, LodMesh, Mesh, MeshConfig, OptimizeConfig, UvProjection, Vertex,
+    };
 
     // Materials
     pub use crate::material::{Material, MeshWithMaterial, PbrMaterial, RasterizedMaterial};

@@ -4,7 +4,7 @@
 //! - `AppState`: The global application state
 //! - `EditorTab`, `EditorPane`: Editor layout structures
 //! - `UndoHistory`: Edit history management
-//! - `ExportSettings`, `PreviewState`: Supporting state types
+//! - `ExportSettings`: Supporting state types
 
 // Separate if statements are clearer for pane traversal logic
 #![allow(clippy::collapsible_if)]
@@ -12,8 +12,6 @@
 #![allow(clippy::collapsible_match)]
 // clone_from() adds noise for simple string assignments
 #![allow(clippy::assigning_clones)]
-// Matching over () is explicit but not more readable here
-#![allow(clippy::ignored_unit_patterns)]
 // map_or is less readable for optional values
 #![allow(clippy::map_unwrap_or)]
 // Owned PathBuf is intentional for storage
@@ -21,7 +19,6 @@
 
 mod editor;
 mod export;
-mod preview;
 mod terminal;
 mod undo;
 
@@ -30,7 +27,6 @@ pub use editor::{
     EditorPane, EditorTab, MarkdownContainer, MarkdownDoc, PaneId, SplitDirection, TabId,
 };
 pub use export::{ExportFormat, ExportSettings};
-pub use preview::PreviewState;
 pub use terminal::{TerminalBuffer, TerminalEntry, TerminalFilter, TerminalLevel};
 pub use undo::UndoHistory;
 
@@ -117,6 +113,9 @@ impl AppState {
     }
 
     /// Check if there's an error in the script
+    // Retained as public API; the status bar now reads `error_message` via a
+    // store field selector for fine-grained reactivity (F73).
+    #[allow(dead_code)]
     pub fn has_error(&self) -> bool {
         self.error_message.is_some()
     }
@@ -130,15 +129,10 @@ impl AppState {
         self.terminal_visible = !self.terminal_visible;
     }
 
-    /// Set terminal panel height (clamped between 100-500px)
-    pub fn set_terminal_height(&mut self, height: f32) {
-        self.terminal_height = height.clamp(100.0, 500.0);
-    }
-
-    /// Toggle a terminal filter level
-    pub fn toggle_terminal_filter(&mut self, level: TerminalLevel) {
-        self.terminal_filter.toggle(level);
-    }
+    // NOTE: `set_terminal_height` and `toggle_terminal_filter` were removed — the
+    // UI now writes these through scoped `dioxus-stores` field selectors
+    // (`state.terminal_height().set(..)`, `state.terminal_filter().write().toggle(..)`)
+    // so a change doesn't invalidate the whole store (F73).
 
     /// Open the About dialog.
     pub fn open_about(&mut self) {
@@ -162,6 +156,9 @@ impl AppState {
     // ========================================================================
 
     /// Check if a workspace folder is currently open
+    // Retained as public API; the toolbar now reads `workspace` via a store field
+    // selector for fine-grained reactivity (F73).
+    #[allow(dead_code)]
     pub fn has_workspace(&self) -> bool {
         self.workspace.is_some()
     }
@@ -208,6 +205,9 @@ impl AppState {
     }
 
     /// Get cursor position from active tab
+    // Retained as public API; the status bar now derives the cursor from the
+    // `editor_pane`/`focused_pane_id` field selectors directly (F73).
+    #[allow(dead_code)]
     pub fn cursor_position(&self) -> (usize, usize) {
         self.active_tab()
             .map(|t| (t.cursor_line, t.cursor_col))
@@ -496,12 +496,13 @@ impl AppState {
 
     /// Add a file to the recent files list
     pub fn add_to_recent_files(&mut self, path: PathBuf) {
+        let limit = self.settings.recent_files_limit.max(1);
         // Remove if already present
         self.recent_files.retain(|p| p != &path);
         // Add to front
         self.recent_files.insert(0, path);
-        // Keep only last 20 files
-        self.recent_files.truncate(20);
+        // Keep only up to the configured limit
+        self.recent_files.truncate(limit);
     }
 
     /// Close a tab by ID in a specific pane
@@ -936,10 +937,16 @@ impl AppState {
         }
     }
 
-    /// Update the code in the active tab (records to undo history)
+    /// Update the code in the active tab (records to undo history).
+    ///
+    /// The editor's per-keystroke path now writes through the scoped
+    /// `EditorPane::set_active_code` selector for fine-grained reactivity (F73);
+    /// this whole-`AppState` convenience is retained for the workflow tests.
+    #[allow(dead_code)]
     pub fn set_code(&mut self, code: String) {
         let mut edited_source_tab_id = None;
         let mut changed = false;
+        let undo_limit = self.settings.undo_history_limit;
 
         if let Some(tab) = self.active_tab_mut() {
             if tab.content != code {
@@ -947,7 +954,8 @@ impl AppState {
                 let old_content = tab.content.clone();
                 // Convert current line/col to byte offset for undo
                 let old_cursor = line_col_to_offset(&old_content, tab.cursor_line, tab.cursor_col);
-                tab.history.record_edit(&old_content, old_cursor);
+                tab.history
+                    .record_edit(&old_content, old_cursor, undo_limit);
 
                 tab.content = code;
                 tab.is_dirty = true;
@@ -1038,7 +1046,10 @@ impl AppState {
         self.editor_pane.collect_tabs()
     }
 
-    /// Check if any tab has unsaved changes
+    /// Check if any tab has unsaved changes.
+    ///
+    /// Gates the autosave loop's periodic session checkpoint. (The status bar
+    /// derives dirtiness from the `editor_pane` field selector directly, F73.)
     pub fn has_unsaved_changes(&self) -> bool {
         self.all_tabs().iter().any(|t| t.is_dirty)
     }

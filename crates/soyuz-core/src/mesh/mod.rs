@@ -221,6 +221,26 @@ impl Mesh {
     }
 }
 
+/// How to generate texture coordinates for the meshed surface.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UvProjection {
+    /// Blend three axis-aligned planar projections by the surface normal (default).
+    #[default]
+    Triplanar,
+    /// Wrap a cylinder around the Y axis.
+    Cylindrical,
+    /// Wrap a sphere.
+    Spherical,
+    /// Project each triangle onto its dominant axis-aligned plane.
+    Box,
+    /// Planar projection from above (down the Y axis).
+    PlanarY,
+    /// Choose a projection automatically from the mesh's aspect ratio.
+    Auto,
+    /// Leave UVs at zero.
+    None,
+}
+
 /// Configuration for mesh generation
 #[derive(Debug, Clone)]
 pub struct MeshConfig {
@@ -232,6 +252,8 @@ pub struct MeshConfig {
     pub iso_level: f32,
     /// Whether to compute normals from the SDF gradient
     pub compute_normals: bool,
+    /// Which UV projection to apply to the generated mesh
+    pub uv_projection: UvProjection,
 }
 
 impl Default for MeshConfig {
@@ -241,6 +263,7 @@ impl Default for MeshConfig {
             bounds: Aabb::cube(2.0),
             iso_level: 0.0,
             compute_normals: true,
+            uv_projection: UvProjection::Triplanar,
         }
     }
 }
@@ -258,6 +281,11 @@ impl MeshConfig {
 
     pub fn with_iso_level(mut self, iso_level: f32) -> Self {
         self.iso_level = iso_level;
+        self
+    }
+
+    pub fn with_uv_projection(mut self, uv_projection: UvProjection) -> Self {
+        self.uv_projection = uv_projection;
         self
     }
 }
@@ -340,8 +368,16 @@ pub fn generate_mesh<S: Sdf + ?Sized + Sync>(sdf: &S, config: MeshConfig) -> Res
     // === Phase 4: Weld duplicate vertices at cell boundaries ===
     mesh.weld_vertices(step.min_element() * 0.01);
 
-    // Generate UVs
-    mesh.generate_uvs_triplanar(1.0);
+    // Generate UVs (configurable; defaults to triplanar)
+    match config.uv_projection {
+        UvProjection::Triplanar => mesh.generate_uvs_triplanar(1.0),
+        UvProjection::Cylindrical => mesh.generate_uvs_cylindrical(1.0),
+        UvProjection::Spherical => mesh.generate_uvs_spherical(1.0),
+        UvProjection::Box => mesh.generate_uvs_box(1.0),
+        UvProjection::PlanarY => mesh.generate_uvs_planar(Vec3::Y, 1.0),
+        UvProjection::Auto => mesh.generate_uvs_auto(1.0),
+        UvProjection::None => {}
+    }
 
     Ok(mesh)
 }
@@ -446,10 +482,15 @@ fn process_cell<S: Sdf + ?Sized>(
             vertices.push(Vertex::new(pos, normal, Vec2::ZERO));
         }
 
-        // Wind triangles correctly
+        // Emit reversed winding (0,2,1). The corner-position layout above is a
+        // reflection of the convention the TRI_TABLE assumes, so the table's
+        // natural order yields inward-facing (clockwise) triangles. Reversing
+        // makes faces CCW/outward, consistent with the SDF-gradient normals and
+        // with the glTF front-face convention. Don't "fix" this without also
+        // reverting the corner layout.
         indices.push(base_idx);
-        indices.push(base_idx + 1);
         indices.push(base_idx + 2);
+        indices.push(base_idx + 1);
 
         i += 3;
     }
@@ -480,3 +521,66 @@ const EDGE_CORNERS: [(usize, usize); 12] = [
     (2, 6),
     (3, 7),
 ];
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod winding_tests {
+    use super::*;
+    use crate::sdf::sphere;
+
+    fn sphere_mesh() -> Mesh {
+        let cfg = MeshConfig::default()
+            .with_resolution(24)
+            .with_bounds(Aabb::cube(1.2));
+        generate_mesh(&sphere(1.0), cfg).expect("mesh")
+    }
+
+    /// Triangles must wind counter-clockwise / outward: for a sphere centered at
+    /// the origin, the winding face normal must point away from the center.
+    /// Guards the RC-B marching-cubes corner-layout reflection fix.
+    #[test]
+    fn sphere_triangles_wind_outward() {
+        let mesh = sphere_mesh();
+        assert!(mesh.triangle_count() > 200);
+        let (mut outward, mut total) = (0u32, 0u32);
+        for tri in mesh.indices.chunks(3) {
+            let p0 = Vec3::from_array(mesh.vertices[tri[0] as usize].position);
+            let p1 = Vec3::from_array(mesh.vertices[tri[1] as usize].position);
+            let p2 = Vec3::from_array(mesh.vertices[tri[2] as usize].position);
+            let face_n = (p1 - p0).cross(p2 - p0);
+            let centroid = (p0 + p1 + p2) / 3.0;
+            if face_n.dot(centroid) > 0.0 {
+                outward += 1;
+            }
+            total += 1;
+        }
+        let frac = f64::from(outward) / f64::from(total);
+        assert!(frac > 0.95, "only {outward}/{total} triangles wind outward");
+    }
+
+    /// After `optimize()` (which recomputes normals from winding), the normals
+    /// must still point outward — i.e. the winding fix and the normal recompute
+    /// agree rather than producing an inside-out mesh.
+    #[test]
+    fn optimized_normals_point_outward() {
+        let mut mesh = sphere_mesh();
+        mesh.optimize(&OptimizeConfig::default());
+        let (mut ok, mut total) = (0u32, 0u32);
+        for v in &mesh.vertices {
+            let p = Vec3::from_array(v.position);
+            if p.length() < 0.1 {
+                continue;
+            }
+            let n = Vec3::from_array(v.normal);
+            if n.dot(p) > 0.0 {
+                ok += 1;
+            }
+            total += 1;
+        }
+        let frac = f64::from(ok) / f64::from(total);
+        assert!(
+            frac > 0.9,
+            "only {ok}/{total} optimized normals point outward"
+        );
+    }
+}

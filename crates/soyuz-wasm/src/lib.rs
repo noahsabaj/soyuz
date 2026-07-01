@@ -11,7 +11,12 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
-/// Compile a Rhai script and return any errors
+/// Validate a Rhai script, REJECTING the promise (throwing) on a script error.
+///
+/// This is the throwing convenience variant — use it with try/catch. For
+/// structured, non-throwing error details (message + line) prefer
+/// [`parse_script`], which returns a [`ScriptResult`] instead of throwing.
+/// [`compile_to_wgsl`] uses the same throwing convention as this function.
 #[wasm_bindgen]
 pub fn validate_script(code: &str) -> Result<JsValue, JsValue> {
     use soyuz_script::ScriptEngine;
@@ -63,7 +68,11 @@ impl ScriptResult {
     }
 }
 
-/// Parse and validate a script, returning detailed error information
+/// Parse and validate a script, returning structured error information
+/// (success flag + message + line) WITHOUT throwing.
+///
+/// This is the non-throwing counterpart to [`validate_script`]; prefer it when
+/// you want to branch on the result rather than use try/catch.
 #[wasm_bindgen]
 pub fn parse_script(code: &str) -> ScriptResult {
     use soyuz_script::ScriptEngine;

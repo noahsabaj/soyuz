@@ -75,7 +75,8 @@ pub fn octahedron(size: f32) -> Octahedron {
     Octahedron::new(size)
 }
 
-/// Create a triangular prism (Y-axis aligned)
+/// Create a triangular prism (triangular cross-section in the XY plane,
+/// extruded along Z). `size.x` is the triangle size, `size.y` the half-depth.
 pub fn tri_prism(size: Vec2) -> TriPrism {
     TriPrism::new(size)
 }
@@ -217,8 +218,10 @@ impl Capsule {
 
 impl Sdf for Capsule {
     fn distance(&self, p: Vec3) -> f32 {
-        let p_clamped = Vec3::new(p.x, p.y.clamp(-self.half_height, self.half_height), p.z);
-        (p - p_clamped).length() - self.radius
+        // Distance to the central Y segment minus radius. (The previous code
+        // reused p.x/p.z in the clamped point, cancelling the radial term.)
+        let py = p.y.clamp(-self.half_height, self.half_height);
+        (p - Vec3::new(0.0, py, 0.0)).length() - self.radius
     }
 
     fn bounds(&self) -> Aabb {
@@ -276,15 +279,22 @@ impl Cone {
 
 impl Sdf for Cone {
     fn distance(&self, p: Vec3) -> f32 {
-        // Cone formula using 2D projection
-        let q = Vec2::new(self.height, -self.radius).normalize();
-        let w = Vec2::new(Vec2::new(p.x, p.z).length(), p.y);
-        let a = w - q * w.dot(q).clamp(0.0, self.height / q.x);
-        let b = w - q * Vec2::new(self.height / q.x, 0.0).min(w);
-        let k = q.y.signum();
-        let d = a.length_squared().min(b.length_squared());
-        let s = (k * (w.x * q.y - w.y * q.x)).max(k * (w.y - self.height));
-        d.sqrt() * s.signum()
+        // Exact solid cone: apex at origin, opening upward to base radius
+        // `radius` at y = `height`. (Matches the GPU shader / script eval.)
+        let r = self.radius;
+        let h = self.height;
+        let q = Vec2::new(p.x, p.z).length();
+        let paba = p.y / h;
+        let cax = (q - if paba < 0.5 { 0.0 } else { r }).max(0.0);
+        let cay = (paba - 0.5).abs() - 0.5;
+        let k = r * r + h * h;
+        let f = ((r * q + p.y * h) / k).clamp(0.0, 1.0);
+        let cbx = q - f * r;
+        let cby = paba - f;
+        let s = if cbx < 0.0 && cay < 0.0 { -1.0 } else { 1.0 };
+        let da = cax * cax + cay * cay * h * h;
+        let db = cbx * cbx + cby * cby * h * h;
+        s * da.min(db).sqrt()
     }
 
     fn bounds(&self) -> Aabb {
@@ -340,6 +350,10 @@ impl Sdf for Ellipsoid {
         // Approximate SDF for ellipsoid
         let k0 = (p / self.radii).length();
         let k1 = (p / (self.radii * self.radii)).length();
+        // At the center k0,k1 ~ 0 (0/0 -> NaN). Return the inradius (inside).
+        if k1 < 1e-6 {
+            return -self.radii.x.min(self.radii.y).min(self.radii.z);
+        }
         k0 * (k0 - 1.0) / k1
     }
 
@@ -384,10 +398,11 @@ impl Sdf for Octahedron {
     }
 }
 
-/// Triangular prism (Y-axis aligned)
+/// Triangular prism: triangular cross-section in the XY plane, extruded along Z.
+/// (Note: unlike `HexPrism`, which is Y-axis aligned, this prism's axis is Z.)
 #[derive(Debug, Clone, Copy)]
 pub struct TriPrism {
-    pub size: Vec2, // x = base, y = height (along Y axis)
+    pub size: Vec2, // x = triangle size, y = half-depth along Z
 }
 
 impl TriPrism {
@@ -431,7 +446,7 @@ impl Sdf for HexPrism {
         const K: Vec3 = Vec3::new(-0.866025404, 0.5, 0.577350269);
         let p_abs = p.abs();
         let xy = Vec2::new(p_abs.x, p_abs.z);
-        let xy = xy - 2.0 * K.x.min(xy.dot(Vec2::new(K.x, K.y))) * Vec2::new(K.x, K.y);
+        let xy = xy - 2.0 * xy.dot(Vec2::new(K.x, K.y)).min(0.0) * Vec2::new(K.x, K.y);
         let d = Vec2::new(
             (xy - Vec2::new(
                 xy.x.clamp(-K.z * self.radius, K.z * self.radius),

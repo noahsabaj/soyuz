@@ -14,8 +14,12 @@ members = [
     "app",
 ]
 
+# Vendored dependency patched onto dioxus 0.8 (see [patch.crates-io] below); it is a
+# patch target, not a workspace member.
+exclude = ["vendor/dioxus-sdk-time"]
+
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 authors = ["Noah Sabaj"]
 license = "MIT OR Apache-2.0"
@@ -46,8 +50,8 @@ glyphon = "0.9"
 rhai = "1.20"
 
 # Desktop app
-dioxus = "0.7.6"
-dioxus-stores = "0.7.6"
+dioxus = "0.8.0-alpha.0"
+dioxus-stores = "0.8.0-alpha.0"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }
@@ -102,8 +106,15 @@ return_self_not_must_use = "allow"  # Builder pattern methods
 uninlined_format_args = "allow"  # Not always clearer
 needless_raw_string_hashes = "allow"  # Raw strings can have hashes for consistency
 unit_arg = "allow"  # Matching over () is fine
+ignored_unit_patterns = "allow"  # `|_|` for unit-typed EventHandler closures is idiomatic in Dioxus
 redundant_closure_for_method_calls = "allow"  # Closures are often clearer
 used_underscore_binding = "allow"  # Underscore prefixes are intentional
 
 [workspace.lints.rust]
 unsafe_code = "warn"
+
+# `dioxus-primitives` depends on `dioxus-sdk-time = "0.7"`, which drags a second
+# dioxus (0.7.9) into the tree — `dx` rejects mixed dioxus versions. Repin it onto
+# our dioxus 0.8 via a minimal vendored copy so the whole tree uses one dioxus.
+[patch.crates-io]
+dioxus-sdk-time = { path = "vendor/dioxus-sdk-time" }

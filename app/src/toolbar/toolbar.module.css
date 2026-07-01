@@ -99,19 +99,18 @@
     -webkit-app-region: no-drag;
 }
 
+/* The primitives' role="menubar" element, laying the menus out in a row. */
+.menu-bar-list {
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
+
 .menu-root {
     position: relative;
     display: flex;
     align-items: center;
     height: 100%;
-    -webkit-app-region: no-drag;
-}
-
-.menu-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 900;
-    background: transparent;
     -webkit-app-region: no-drag;
 }
 
@@ -127,9 +126,11 @@
 }
 
 .menu-item:hover,
-.menu-item.active {
+.menu-item:focus-visible,
+.menu-root[data-state="open"] .menu-item {
     background: var(--menu-active-bg);
     color: var(--text-primary);
+    outline: none;
 }
 
 .menu-dropdown {
@@ -163,18 +164,15 @@
     cursor: default;
 }
 
-.menu-action:hover {
+.menu-action:hover:not([data-disabled="true"]),
+.menu-action:focus-visible {
     background: var(--menu-hover-bg);
+    outline: none;
 }
 
-.menu-action.disabled,
-.menu-action:disabled {
+.menu-action[data-disabled="true"] {
     color: var(--menu-disabled-text);
-}
-
-.menu-action.disabled:hover,
-.menu-action:disabled:hover {
-    background: transparent;
+    cursor: default;
 }
 
 .menu-label {
@@ -244,6 +242,35 @@
 /* Window control buttons - icon-based, fixed width */
 .window-button {
     width: 46px;
+}
+
+/* Window-control tooltips (dioxus_primitives::tooltip, nested trigger). Wrappers
+   stay display:flex so the buttons keep their .window-controls row and widths. */
+.titlebar-tooltip {
+    position: relative;
+    display: flex;
+}
+
+.titlebar-tooltip-trigger {
+    display: flex;
+}
+
+.titlebar-tooltip-content {
+    position: absolute;
+    z-index: 1100;
+    top: 100%;
+    left: 50%;
+    padding: 3px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    margin-top: 4px;
+    background: var(--bg-elevated);
+    box-shadow: 0 4px 12px var(--shadow-medium);
+    color: var(--text-primary);
+    font-size: 12px;
+    pointer-events: none;
+    transform: translateX(-50%);
+    white-space: nowrap;
 }
 
 .window-button.close:hover {

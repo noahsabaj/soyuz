@@ -277,6 +277,73 @@ pub enum SdfOp {
 }
 
 impl SdfOp {
+    /// Iteratively bound the tree's depth and node count BEFORE any recursive
+    /// pass (`validate`, CPU eval, WGSL codegen) walks it.
+    ///
+    /// A user script can build an arbitrarily deep tree at runtime (e.g.
+    /// `while i < 200000 { s = s.union(sphere(0.5)) }`); the recursive passes
+    /// would then overflow the stack (an uncatchable abort). This check uses an
+    /// explicit stack so it cannot itself overflow, and returns an error first.
+    ///
+    /// # Errors
+    /// Returns an error if the tree is deeper than `max_depth` or has more than
+    /// `max_nodes` nodes.
+    pub fn check_complexity(
+        &self,
+        max_depth: usize,
+        max_nodes: usize,
+    ) -> Result<(), InvalidFloatError> {
+        let mut stack: Vec<(&SdfOp, usize)> = vec![(self, 1)];
+        let mut nodes: usize = 0;
+        while let Some((op, depth)) = stack.pop() {
+            nodes += 1;
+            if depth > max_depth || nodes > max_nodes {
+                return Err(InvalidFloatError {
+                    context: format!(
+                        "SDF tree too complex (depth limit {max_depth}, node limit {max_nodes})"
+                    ),
+                    value: depth as f32,
+                });
+            }
+            match op {
+                SdfOp::Union { a, b }
+                | SdfOp::Subtract { a, b }
+                | SdfOp::Intersect { a, b }
+                | SdfOp::Xor { a, b }
+                | SdfOp::SmoothUnion { a, b, .. }
+                | SdfOp::SmoothSubtract { a, b, .. }
+                | SdfOp::SmoothIntersect { a, b, .. } => {
+                    stack.push((a, depth + 1));
+                    stack.push((b, depth + 1));
+                }
+                SdfOp::Shell { inner, .. }
+                | SdfOp::Round { inner, .. }
+                | SdfOp::Onion { inner, .. }
+                | SdfOp::Elongate { inner, .. }
+                | SdfOp::Translate { inner, .. }
+                | SdfOp::RotateX { inner, .. }
+                | SdfOp::RotateY { inner, .. }
+                | SdfOp::RotateZ { inner, .. }
+                | SdfOp::Scale { inner, .. }
+                | SdfOp::Mirror { inner, .. }
+                | SdfOp::SymmetryX { inner }
+                | SdfOp::SymmetryY { inner }
+                | SdfOp::SymmetryZ { inner }
+                | SdfOp::Twist { inner, .. }
+                | SdfOp::Bend { inner, .. }
+                | SdfOp::Displacement { inner, .. }
+                | SdfOp::RepeatInfinite { inner, .. }
+                | SdfOp::RepeatLimited { inner, .. }
+                | SdfOp::RepeatPolar { inner, .. } => {
+                    stack.push((inner, depth + 1));
+                }
+                // Primitives and 2D-to-3D ops have no children.
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Validate that all float values in the SDF tree are finite (not NaN or Infinite).
     ///
     /// This should be called before passing an SDF to the GPU to prevent crashes
@@ -394,7 +461,14 @@ impl SdfOp {
             }
             SdfOp::Scale { inner, factor } => {
                 inner.validate()?;
-                check_float(*factor, "scale factor")
+                check_float(*factor, "scale factor")?;
+                if *factor == 0.0 {
+                    return Err(InvalidFloatError {
+                        context: "scale factor must be non-zero".to_string(),
+                        value: 0.0,
+                    });
+                }
+                Ok(())
             }
             SdfOp::Mirror { inner, axis } => {
                 inner.validate()?;
@@ -402,8 +476,16 @@ impl SdfOp {
             }
             SdfOp::SymmetryX { inner }
             | SdfOp::SymmetryY { inner }
-            | SdfOp::SymmetryZ { inner }
-            | SdfOp::RepeatPolar { inner, .. } => inner.validate(),
+            | SdfOp::SymmetryZ { inner } => inner.validate(),
+            SdfOp::RepeatPolar { inner, count } => {
+                if *count == 0 {
+                    return Err(InvalidFloatError {
+                        context: "repeat_polar count must be >= 1".to_string(),
+                        value: 0.0,
+                    });
+                }
+                inner.validate()
+            }
 
             // Deformations
             SdfOp::Twist { inner, amount } | SdfOp::Bend { inner, amount } => {

@@ -30,7 +30,11 @@ impl Default for Camera {
             fov: 45.0_f32.to_radians(),
             aspect: 16.0 / 9.0,
             near: 0.01,
-            far: 100.0,
+            // `far` is the raymarch ray budget (see raymarch.wgsl). frame_bounds()
+            // and the MCP camera set it to enclose the scene; this default covers
+            // the free-orbit case. `near` and `view_proj` are uploaded but unused
+            // by the sphere tracer (reserved for a future raster path).
+            far: 1000.0,
         }
     }
 }
@@ -90,7 +94,9 @@ impl Camera {
     /// - `delta_x`: Horizontal rotation (positive = rotate right)
     /// - `delta_y`: Vertical rotation (positive = rotate up, drag down to see top)
     pub fn orbit(&mut self, delta_x: f32, delta_y: f32) {
-        let radius = self.distance();
+        // Floor the radius so a degenerate position == target (e.g. after
+        // framing empty bounds) doesn't divide by zero and NaN the camera.
+        let radius = self.distance().max(1e-3);
 
         // Get spherical coordinates
         let offset = self.position - self.target;
@@ -116,7 +122,9 @@ impl Camera {
     pub fn zoom(&mut self, delta: f32) {
         let dir = (self.position - self.target).normalize();
         let distance = self.distance();
-        let new_distance = (distance - delta).clamp(0.1, 100.0);
+        // Allow zooming out to (nearly) the far plane / ray budget, not a fixed 100.
+        let max_dist = (self.far * 0.95).max(100.0);
+        let new_distance = (distance - delta).clamp(0.1, max_dist);
         self.position = self.target + dir * new_distance;
     }
 
@@ -146,14 +154,26 @@ impl Camera {
         self.aspect = aspect; // Restore aspect ratio
     }
 
+    /// Distance needed to fit an object of max dimension `size` in view for the
+    /// given `fov` (radians) and extra `padding` (0 = tight). Shared by
+    /// `frame_bounds` and the MCP camera so the two framings can't drift apart.
+    pub fn fit_distance(size: f32, fov: f32, padding: f32) -> f32 {
+        (size * 0.5 * (1.0 + padding)) / (fov * 0.5).tan()
+    }
+
     /// Frame a bounding box (adjust camera to see the entire object)
     pub fn frame_bounds(&mut self, min: Vec3, max: Vec3, padding: f32) {
         let center = (min + max) * 0.5;
-        let size = (max - min).max_element();
-        let distance = (size * 0.5 * (1.0 + padding)) / (self.fov * 0.5).tan();
+        // Floor the size/distance so degenerate (empty/point) bounds don't place
+        // the camera exactly on the target (which would NaN the next orbit()).
+        let size = (max - min).max_element().max(1e-3);
+        let distance = Self::fit_distance(size, self.fov, padding).max(1e-2);
 
         self.target = center;
         self.position = center + Vec3::new(distance * 0.7, distance * 0.5, distance * 0.7);
+        // Set the ray budget to enclose the framed object (camera is ~1.13*distance
+        // from center; add the object radius and a margin).
+        self.far = (self.distance() + size).mul_add(1.5, 1.0);
     }
 }
 

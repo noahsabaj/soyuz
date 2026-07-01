@@ -17,6 +17,11 @@ soyuz-script = { path = "../crates/soyuz-script" }
 
 dioxus = { workspace = true }
 dioxus-stores = { workspace = true }
+# Headless, ARIA-accessible UI primitives (Radix port). Only a 0.0.0 name-holder is
+# on crates.io; the real library lives in this repo's `0.8` branch, which pins the
+# same `dioxus = "=0.8.0-alpha.0"` we use. Pinned to an exact commit (not the branch
+# head) so a `cargo update` can't drag in a breaking change from this pre-1.0 branch.
+dioxus-primitives = { git = "https://github.com/DioxusLabs/dioxus-components", rev = "ff5198207a3a822d344401cfcb704f180591d2e3" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }

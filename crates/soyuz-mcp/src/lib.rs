@@ -82,7 +82,7 @@ impl SoyuzMcpService {
             Ok(info) => Ok(CallToolResult::success(vec![Content::text(
                 info.to_string(),
             )])),
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Script error: {}",
                 e
             ))])),
@@ -101,7 +101,7 @@ impl SoyuzMcpService {
             Ok(()) => Ok(CallToolResult::success(vec![Content::text(
                 "Script is valid",
             )])),
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Compilation error: {}",
                 e
             ))])),
@@ -134,7 +134,7 @@ impl SoyuzMcpService {
                     "image/png",
                 )]))
             }
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Render error: {}",
                 e
             ))])),
@@ -152,12 +152,15 @@ impl SoyuzMcpService {
         let angles = request.parse_angles();
 
         if angles.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::error(vec![Content::text(
                 "No valid angles specified. Use comma-separated names: front, back, left, right, top, bottom, isometric. Or use \"all\" for all angles.",
             )]));
         }
 
         let mut contents = Vec::with_capacity(angles.len() * 2);
+        // Track whether any angle failed so the overall result can be flagged as
+        // an error (is_error) for MCP clients, even when some angles render fine.
+        let mut had_error = false;
 
         for angle_name in angles {
             let angle = CameraAngle::parse(angle_name).unwrap_or_default();
@@ -173,12 +176,17 @@ impl SoyuzMcpService {
                     contents.push(Content::image(b64, "image/png"));
                 }
                 Err(e) => {
+                    had_error = true;
                     contents.push(Content::text(format!("[{}] Error: {}", angle_name, e)));
                 }
             }
         }
 
-        Ok(CallToolResult::success(contents))
+        if had_error {
+            Ok(CallToolResult::error(contents))
+        } else {
+            Ok(CallToolResult::success(contents))
+        }
     }
 
     // ========================================================================
@@ -186,7 +194,7 @@ impl SoyuzMcpService {
     // ========================================================================
 
     #[tool(
-        description = "Export the current scene as a 3D mesh file. Returns base64-encoded file data. Supported formats: glb (binary glTF, recommended), gltf, obj, stl."
+        description = "Export the current scene as a 3D mesh file. Returns base64-encoded file data. Supported formats: glb (binary glTF, recommended), gltf, obj, stl. Resolution is clamped to the range 8-512 to bound meshing time and memory."
     )]
     async fn export_mesh(
         &self,
@@ -199,7 +207,7 @@ impl SoyuzMcpService {
             "obj" => ExportFormat::Obj,
             "stl" => ExportFormat::Stl,
             _ => {
-                return Ok(CallToolResult::success(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![Content::text(format!(
                     "Unknown format '{}'. Valid options: glb, gltf, obj, stl",
                     request.format
                 ))]));
@@ -212,18 +220,30 @@ impl SoyuzMcpService {
             .await
         {
             Ok(info) => {
+                // Cap the inline payload so a high-resolution export can't blow the
+                // MCP message / client context-size limit. Above the cap, return
+                // guidance instead of multi-MB of base64.
+                const MAX_INLINE_B64: usize = 3 * 1024 * 1024;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&info.bytes);
                 let summary = info.to_string();
 
+                if b64.len() > MAX_INLINE_B64 {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "{summary}\n\nMesh is too large to return inline ({} base64 bytes, \
+                         limit {MAX_INLINE_B64}). Re-export at a lower `resolution`, or use a \
+                         more compact format (stl/obj).",
+                        b64.len()
+                    ))]));
+                }
+
                 // Return metadata and base64 data as text (MCP doesn't have blob content type)
                 Ok(CallToolResult::success(vec![Content::text(format!(
-                    "{}\n\nBase64 data ({} bytes encoded):\n{}",
-                    summary,
+                    "{summary}\n\nBase64 data ({} bytes encoded):\n{}",
                     b64.len(),
                     b64
                 ))]))
             }
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Export error: {}",
                 e
             ))])),
@@ -236,7 +256,7 @@ impl SoyuzMcpService {
     async fn get_wgsl(&self) -> Result<CallToolResult, McpError> {
         match self.state.get_wgsl().await {
             Ok(wgsl) => Ok(CallToolResult::success(vec![Content::text(wgsl)])),
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Error: {}",
                 e
             ))])),
@@ -328,7 +348,7 @@ impl SoyuzMcpService {
                 let json = serde_json::to_string_pretty(&info).unwrap_or_default();
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
-            None => Ok(CallToolResult::success(vec![Content::text(format!(
+            None => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Function '{}' not found. Use list_primitives, list_operations, list_transforms, or list_modifiers to see available functions.",
                 request.function_name
             ))])),

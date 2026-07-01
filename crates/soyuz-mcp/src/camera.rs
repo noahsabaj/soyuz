@@ -41,8 +41,11 @@ impl CameraAngle {
     /// The camera is positioned at an appropriate distance to frame
     /// the entire bounding box with some padding.
     pub fn to_camera(&self, center: Vec3, size: f32) -> Camera {
-        // Distance multiplier to ensure the object fits in view
-        let distance = size.max(1.0) * 2.5;
+        // Use the renderer's shared framing formula (no magic multiplier that
+        // could drift from Camera::frame_bounds). padding=1.0 reproduces the
+        // previous comfortable ~2.4x framing at the default 45-degree fov.
+        let fov = Camera::default().fov;
+        let distance = Camera::fit_distance(size.max(1.0), fov, 1.0);
 
         let position = match self {
             Self::Front => center + Vec3::new(0.0, 0.0, distance),
@@ -58,7 +61,11 @@ impl CameraAngle {
             }
         };
 
-        Camera::look_at(position, center)
+        let mut camera = Camera::look_at(position, center);
+        // far is the raymarch ray budget (raymarch.wgsl); set it to enclose the
+        // framed object so its far side isn't clipped for large scenes.
+        camera.far = distance + size + 10.0;
+        camera
     }
 
     /// Parse a camera angle from a string

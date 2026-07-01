@@ -10,7 +10,7 @@
 pub mod layer;
 
 use crate::services::AppServices;
-use crate::state::{AppStore, TerminalEntry, TerminalLevel};
+use crate::state::{AppStateStoreExt, AppStore, TerminalEntry, TerminalLevel};
 use dioxus::prelude::*;
 
 /// Resize state for terminal panel drag operation
@@ -30,19 +30,55 @@ struct FilterDropdownState {
 /// Terminal panel component
 #[component]
 pub fn TerminalPanel() -> Element {
-    let mut state = use_context::<AppStore>();
+    let state = use_context::<AppStore>();
     let services = use_context::<AppServices>();
     let mut resize_state = use_signal(TerminalResizeState::default);
 
-    let visible = state.read().terminal_visible;
-    let height = state.read().terminal_height;
-    let filter = state.read().terminal_filter.clone();
-    let entries = services.terminal_snapshot();
+    // F72: mirror the (non-reactive) terminal buffer into a reactive signal so
+    // new log lines re-render the panel live. A background task refreshes the
+    // signal whenever the buffer wakes it. Interest is registered *before* each
+    // snapshot (register-before-snapshot), so a push that races the snapshot is
+    // captured by the next await instead of being lost — this removes the old
+    // 250ms fallback poll entirely.
+    let mut entries = use_signal(|| services.terminal_snapshot_with_ids());
+    let services_for_task = services.clone();
+    use_future(move || {
+        let services = services_for_task.clone();
+        async move {
+            let notifier = services.terminal_notifier();
+            loop {
+                // Register with the notifier before snapshotting so a change
+                // landing during/after the snapshot still completes this await.
+                let notified = notifier.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                entries.set(services.terminal_snapshot_with_ids());
+                notified.await;
+            }
+        }
+    });
 
-    // Filter entries based on current filter settings
-    let filtered_entries: Vec<TerminalEntry> = entries
-        .into_iter()
-        .filter(|e| filter.should_show(e.level))
+    // F73: read each field through a store selector so the panel only re-renders
+    // when that specific field changes, not on any unrelated root-state write.
+    let visible = *state.terminal_visible().read();
+    let height = *state.terminal_height().read();
+    let filter = state.terminal_filter().read().clone();
+
+    // Read the two time-display settings once here and pass them to each row as
+    // props, instead of every row reading the store (up to 1000 reads/render).
+    let (timezone_offset, use_24h) = {
+        let settings = state.settings();
+        let s = settings.read();
+        (s.timezone_offset, s.time_format_24h)
+    };
+
+    // Filter entries based on current filter settings, keeping each entry's
+    // stable id so list rows stay correctly associated after a front-trim.
+    let filtered_entries: Vec<(u64, TerminalEntry)> = entries
+        .read()
+        .iter()
+        .filter(|(_, e)| filter.should_show(e.level))
+        .cloned()
         .collect();
 
     // Don't render if collapsed
@@ -73,7 +109,10 @@ pub fn TerminalPanel() -> Element {
                     if rs.active {
                         let delta = rs.start_y - evt.client_coordinates().y;
                         let new_height = rs.start_height + delta as f32;
-                        state.write().set_terminal_height(new_height);
+                        // Write through the field selector so a drag re-renders
+                        // only terminal-height subscribers, not the whole app.
+                        // Clamp is preserved from the former `set_terminal_height`.
+                        state.terminal_height().set(new_height.clamp(100.0, 500.0));
                     }
                 },
                 onmouseup: move |_| {
@@ -93,8 +132,13 @@ pub fn TerminalPanel() -> Element {
             // Output content
             div {
                 class: "content",
-                for (idx, entry) in filtered_entries.iter().enumerate() {
-                    TerminalEntryRow { key: "{idx}", entry: entry.clone() }
+                for (id, entry) in filtered_entries.iter() {
+                    TerminalEntryRow {
+                        key: "{id}",
+                        entry: entry.clone(),
+                        timezone_offset,
+                        use_24h,
+                    }
                 }
             }
         }
@@ -108,7 +152,9 @@ fn TerminalHeader() -> Element {
     let services = use_context::<AppServices>();
     let mut filter_dropdown = use_signal(FilterDropdownState::default);
 
-    let filter = state.read().terminal_filter.clone();
+    // F73: read the filter through a field selector so header re-renders track
+    // only `terminal_filter`, not unrelated root-state changes.
+    let filter = state.terminal_filter().read().clone();
     let dropdown_open = filter_dropdown.read().open;
 
     rsx! {
@@ -158,7 +204,7 @@ fn TerminalHeader() -> Element {
                                         r#type: "checkbox",
                                         checked: filter.show_info,
                                         onchange: move |_| {
-                                            state.write().toggle_terminal_filter(TerminalLevel::Info);
+                                            state.terminal_filter().write().toggle(TerminalLevel::Info);
                                         }
                                     }
                                     span { class: "filter-label info", "Info" }
@@ -169,7 +215,7 @@ fn TerminalHeader() -> Element {
                                         r#type: "checkbox",
                                         checked: filter.show_warn,
                                         onchange: move |_| {
-                                            state.write().toggle_terminal_filter(TerminalLevel::Warn);
+                                            state.terminal_filter().write().toggle(TerminalLevel::Warn);
                                         }
                                     }
                                     span { class: "filter-label warn", "Warning" }
@@ -180,7 +226,7 @@ fn TerminalHeader() -> Element {
                                         r#type: "checkbox",
                                         checked: filter.show_error,
                                         onchange: move |_| {
-                                            state.write().toggle_terminal_filter(TerminalLevel::Error);
+                                            state.terminal_filter().write().toggle(TerminalLevel::Error);
                                         }
                                     }
                                     span { class: "filter-label error", "Error" }
@@ -228,15 +274,13 @@ fn TerminalHeader() -> Element {
 }
 
 /// Single terminal entry row
+///
+/// Time-display settings are passed in as props (read once in `TerminalPanel`)
+/// so each row is a pure function of its props and never reads the store — with
+/// up to 1000 rows that avoids up to 1000 store reads per render.
 #[component]
-fn TerminalEntryRow(entry: TerminalEntry) -> Element {
-    let state = use_context::<AppStore>();
-
-    // Get time settings
-    let timezone_offset = state.read().settings.timezone_offset;
-    let use_24h = state.read().settings.time_format_24h;
-
-    // Format timestamp using settings
+fn TerminalEntryRow(entry: TerminalEntry, timezone_offset: i8, use_24h: bool) -> Element {
+    // Format timestamp using the settings supplied by the parent.
     let timestamp = entry.format_timestamp(timezone_offset, use_24h);
     let level_prefix = entry.level.prefix();
     let message = &entry.message;

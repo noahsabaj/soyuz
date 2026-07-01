@@ -175,7 +175,11 @@ impl Mesh {
         self.indices = new_indices;
     }
 
-    /// Decimate mesh using edge collapse with quadric error metric
+    /// Decimate the mesh by greedy edge collapse.
+    ///
+    /// The collapse cost is a heuristic (edge length, weighted up for boundary
+    /// edges and high-curvature regions) — not a true quadric error metric.
+    /// Collapsed vertices are moved to the edge midpoint.
     pub fn decimate(&mut self, target_triangles: usize, max_error: f32, preserve_boundaries: bool) {
         if self.triangle_count() <= target_triangles {
             return;

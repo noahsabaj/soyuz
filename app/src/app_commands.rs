@@ -17,18 +17,24 @@ pub fn open_unified_palette(
     query: impl Into<String>,
 ) {
     let query = query.into();
-    {
+    // F74: claim a fresh search generation so a slower in-flight keystroke search
+    // cannot land after and overwrite the results for the palette opened here.
+    let generation = {
         let mut palette_state = palette.write();
         palette_state.visible = true;
         palette_state.query.clone_from(&query);
         palette_state.mode = PaletteMode::Unified;
         palette_state.selected_index = 0;
-    }
+        palette_state.search_generation = palette_state.search_generation.wrapping_add(1);
+        palette_state.search_generation
+    };
 
-    let workspace = state.read().workspace.clone();
+    let workspace = state.peek().workspace.clone();
     spawn(async move {
         let results = unified_search(workspace.as_deref(), &query).await;
-        palette.write().unified_results = results;
+        if palette.read().search_generation == generation {
+            palette.write().unified_results = results;
+        }
     });
 }
 
@@ -58,8 +64,8 @@ pub fn execute_app_command(
         "file.closeFolder" => state.write().close_folder(),
         "window.new" => spawn_new_window(&services),
 
-        "edit.undo" => undo(state, &services),
-        "edit.redo" => redo(state, &services),
+        "edit.undo" => undo(state),
+        "edit.redo" => redo(state),
         "edit.cut" => exec_document_command("cut"),
         "edit.copy" => exec_document_command("copy"),
         "edit.paste" => exec_document_command("paste"),
@@ -128,8 +134,8 @@ fn open_folder_dialog(mut state: AppStore, services: AppServices) {
 }
 
 fn save_current_file(state: AppStore, services: AppServices, force_dialog: bool) {
-    if !force_dialog && let Some(path) = state.read().current_file() {
-        let code = state.read().code();
+    if !force_dialog && let Some(path) = state.peek().current_file() {
+        let code = state.peek().code();
         write_file(state, services, path, code);
         return;
     }
@@ -144,13 +150,35 @@ fn save_current_file(state: AppStore, services: AppServices, force_dialog: bool)
             return;
         };
 
-        let code = state.read().code();
+        let code = state.peek().code();
         write_file(state, services, path.path(), code);
     });
 }
 
 fn write_file(mut state: AppStore, services: AppServices, path: impl AsRef<Path>, code: String) {
     let path = path.as_ref().to_path_buf();
+
+    // F56: a split clones the active tab into an independent buffer that keeps the
+    // same path, so saving one pane can silently clobber unsaved edits made in the
+    // other. A shared-buffer refactor is too invasive here, so at least warn when
+    // another open tab targets the same file instead of overwriting silently.
+    let duplicate_open = {
+        let s = state.peek();
+        let active_id = s.active_tab().map(|t| t.id);
+        s.all_tabs()
+            .iter()
+            .any(|t| t.path.as_deref() == Some(path.as_path()) && Some(t.id) != active_id)
+    };
+    if duplicate_open {
+        services.terminal_log(
+            TerminalLevel::Warn,
+            format!(
+                "{} is open in more than one pane; this save may overwrite unsaved changes in the other copy.",
+                path.display()
+            ),
+        );
+    }
+
     spawn(async move {
         match tokio::fs::write(&path, &code).await {
             Ok(()) => {
@@ -165,20 +193,18 @@ fn write_file(mut state: AppStore, services: AppServices, path: impl AsRef<Path>
     });
 }
 
-fn undo(mut state: AppStore, services: &AppServices) {
-    let pane_id = state.read().focused_pane_id;
+fn undo(mut state: AppStore) {
+    let pane_id = state.peek().focused_pane_id;
     if let Some((new_content, cursor_pos)) = state.write().undo() {
-        services.mark_preview_dirty();
         spawn(async move {
             js_interop::set_editor_content(pane_id, &new_content, cursor_pos).await;
         });
     }
 }
 
-fn redo(mut state: AppStore, services: &AppServices) {
-    let pane_id = state.read().focused_pane_id;
+fn redo(mut state: AppStore) {
+    let pane_id = state.peek().focused_pane_id;
     if let Some((new_content, cursor_pos)) = state.write().redo() {
-        services.mark_preview_dirty();
         spawn(async move {
             js_interop::set_editor_content(pane_id, &new_content, cursor_pos).await;
         });

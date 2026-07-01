@@ -102,10 +102,14 @@ impl Engine {
     pub fn load_script(&mut self, path: &Path) -> Result<&Scene> {
         let scene_result = self.scripting.eval_scene_file(path)?;
 
+        // Store the canonical path so it matches the (canonical) paths the file
+        // watcher reports; otherwise a relative path passed here would never
+        // match a watch event and hot reload would silently never fire.
+        let source_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         self.current_scene = Some(Scene {
             sdf: scene_result.sdf,
             environment: scene_result.environment,
-            source_path: Some(path.to_path_buf()),
+            source_path: Some(source_path),
         });
 
         self.current_scene
@@ -273,15 +277,24 @@ impl Engine {
         let should_reload = source_path.is_some_and(|source| {
             events.iter().any(|event| match event {
                 WatchEvent::Modified(p) | WatchEvent::Created(p) | WatchEvent::Deleted(p) => {
-                    p == source
+                    // Compare canonically: the watcher may report a path in a
+                    // different (absolute/symlink-resolved) form than `source`.
+                    p == source || p.canonicalize().is_ok_and(|c| c == *source)
                 }
                 WatchEvent::Error(_) => false,
             })
         });
 
         if should_reload && let Some(path) = source_path.cloned() {
-            self.load_script(&path)?;
-            return Ok(true);
+            // A reload failure (e.g. the user saved a syntax error) must NOT kill
+            // the watch loop. Keep the previous scene and report "no reload".
+            match self.load_script(&path) {
+                Ok(_) => return Ok(true),
+                Err(e) => {
+                    tracing::warn!("Hot reload failed, keeping previous scene: {}", e);
+                    return Ok(false);
+                }
+            }
         }
 
         Ok(false)

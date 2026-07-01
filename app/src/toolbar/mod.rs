@@ -11,10 +11,10 @@ use crate::app_commands;
 use crate::assets::APP_ICON_32;
 use crate::command_palette::PaletteState;
 use crate::services::AppServices;
-use crate::state::AppStore;
+use crate::state::{AppStateStoreExt, AppStore};
 use dioxus::prelude::*;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy)]
 enum TopMenu {
     File,
     Edit,
@@ -72,7 +72,11 @@ fn AppLogo() -> Element {
 /// Top toolbar with file operations and window controls
 #[component]
 pub fn Toolbar() -> Element {
+    use dioxus_primitives::ContentSide;
+    use dioxus_primitives::tooltip::{Tooltip, TooltipContent, TooltipTrigger};
+
     let state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
     let window = dioxus::desktop::use_window();
 
     // Clone window for each closure that needs it
@@ -96,67 +100,125 @@ pub fn Toolbar() -> Element {
 
             // Center: Search bar (fills available space, centers content)
             div { class: "titlebar-center",
-                WindowTitle { state }
+                WindowTitle {}
             }
 
             // Right side: Window controls
             div { class: "titlebar-right window-controls",
-                button {
-                    class: "titlebar-btn window-button",
-                    title: "Minimize",
-                    onclick: move |_| window_min.set_minimized(true),
-                    onmousedown: |e| e.stop_propagation(),
-                    // Minimize icon: horizontal line
-                    svg {
-                        width: "10",
-                        height: "10",
-                        view_box: "0 0 10 10",
-                        path {
-                            d: "M0 5L10 5",
-                            stroke: "currentColor",
-                            stroke_width: "1.2"
+                Tooltip { class: "titlebar-tooltip",
+                    TooltipTrigger { class: "titlebar-tooltip-trigger",
+                        button {
+                            class: "titlebar-btn window-button",
+                            r#type: "button",
+                            aria_label: "Minimize",
+                            onclick: move |_| window_min.set_minimized(true),
+                            onmousedown: |e| e.stop_propagation(),
+                            // Minimize icon: horizontal line
+                            svg {
+                                width: "10",
+                                height: "10",
+                                view_box: "0 0 10 10",
+                                path {
+                                    d: "M0 5L10 5",
+                                    stroke: "currentColor",
+                                    stroke_width: "1.2"
+                                }
+                            }
                         }
                     }
-                }
-                button {
-                    class: "titlebar-btn window-button",
-                    title: "Maximize",
-                    onclick: {
-                        let window_max = window_max.clone();
-                        move |_| window_max.set_maximized(!window_max.is_maximized())
-                    },
-                    onmousedown: |e| e.stop_propagation(),
-                    // Maximize icon: square outline
-                    svg {
-                        width: "10",
-                        height: "10",
-                        view_box: "0 0 10 10",
-                        rect {
-                            x: "0.5",
-                            y: "0.5",
-                            width: "9",
-                            height: "9",
-                            fill: "none",
-                            stroke: "currentColor",
-                            stroke_width: "1.2"
-                        }
+                    TooltipContent {
+                        class: "titlebar-tooltip-content",
+                        side: ContentSide::Bottom,
+                        "Minimize"
                     }
                 }
-                button {
-                    class: "titlebar-btn window-button close",
-                    title: "Close",
-                    onclick: move |_| window_close.close(),
-                    onmousedown: |e| e.stop_propagation(),
-                    // Close icon: X shape
-                    svg {
-                        width: "10",
-                        height: "10",
-                        view_box: "0 0 10 10",
-                        path {
-                            d: "M0 0L10 10M10 0L0 10",
-                            stroke: "currentColor",
-                            stroke_width: "1.2"
+                Tooltip { class: "titlebar-tooltip",
+                    TooltipTrigger { class: "titlebar-tooltip-trigger",
+                        button {
+                            class: "titlebar-btn window-button",
+                            r#type: "button",
+                            aria_label: "Maximize",
+                            onclick: {
+                                let window_max = window_max.clone();
+                                move |_| window_max.set_maximized(!window_max.is_maximized())
+                            },
+                            onmousedown: |e| e.stop_propagation(),
+                            // Maximize icon: square outline
+                            svg {
+                                width: "10",
+                                height: "10",
+                                view_box: "0 0 10 10",
+                                rect {
+                                    x: "0.5",
+                                    y: "0.5",
+                                    width: "9",
+                                    height: "9",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "1.2"
+                                }
+                            }
                         }
+                    }
+                    TooltipContent {
+                        class: "titlebar-tooltip-content",
+                        side: ContentSide::Bottom,
+                        "Maximize"
+                    }
+                }
+                Tooltip { class: "titlebar-tooltip",
+                    TooltipTrigger { class: "titlebar-tooltip-trigger",
+                        button {
+                            class: "titlebar-btn window-button close",
+                            r#type: "button",
+                            aria_label: "Close",
+                            onclick: {
+                                let services = services.clone();
+                                move |_| {
+                                    // F60: persist the session before tearing the window down,
+                                    // so edits made within the 30s auto-save window are not lost.
+                                    let session = crate::session::state_to_session(&state.read());
+                                    if let Err(e) = session.save() {
+                                        tracing::warn!("Failed to save session on exit: {e}");
+                                    }
+                                    // Persist the window geometry so the next launch restores
+                                    // the same size / position / maximized state (best-effort).
+                                    let size = window_close.inner_size();
+                                    let (x, y) = window_close
+                                        .outer_position()
+                                        .map(|p| (p.x, p.y))
+                                        .unwrap_or((0, 0));
+                                    crate::save_window_geometry(
+                                        size.width,
+                                        size.height,
+                                        x,
+                                        y,
+                                        window_close.is_maximized(),
+                                    );
+                                    // Kill the preview child before tearing down the window;
+                                    // std::process::Child is not killed on drop.
+                                    services.stop_preview_process();
+                                    window_close.close();
+                                }
+                            },
+                            onmousedown: |e| e.stop_propagation(),
+                            // Close icon: X shape
+                            svg {
+                                width: "10",
+                                height: "10",
+                                view_box: "0 0 10 10",
+                                path {
+                                    d: "M0 0L10 10M10 0L0 10",
+                                    stroke: "currentColor",
+                                    stroke_width: "1.2"
+                                }
+                            }
+                        }
+                    }
+                    TooltipContent {
+                        class: "titlebar-tooltip-content",
+                        side: ContentSide::Bottom,
+                        "Close"
                     }
                 }
             }
@@ -164,77 +226,36 @@ pub fn Toolbar() -> Element {
     }
 }
 
-/// VSCode-style top menu labels.
+/// VSCode-style top menu bar, built on the primitives' [`Menubar`] so it gets
+/// ARIA roles, roving keyboard navigation, and outside-click dismissal for free
+/// (replacing the former hand-rolled `active_menu` context + backdrop).
 #[component]
 fn MenuBar() -> Element {
-    let state = use_context::<AppStore>();
-    let services = use_context::<AppServices>();
-    let palette = use_context::<Signal<PaletteState>>();
-    let mut active_menu = use_signal(|| None::<TopMenu>);
+    use dioxus_primitives::menubar::{Menubar, MenubarContent, MenubarMenu, MenubarTrigger};
 
-    let open_menu = *active_menu.read();
-    let has_workspace = state.read().has_workspace();
+    let state = use_context::<AppStore>();
+    // F73: subscribe only to the workspace field, not the whole store.
+    let has_workspace = state.workspace().read().is_some();
 
     rsx! {
+        // The `Menubar` primitive extends only global attributes (no event
+        // listeners), so the drag-stop lives on this wrapping landmark: menu
+        // clicks must not start a window drag (the titlebar drags on mousedown).
         nav {
             class: "menu-bar",
             aria_label: "Application menu",
             onmousedown: |e| e.stop_propagation(),
 
-            if open_menu.is_some() {
-                div {
-                    class: "menu-backdrop",
-                    onclick: move |_| active_menu.set(None),
-                    onmousedown: |e| e.stop_propagation()
-                }
-            }
+            Menubar { class: "menu-bar-list",
+                for (menu_index, menu) in TopMenu::ALL.into_iter().enumerate() {
+                    MenubarMenu {
+                        key: "{menu.label()}",
+                        class: "menu-root",
+                        index: menu_index,
 
-            for menu in TopMenu::ALL {
-                {
-                    let label = menu.label();
-                    let item_class = if open_menu == Some(menu) {
-                        "menu-item active"
-                    } else {
-                        "menu-item"
-                    };
-
-                    rsx! {
-                        div {
-                            key: "{label}",
-                            class: "menu-root",
-                            onmouseenter: move |_| {
-                                if active_menu.read().is_some() {
-                                    active_menu.set(Some(menu));
-                                }
-                            },
-
-                            button {
-                                class: "{item_class}",
-                                onclick: move |_| {
-                                    let next = if active_menu.read().as_ref() == Some(&menu) {
-                                        None
-                                    } else {
-                                        Some(menu)
-                                    };
-                                    active_menu.set(next);
-                                },
-                                onmousedown: |e| {
-                                    e.prevent_default();
-                                    e.stop_propagation();
-                                },
-                                "{label}"
-                            }
-
-                            if open_menu == Some(menu) {
-                                {menu_dropdown(
-                                    menu,
-                                    state,
-                                    &services,
-                                    palette,
-                                    active_menu,
-                                    has_workspace,
-                                )}
-                            }
+                        MenubarTrigger { class: "menu-item", "{menu.label()}" }
+                        MenubarContent { class: "menu-dropdown",
+                            {menu_dropdown(menu, has_workspace)}
                         }
                     }
                 }
@@ -243,110 +264,91 @@ fn MenuBar() -> Element {
     }
 }
 
-#[allow(clippy::too_many_lines)]
-fn menu_dropdown(
-    menu: TopMenu,
-    state: AppStore,
-    services: &AppServices,
-    palette: Signal<PaletteState>,
-    active_menu: Signal<Option<TopMenu>>,
-    has_workspace: bool,
-) -> Element {
-    let services = AppServices::clone(services);
-
-    rsx! {
-        div {
-            class: "menu-dropdown",
-            onmousedown: |e| {
-                e.prevent_default();
-                e.stop_propagation();
-            },
-            match menu {
-                TopMenu::File => rsx! {
-                    {menu_action("New File", Some("Ctrl+N"), "file.new", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Open File", Some("Ctrl+O"), "file.open", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Open Folder", None, "file.openFolder", false, state, services.clone(), palette, active_menu)}
-                    {menu_separator()}
-                    {menu_action("Save", Some("Ctrl+S"), "file.save", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Save As", Some("Ctrl+Shift+S"), "file.saveAs", false, state, services.clone(), palette, active_menu)}
-                    {menu_separator()}
-                    {menu_action("New Window", None, "window.new", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Close Folder", None, "file.closeFolder", !has_workspace, state, services.clone(), palette, active_menu)}
-                },
-                TopMenu::Edit => rsx! {
-                    {menu_action("Undo", Some("Ctrl+Z"), "edit.undo", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Redo", Some("Ctrl+Shift+Z"), "edit.redo", false, state, services.clone(), palette, active_menu)}
-                    {menu_separator()}
-                    {menu_action("Cut", Some("Ctrl+X"), "edit.cut", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Copy", Some("Ctrl+C"), "edit.copy", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Paste", Some("Ctrl+V"), "edit.paste", false, state, services.clone(), palette, active_menu)}
-                },
-                TopMenu::Selection => rsx! {
-                    {menu_action("Select All", Some("Ctrl+A"), "edit.selectAll", false, state, services.clone(), palette, active_menu)}
-                },
-                TopMenu::View => rsx! {
-                    {menu_action("Command Palette", Some("Ctrl+Shift+P"), "view.commandPalette", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Settings", None, "view.settings", false, state, services.clone(), palette, active_menu)}
-                },
-                TopMenu::Go => rsx! {
-                    {menu_action("Go to File", Some("Ctrl+P"), "view.goToFile", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Go to Line", Some("Ctrl+G"), "view.goToLine", false, state, services.clone(), palette, active_menu)}
-                },
-                TopMenu::Preview => rsx! {
-                    {menu_action("Open/Refresh Preview", Some("F5"), "preview.run", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Pop Out Preview", None, "preview.popOut", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Stop Preview", Some("Shift+F5"), "preview.stop", false, state, services.clone(), palette, active_menu)}
-                },
-                TopMenu::Terminal => rsx! {
-                    {menu_action("Toggle Terminal", Some("Ctrl+`"), "terminal.toggle", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Clear Terminal", None, "terminal.clear", false, state, services.clone(), palette, active_menu)}
-                },
-                TopMenu::Help => rsx! {
-                    {menu_action("Open Cookbook", None, "help.cookbook", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Open README", None, "help.readme", false, state, services.clone(), palette, active_menu)}
-                    {menu_action("Open Documentation", Some("F1"), "help.documentation", false, state, services.clone(), palette, active_menu)}
-                    {menu_separator()}
-                    {menu_action("About Soyuz Studio", None, "help.about", false, state, services.clone(), palette, active_menu)}
-                },
-            }
-        }
+/// Renders the items of `menu` as [`MenuAction`]s interleaved with separators.
+/// Item `index` values (used by the primitive for roving keyboard focus) count
+/// only actions, skipping the visual separators.
+fn menu_dropdown(menu: TopMenu, has_workspace: bool) -> Element {
+    match menu {
+        TopMenu::File => rsx! {
+            MenuAction { index: 0, label: "New File", shortcut: "Ctrl+N", command_id: "file.new" }
+            MenuAction { index: 1, label: "Open File", shortcut: "Ctrl+O", command_id: "file.open" }
+            MenuAction { index: 2, label: "Open Folder", command_id: "file.openFolder" }
+            {menu_separator()}
+            MenuAction { index: 3, label: "Save", shortcut: "Ctrl+S", command_id: "file.save" }
+            MenuAction { index: 4, label: "Save As", shortcut: "Ctrl+Shift+S", command_id: "file.saveAs" }
+            {menu_separator()}
+            MenuAction { index: 5, label: "New Window", command_id: "window.new" }
+            MenuAction { index: 6, label: "Close Folder", command_id: "file.closeFolder", disabled: !has_workspace }
+        },
+        TopMenu::Edit => rsx! {
+            MenuAction { index: 0, label: "Undo", shortcut: "Ctrl+Z", command_id: "edit.undo" }
+            MenuAction { index: 1, label: "Redo", shortcut: "Ctrl+Shift+Z", command_id: "edit.redo" }
+            {menu_separator()}
+            MenuAction { index: 2, label: "Cut", shortcut: "Ctrl+X", command_id: "edit.cut" }
+            MenuAction { index: 3, label: "Copy", shortcut: "Ctrl+C", command_id: "edit.copy" }
+            MenuAction { index: 4, label: "Paste", shortcut: "Ctrl+V", command_id: "edit.paste" }
+        },
+        TopMenu::Selection => rsx! {
+            MenuAction { index: 0, label: "Select All", shortcut: "Ctrl+A", command_id: "edit.selectAll" }
+        },
+        TopMenu::View => rsx! {
+            MenuAction { index: 0, label: "Command Palette", shortcut: "Ctrl+Shift+P", command_id: "view.commandPalette" }
+            MenuAction { index: 1, label: "Settings", command_id: "view.settings" }
+        },
+        TopMenu::Go => rsx! {
+            MenuAction { index: 0, label: "Go to File", shortcut: "Ctrl+P", command_id: "view.goToFile" }
+            MenuAction { index: 1, label: "Go to Line", shortcut: "Ctrl+G", command_id: "view.goToLine" }
+        },
+        TopMenu::Preview => rsx! {
+            MenuAction { index: 0, label: "Open/Refresh Preview", shortcut: "F5", command_id: "preview.run" }
+            MenuAction { index: 1, label: "Pop Out Preview", command_id: "preview.popOut" }
+            MenuAction { index: 2, label: "Stop Preview", shortcut: "Shift+F5", command_id: "preview.stop" }
+        },
+        TopMenu::Terminal => rsx! {
+            MenuAction { index: 0, label: "Toggle Terminal", shortcut: "Ctrl+`", command_id: "terminal.toggle" }
+            MenuAction { index: 1, label: "Clear Terminal", command_id: "terminal.clear" }
+        },
+        TopMenu::Help => rsx! {
+            MenuAction { index: 0, label: "Open Cookbook", command_id: "help.cookbook" }
+            MenuAction { index: 1, label: "Open README", command_id: "help.readme" }
+            MenuAction { index: 2, label: "Open Documentation", shortcut: "F1", command_id: "help.documentation" }
+            {menu_separator()}
+            MenuAction { index: 3, label: "About Soyuz Studio", command_id: "help.about" }
+        },
     }
 }
 
-fn menu_action(
-    label: &'static str,
-    shortcut: Option<&'static str>,
-    command_id: &'static str,
-    disabled: bool,
-    state: AppStore,
-    services: AppServices,
-    palette: Signal<PaletteState>,
-    mut active_menu: Signal<Option<TopMenu>>,
+/// A single dropdown menu item, built on the primitives' [`MenubarItem`] so it
+/// inherits the menu ARIA role, roving focus, and automatic dismissal on select.
+/// Pulls `state` / `services` / `palette` from context instead of taking them as
+/// positional arguments; `command_id` doubles as the item's `value`.
+#[component]
+fn MenuAction(
+    index: usize,
+    #[props(into)] label: String,
+    shortcut: Option<String>,
+    #[props(into)] command_id: String,
+    #[props(default)] disabled: bool,
 ) -> Element {
-    let class = if disabled {
-        "menu-action disabled"
-    } else {
-        "menu-action"
-    };
+    use dioxus_primitives::menubar::MenubarItem;
+
+    let state = use_context::<AppStore>();
+    let services = use_context::<AppServices>();
+    let palette = use_context::<Signal<PaletteState>>();
 
     rsx! {
-        button {
-            class: "{class}",
+        MenubarItem {
+            class: "menu-action",
+            index,
+            value: command_id.clone(),
             disabled,
-            onclick: move |_| {
-                if disabled {
-                    return;
-                }
-                app_commands::execute_app_command(command_id, state, services.clone(), palette);
-                active_menu.set(None);
-            },
-            onmousedown: |e| {
-                e.prevent_default();
-                e.stop_propagation();
+            // The primitive already skips disabled items and closes the menu on select.
+            on_select: move |_| {
+                app_commands::execute_app_command(&command_id, state, services.clone(), palette);
             },
 
             span { class: "menu-label", "{label}" }
-            if let Some(shortcut) = shortcut {
+            if let Some(shortcut) = shortcut.as_ref() {
                 span { class: "menu-shortcut", "{shortcut}" }
             }
         }
@@ -361,13 +363,14 @@ fn menu_separator() -> Element {
 
 /// Search bar in toolbar - opens command palette when clicked
 #[component]
-fn WindowTitle(state: AppStore) -> Element {
+fn WindowTitle() -> Element {
+    let state = use_context::<AppStore>();
     let palette = use_context::<Signal<PaletteState>>();
 
-    // Get workspace name for display
+    // Get workspace name for display (F73: subscribe only to the workspace field).
     let workspace_name = state
+        .workspace()
         .read()
-        .workspace
         .as_ref()
         .and_then(|p| p.file_name())
         .map(|n| n.to_string_lossy().to_string())

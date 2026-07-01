@@ -7,8 +7,9 @@
 // Borrowed format strings are valid for file dialogs
 #![allow(clippy::needless_borrows_for_generic_args)]
 
+use crate::components::ConfirmDialog;
 use crate::services::AppServices;
-use crate::state::{AppStore, ExportFormat, ExportSettings, TerminalLevel};
+use crate::state::{AppStateStoreExt, AppStore, ExportFormat, ExportSettings, TerminalLevel};
 use dioxus::prelude::*;
 use std::path::PathBuf;
 use tracing::warn;
@@ -55,7 +56,9 @@ fn compute_default_filename(current_file: Option<&PathBuf>, format: ExportFormat
 #[component]
 pub fn ExportPanel() -> Element {
     let state = use_context::<AppStore>();
-    let initial_state = state.read();
+    // Seed the local signals once with `.peek()` so the panel does not subscribe
+    // to (and re-render on) unrelated store changes just to read initial defaults.
+    let initial_state = state.peek();
     let initial_source_file = initial_state.source_file();
     let initial_path = compute_default_path(
         initial_state.export_settings.last_export_dir.as_ref(),
@@ -65,7 +68,6 @@ pub fn ExportPanel() -> Element {
     let initial_filename = compute_default_filename(initial_source_file.as_ref(), initial_format);
     let initial_resolution = initial_state.export_settings.resolution;
     let initial_optimize = initial_state.export_settings.optimize;
-    let initial_code = initial_state.source_code();
     drop(initial_state);
 
     // Local state for the export panel.
@@ -74,10 +76,12 @@ pub fn ExportPanel() -> Element {
     let mut format = use_signal(|| initial_format);
     let mut resolution = use_signal(|| initial_resolution);
     let mut optimize = use_signal(|| initial_optimize);
-    let mut is_exporting = use_signal(|| false);
-    let mut status_message = use_signal(|| None::<String>);
-    let code = use_signal(|| initial_code.clone());
-    let mut main_state = state;
+    // Single source of truth for export progress (replaces the old in-flight bool
+    // plus a separate status string that had to be kept in sync).
+    let export_status = use_signal(|| ExportStatus::Idle);
+    // F62: an export awaiting overwrite confirmation (target file already exists).
+    let pending_overwrite = use_signal(|| None::<ExportAction>);
+    let main_state = state;
     let services = use_context::<AppServices>();
 
     // Handler for format change - updates filename extension
@@ -111,8 +115,15 @@ pub fn ExportPanel() -> Element {
         });
     };
 
-    // Export handler
-    let do_export = std::rc::Rc::new(move |action: ExportAction| {
+    // Performs the actual export. `export_status` is set to `Exporting` synchronously
+    // *before* spawning so a second click is suppressed and the buttons disable
+    // immediately (F62).
+    let run_export = std::rc::Rc::new(move |action: ExportAction| {
+        // The synchronous `.set()` below takes `&mut self`. Copy the Copy-able
+        // signal handle into a local binding so this closure stays `Fn` and remains
+        // callable through the shared `Rc`.
+        let mut export_status = export_status;
+
         let path = export_path.read().clone();
         let name = filename.read().clone();
         let full_path = path.join(&name);
@@ -126,17 +137,20 @@ pub fn ExportPanel() -> Element {
             last_export_dir: Some(path.clone()),
             close_after_export: false,
         };
-        let export_code = code.read().clone();
+        // F57: export the CURRENT editor code, read live from app state at click
+        // time, not the snapshot captured when the panel mounted.
+        let export_code = main_state.peek().source_code();
 
         // Clone path for use after spawn_blocking
         let path_for_state = path.clone();
         let full_path_for_action = full_path.clone();
         let services = services.clone();
 
-        spawn(async move {
-            is_exporting.set(true);
-            status_message.set(Some("Generating mesh...".to_string()));
+        // F62: mark the export in-flight synchronously, before the async task starts,
+        // so a second click is suppressed and the buttons disable immediately.
+        export_status.set(ExportStatus::Exporting);
 
+        spawn(async move {
             // Log to terminal
             services.terminal_log(TerminalLevel::Info, format!("Exporting to {}...", name));
 
@@ -150,14 +164,19 @@ pub fn ExportPanel() -> Element {
                     // Log success to terminal
                     services
                         .terminal_log(TerminalLevel::Info, format!("Export complete: {}", info));
-                    status_message.set(Some(format!("Exported: {}", info)));
 
-                    // Update main state with last export directory
-                    main_state.write().export_settings.last_export_dir =
-                        Some(path_for_state.clone());
-                    main_state.write().export_settings.format = export_format;
-                    main_state.write().export_settings.resolution = export_resolution;
-                    main_state.write().export_settings.optimize = export_optimize;
+                    // Persist the used export settings in one scoped write instead
+                    // of four whole-store invalidations.
+                    {
+                        let mut export_settings_store = main_state.export_settings();
+                        let mut export_settings = export_settings_store.write();
+                        export_settings.last_export_dir = Some(path_for_state.clone());
+                        export_settings.format = export_format;
+                        export_settings.resolution = export_resolution;
+                        export_settings.optimize = export_optimize;
+                    }
+
+                    export_status.set(ExportStatus::Done(info));
 
                     // Handle post-export action
                     match action {
@@ -175,22 +194,42 @@ pub fn ExportPanel() -> Element {
                 Ok(Err(e)) => {
                     // Log error to terminal
                     services.terminal_log(TerminalLevel::Error, format!("Export failed: {}", e));
-                    status_message.set(Some(format!("Error: {}", e)));
+                    export_status.set(ExportStatus::Error(e.to_string()));
                 }
                 Err(e) => {
                     // Log error to terminal
                     services
                         .terminal_log(TerminalLevel::Error, format!("Export task failed: {}", e));
-                    status_message.set(Some(format!("Error: {}", e)));
+                    export_status.set(ExportStatus::Error(e.to_string()));
                 }
             }
-
-            is_exporting.set(false);
         });
+    });
+
+    // Click handler: ignore clicks while an export is in flight, and confirm
+    // before overwriting an existing file (F62).
+    let do_export = std::rc::Rc::new({
+        let run_export = run_export.clone();
+        move |action: ExportAction| {
+            // Local mutable copy so the `.set()` below keeps this closure `Fn`.
+            let mut pending_overwrite = pending_overwrite;
+            // F62: ignore clicks while an export is already in flight.
+            if matches!(*export_status.peek(), ExportStatus::Exporting) {
+                return;
+            }
+            let full_path = export_path.read().join(&*filename.read());
+            if full_path.exists() {
+                pending_overwrite.set(Some(action));
+                return;
+            }
+            run_export(action);
+        }
     });
 
     // Check if STL format (no material support)
     let is_stl = *format.read() == ExportFormat::Stl;
+    // Whether an export is currently running (drives the disabled/label state).
+    let exporting = matches!(*export_status.read(), ExportStatus::Exporting);
 
     rsx! {
         div { class: "export-panel window",
@@ -303,16 +342,16 @@ pub fn ExportPanel() -> Element {
             div { class: "actions",
                 button {
                     class: "btn-primary",
-                    disabled: *is_exporting.read(),
+                    disabled: exporting,
                     onclick: {
                         let do_export = do_export.clone();
                         move |_| do_export(ExportAction::Export)
                     },
-                    if *is_exporting.read() { "Exporting..." } else { "Export" }
+                    if exporting { "Exporting..." } else { "Export" }
                 }
                 button {
                     class: "btn-secondary",
-                    disabled: *is_exporting.read(),
+                    disabled: exporting,
                     onclick: {
                         let do_export = do_export.clone();
                         move |_| do_export(ExportAction::ExportAndOpenFolder)
@@ -321,7 +360,7 @@ pub fn ExportPanel() -> Element {
                 }
                 button {
                     class: "btn-secondary",
-                    disabled: *is_exporting.read(),
+                    disabled: exporting,
                     onclick: {
                         let do_export = do_export.clone();
                         move |_| do_export(ExportAction::ExportAndOpenFile)
@@ -332,10 +371,40 @@ pub fn ExportPanel() -> Element {
 
             // Status
             div { class: "status",
-                if let Some(msg) = status_message.read().as_ref() {
-                    "{msg}"
-                } else {
-                    "Ready"
+                match &*export_status.read() {
+                    ExportStatus::Idle => rsx! { "Ready" },
+                    ExportStatus::Exporting => rsx! { "Generating mesh..." },
+                    ExportStatus::Done(info) => rsx! { "Exported: {info}" },
+                    ExportStatus::Error(e) => rsx! { "Error: {e}" },
+                }
+            }
+
+            // F62: overwrite confirmation dialog (shared component).
+            if let Some(action) = *pending_overwrite.read() {
+                {
+                    let full_path = export_path.read().join(&*filename.read());
+                    let name = full_path.file_name().map_or_else(
+                        || full_path.display().to_string(),
+                        |n| n.to_string_lossy().to_string(),
+                    );
+                    let run_export = run_export.clone();
+                    rsx! {
+                        ConfirmDialog {
+                            title: "Overwrite?",
+                            message: format!("A file named \"{name}\" already exists. Overwrite it?"),
+                            confirm_label: "Overwrite",
+                            destructive: false,
+                            on_confirm: move |()| {
+                                let mut pending_overwrite = pending_overwrite;
+                                pending_overwrite.set(None);
+                                run_export(action);
+                            },
+                            on_cancel: move |()| {
+                                let mut pending_overwrite = pending_overwrite;
+                                pending_overwrite.set(None);
+                            },
+                        }
+                    }
                 }
             }
         }
@@ -348,6 +417,20 @@ enum ExportAction {
     Export,
     ExportAndOpenFolder,
     ExportAndOpenFile,
+}
+
+/// Progress of an export, modeled as one signal so the panel does not have to
+/// keep a separate in-flight flag and status string in sync.
+#[derive(Clone, PartialEq)]
+enum ExportStatus {
+    /// No export has run yet.
+    Idle,
+    /// An export is in flight (set synchronously before the task spawns; F62).
+    Exporting,
+    /// The last export succeeded; carries the summary line.
+    Done(String),
+    /// The last export failed; carries the error text.
+    Error(String),
 }
 
 #[component]

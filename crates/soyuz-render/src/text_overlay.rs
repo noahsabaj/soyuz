@@ -155,17 +155,20 @@ impl TextOverlay {
             custom_glyphs: &[],
         }];
 
-        self.text_renderer
-            .prepare(
-                device,
-                queue,
-                &mut self.font_system,
-                &mut self.atlas,
-                &self.viewport,
-                text_areas,
-                &mut self.swash_cache,
-            )
-            .expect("Failed to prepare text");
+        // Degrade gracefully: a glyph-atlas allocation failure must not panic and
+        // crash the live preview mid-frame — just skip the overlay this frame.
+        if let Err(e) = self.text_renderer.prepare(
+            device,
+            queue,
+            &mut self.font_system,
+            &mut self.atlas,
+            &self.viewport,
+            text_areas,
+            &mut self.swash_cache,
+        ) {
+            tracing::warn!("text overlay prepare failed, skipping overlay: {e}");
+            return;
+        }
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -183,9 +186,12 @@ impl TextOverlay {
                 occlusion_query_set: None,
             });
 
-            self.text_renderer
+            if let Err(e) = self
+                .text_renderer
                 .render(&self.atlas, &self.viewport, &mut pass)
-                .expect("Failed to render text");
+            {
+                tracing::warn!("text overlay render failed: {e}");
+            }
         }
 
         self.atlas.trim();

@@ -1,0 +1,26 @@
+# Vendored from crates.io `dioxus-sdk-time` v0.7.0 (MIT OR Apache-2.0, DioxusLabs).
+# The ONLY change from upstream is repinning `dioxus` from 0.7 to =0.8.0-alpha.0
+# so it unifies with the app's dioxus instead of dragging a second dioxus (0.7.9)
+# into the tree via `dioxus-primitives`. Applied through `[patch.crates-io]` in the
+# workspace root. Remove once an upstream 0.8-compatible `dioxus-sdk-time` ships.
+[package]
+name = "dioxus-sdk-time"
+version = "0.7.0"
+edition = "2024"
+description = "Timing utilities and hooks for Dioxus (vendored, repinned to dioxus 0.8)."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/DioxusLabs/sdk/"
+
+[lib]
+name = "dioxus_sdk_time"
+path = "src/lib.rs"
+
+[dependencies]
+dioxus = "=0.8.0-alpha.0"
+futures = "0.3.31"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { version = "1.48.0", features = ["time"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gloo-timers = { version = "0.3.0", features = ["futures"] }

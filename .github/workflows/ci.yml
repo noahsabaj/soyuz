@@ -30,10 +30,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install Dioxus CLI
-        run: cargo install dioxus-cli --version 0.7.6 --locked
+        run: cargo install dioxus-cli --version 0.8.0-alpha.0 --locked
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+      - name: Check generated artifacts are up to date
+        run: |
+          cargo run -p xtask -- docs check
+          cargo run -p xtask -- theme check
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings

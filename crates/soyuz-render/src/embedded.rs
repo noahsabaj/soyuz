@@ -340,12 +340,14 @@ impl ApplicationHandler for EmbeddedPreviewApp {
                 .ok()?;
 
             let caps = surface.get_capabilities(&adapter);
+            // Prefer sRGB; fall back to the first format. Don't index `formats`
+            // eagerly — it can be empty (returns None here -> handled below).
             let format = caps
                 .formats
                 .iter()
                 .copied()
-                .find(|f| f.is_srgb())
-                .unwrap_or(caps.formats[0]);
+                .find(wgpu::TextureFormat::is_srgb)
+                .or_else(|| caps.formats.first().copied())?;
 
             Some((Arc::new(device), Arc::new(queue), format))
         }) {

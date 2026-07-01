@@ -75,6 +75,16 @@ pub fn export_gltf_with_options(
     path: &Path,
     options: &GltfExportOptions,
 ) -> Result<()> {
+    // An empty mesh would produce a POSITION accessor with min = [f32::MAX] and
+    // max = [f32::MIN] (min > max) — invalid glTF. Fail with a clear message.
+    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+        return Err(crate::Error::Export(
+            "cannot export an empty mesh: the SDF produced no geometry (check the \
+             sampling bounds and resolution)"
+                .to_string(),
+        ));
+    }
+
     let is_glb = path.extension().is_some_and(|ext| ext == "glb");
 
     // Rasterize material if present

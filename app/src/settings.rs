@@ -12,6 +12,9 @@ use std::path::PathBuf;
 const DEFAULT_THEME: &str = "soyuz-graphite";
 const LEGACY_DARK_THEME: &str = "Dark";
 
+/// Current settings schema version (bump when adding migrations).
+const SETTINGS_VERSION: u32 = 1;
+
 /// Auto-save behavior for the editor
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum AutoSave {
@@ -22,10 +25,33 @@ pub enum AutoSave {
     AfterDelay(u32),
 }
 
+impl AutoSave {
+    /// Auto-save interval in seconds, or `None` when auto-save is disabled.
+    ///
+    /// Drives the cadence of `main.rs`'s periodic session autosave loop.
+    pub fn interval_secs(&self) -> Option<u32> {
+        match self {
+            AutoSave::Off => None,
+            AutoSave::AfterDelay(secs) => Some(*secs),
+        }
+    }
+}
+
 /// Application settings that persist across sessions
-#[allow(clippy::struct_excessive_bools)] // Config structs naturally have many bool fields
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
+// Config structs naturally have many bool fields
+// `dioxus_stores::Store` generates per-field selectors (`state.settings().font_size()`,
+// etc.) so the settings UI can read/write one field at a time with fine-grained
+// reactivity instead of reading and writing the whole store.
+#[derive(Clone, PartialEq, Serialize, Deserialize, dioxus_stores::Store)]
+// `#[serde(default)]` at the container level means any missing field falls back to
+// its individual default instead of resetting every setting, so older config files
+// keep their values when new fields are added.
+#[serde(default)]
 pub struct Settings {
+    /// Settings schema version, for future migrations
+    pub version: u32,
+
     // Editor settings
     /// Font family for the editor
     pub font_family: String,
@@ -74,6 +100,8 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            version: SETTINGS_VERSION,
+
             // Editor defaults
             font_family: "monospace".to_string(),
             font_size: 14,
@@ -132,6 +160,9 @@ fn normalize_settings(mut settings: Settings) -> Settings {
     settings
 }
 
+/// Monotonic sequence for unique settings temp-file names (see `save_settings`).
+static SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Save settings to disk
 pub fn save_settings(settings: &Settings) -> Result<()> {
     let Some(path) = settings_path() else {
@@ -146,7 +177,17 @@ pub fn save_settings(settings: &Settings) -> Result<()> {
     // Serialize and write
     let json = serde_json::to_string_pretty(settings).context("Failed to serialize settings")?;
 
-    fs::write(&path, json).context("Failed to write settings file")
+    // Write atomically: write to a unique temp file in the same directory, then
+    // rename over the target so a crash mid-write cannot corrupt the settings file.
+    // The pid guards against other app instances; the per-call sequence guards this
+    // process's own saves, which now run off the UI thread and can therefore overlap
+    // (the old synchronous saves were serialized by the UI thread and shared a path).
+    let seq = SAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_path = path.with_file_name(format!("settings.json.{}.{}.tmp", std::process::id(), seq));
+    fs::write(&tmp_path, json).context("Failed to write settings file")?;
+    fs::rename(&tmp_path, &path).context("Failed to replace settings file")?;
+
+    Ok(())
 }
 
 /// Setting metadata for the UI
