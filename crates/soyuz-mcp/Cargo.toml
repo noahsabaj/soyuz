@@ -18,7 +18,7 @@ name = "soyuz-mcp"
 path = "src/main.rs"
 
 [dependencies]
-# MCP SDK (protocol version 2025-11-25)
+# MCP SDK (the server advertises protocol version 2024-11-05; see ProtocolVersion::V_2024_11_05 in src/lib.rs)
 rmcp = { version = "0.8", features = ["server", "macros", "transport-io"] }
 
 # Soyuz crates

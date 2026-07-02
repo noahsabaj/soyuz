@@ -32,9 +32,6 @@ categories = ["game-development", "graphics", "rendering"]
 # Math
 glam = "0.29"
 
-# Noise
-noise = "0.9"
-
 # Image handling
 image = "0.25"
 

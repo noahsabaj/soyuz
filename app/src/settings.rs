@@ -77,8 +77,6 @@ pub struct Settings {
     pub export_resolution: u32,
     /// Whether to optimize mesh by default
     pub export_optimize: bool,
-    /// Whether to close export window after exporting
-    pub export_close_after: bool,
 
     // Application settings
     /// Whether to restore session on startup
@@ -117,7 +115,6 @@ impl Default for Settings {
             export_format: ExportFormat::Glb,
             export_resolution: 128,
             export_optimize: false,
-            export_close_after: true,
 
             // Application defaults
             restore_session: true,
@@ -335,13 +332,6 @@ pub fn all_settings_meta() -> Vec<SettingMeta> {
             id: "export_optimize",
             label: "Optimize Mesh",
             description: "Optimize mesh geometry by default",
-            category: SettingCategory::Export,
-            control_type: ControlType::Checkbox,
-        },
-        SettingMeta {
-            id: "export_close_after",
-            label: "Close After Export",
-            description: "Close the export dialog after successful export",
             category: SettingCategory::Export,
             control_type: ControlType::Checkbox,
         },

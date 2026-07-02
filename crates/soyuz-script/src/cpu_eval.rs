@@ -382,12 +382,6 @@ fn eval_distance(op: &SdfOp, p: Vec3) -> f32 {
             let q = soyuz_math::repeat_polar(p, *count as f32);
             eval_distance(inner, q)
         }
-
-        // Handle non-exhaustive enum
-        _ => {
-            // Unknown variant - return a large distance
-            f32::MAX
-        }
     }
 }
 
@@ -610,9 +604,6 @@ fn eval_bounds(op: &SdfOp) -> Aabb {
                 Vec3::new(r, bounds.max.y, r),
             )
         }
-
-        // Handle non-exhaustive enum
-        _ => Aabb::cube(10.0),
     }
 }
 
@@ -794,9 +785,8 @@ mod tests {
 
     /// Every primitive must evaluate to a finite, bounded value across a grid of
     /// points. Finiteness catches NaN/Inf regressions; the magnitude bound also
-    /// catches a primitive falling through to the `_ => f32::MAX` arm (that
-    /// sentinel is ~3.4e38). Each primitive must also report at least one inside
-    /// point so it isn't silently empty.
+    /// catches a primitive degenerating to a huge sentinel value. Each primitive
+    /// must also report at least one inside point so it isn't silently empty.
     #[test]
     fn all_primitives_evaluate_finitely() {
         let prims = [
@@ -867,6 +857,28 @@ mod tests {
                 }
             }
             assert!(any_inside, "{op:?} never reported an inside point");
+        }
+    }
+
+    #[test]
+    fn smooth_booleans_with_zero_k_stay_finite_on_the_seam() {
+        // Goes through the script-facing constructors, which clamp k away from
+        // zero: k = 0 would divide by zero and go NaN exactly where the two
+        // surfaces are equidistant.
+        use crate::sdf_api::RhaiSdf;
+
+        let mut a = RhaiSdf::new(SdfOp::Sphere { radius: 0.5 });
+        let mut b = RhaiSdf::new(SdfOp::Sphere { radius: 0.5 });
+        let b = b.translate_x(0.6);
+
+        // (0.3, 0, 0) is equidistant from both spheres.
+        for op in [
+            a.smooth_union(b.clone(), 0.0),
+            a.smooth_subtract(b.clone(), 0.0),
+            a.smooth_intersect(b, 0.0),
+        ] {
+            let d = dist(&op.to_sdf_op(), [0.3, 0.0, 0.0]);
+            assert!(d.is_finite(), "zero-k smooth boolean produced {d}");
         }
     }
 }

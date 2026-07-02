@@ -122,7 +122,7 @@ plane(nx, ny, nz, offset)                   // Infinite plane
 ground_plane()                              // Infinite plane at Y = 0
 ```
 
-See **[SOYUZ_COOKBOOK.md](SOYUZ_COOKBOOK.md)** for the complete, always-up-to-date list (generated from the API).
+The complete, always-up-to-date list lives in **[SOYUZ_API.json](SOYUZ_API.json)** (machine-readable, generated from `docs/api/manifest.toml`) and in the [API docs on the project website](https://noahsabaj.github.io/soyuz-website/docs). For worked recipes and patterns, see **[SOYUZ_COOKBOOK.md](SOYUZ_COOKBOOK.md)**.
 
 ### Combining Shapes
 
@@ -265,12 +265,16 @@ soyuz/
   app/                    # Desktop IDE (Dioxus)
   crates/
     soyuz-math/           # Mathematical formulas (generates Rust + WGSL)
-    soyuz-core/           # SDF engine, mesh generation, export
+    soyuz-sdf/            # SDF representation (SdfOp) + WGSL shader generation
+    soyuz-core/           # Mesh generation (marching cubes) + export (GLB/GLTF/OBJ/STL)
     soyuz-render/         # GPU raymarching renderer
     soyuz-script/         # Rhai scripting integration
     soyuz-engine/         # High-level orchestration (render + script)
+    soyuz-wasm/           # WASM build for the website playground
+    soyuz-mcp/            # MCP server exposing Soyuz to AI agents
+  xtask/                  # Docs/theme codegen + smoke tests
   examples/               # Sample scripts
-  SOYUZ_COOKBOOK.md       # Complete scripting reference
+  SOYUZ_COOKBOOK.md       # Worked recipes and patterns
 ```
 
 ---
@@ -360,7 +364,8 @@ half.symmetry_x()  // Creates both sides
 
 ## Further Reading
 
-- **[SOYUZ_COOKBOOK.md](SOYUZ_COOKBOOK.md)** - Complete API reference with all primitives, operations, and recipes
+- **[SOYUZ_COOKBOOK.md](SOYUZ_COOKBOOK.md)** - Worked recipes and patterns
+- **[SOYUZ_API.json](SOYUZ_API.json)** - Complete machine-readable API list (generated from `docs/api/manifest.toml`); also browsable as the [API docs on the project website](https://noahsabaj.github.io/soyuz-website/docs)
 - **[examples/](examples/)** - Working script examples
 
 ---

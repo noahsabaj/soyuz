@@ -80,7 +80,7 @@ fn script_to_mesh_to_export_pipeline() {
 }
 
 #[test]
-fn all_examples_parse() {
+fn all_examples_execute() {
     let engine = ScriptEngine::new();
 
     // Find examples directory relative to the crate root
@@ -92,28 +92,30 @@ fn all_examples_parse() {
         .expect("Should have grandparent")
         .join("examples");
 
-    if !examples_dir.exists() {
-        eprintln!(
-            "Examples directory not found at {:?}, skipping test",
-            examples_dir
-        );
-        return;
-    }
+    assert!(
+        examples_dir.exists(),
+        "examples directory not found at {examples_dir:?}"
+    );
 
     let mut count = 0;
     for entry in std::fs::read_dir(&examples_dir).expect("Should read examples dir") {
         let path = entry.expect("Should read entry").path();
         if path.extension().map_or(false, |e| e == "rhai") {
-            let content = std::fs::read_to_string(&path).expect("Should read file");
-            engine
-                .compile(&content)
-                .unwrap_or_else(|e| panic!("Example {} should parse: {}", path.display(), e));
+            // Fully evaluate (not just parse) so examples cannot rot against
+            // the current API: this runs env calls and validates the SDF the
+            // same way preview/export entry points do.
+            let scene = engine
+                .eval_scene_file(&path)
+                .unwrap_or_else(|e| panic!("Example {} should execute: {}", path.display(), e));
+            scene.sdf.validate().unwrap_or_else(|e| {
+                panic!("Example {} produced invalid SDF: {}", path.display(), e)
+            });
             count += 1;
         }
     }
 
     assert!(count > 0, "Should have found at least one example file");
-    println!("Successfully parsed {} example files", count);
+    println!("Successfully executed {} example files", count);
 }
 
 #[test]

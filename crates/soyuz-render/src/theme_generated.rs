@@ -10,6 +10,11 @@ pub const RENDER_CLEAR_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
+/// The preview pane background (`preview.canvasBg`) as an X11 pixel
+/// value (0x00RRGGBB). The embedded preview child sets it as its window
+/// background so pre-paint exposures match the studio's pane color.
+pub const PREVIEW_CANVAS_BG_X11: u32 = 0x00C8D1D9;
+
 #[must_use]
 pub fn default_environment() -> Environment {
     Environment {

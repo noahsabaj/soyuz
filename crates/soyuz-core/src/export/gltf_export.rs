@@ -1,22 +1,11 @@
-//! GLTF/GLB file export with full PBR material support
+//! GLTF/GLB file export
 
 // String writing is infallible, so .expect() is safe here
-// Large JSON builder function is intentionally a single unit
-// Result wrapper kept for future error handling paths
 #![allow(clippy::expect_used)]
-#![allow(clippy::too_many_lines)]
-#![allow(clippy::unnecessary_wraps)]
-#![allow(clippy::uninlined_format_args)]
 
 use crate::Result;
-
-/// Helper macro for writing to a String buffer.
-/// String writing is infallible, so we use `expect()` with a clear message.
-macro_rules! write_str {
-    ($dst:expr, $($arg:tt)*) => {
-        write!($dst, $($arg)*).expect("String write is infallible")
-    };
-}
+use crate::mesh::Mesh;
+use std::path::Path;
 
 /// Helper macro for writeln to a String buffer.
 /// String writing is infallible, so we use `expect()` with a clear message.
@@ -28,53 +17,10 @@ macro_rules! writeln_str {
         writeln!($dst, $($arg)*).expect("String write is infallible")
     };
 }
-use crate::material::{Material, MeshWithMaterial, RasterizedMaterial};
-use crate::mesh::Mesh;
-use std::path::Path;
 
-/// Export options for GLTF
-#[derive(Debug, Clone)]
-pub struct GltfExportOptions {
-    /// Texture resolution for rasterized materials
-    pub texture_size: u32,
-    /// Whether to embed textures in the file
-    pub embed_textures: bool,
-    /// Whether to include material data
-    pub include_material: bool,
-}
-
-impl Default for GltfExportOptions {
-    fn default() -> Self {
-        Self {
-            texture_size: 1024,
-            embed_textures: true,
-            include_material: true,
-        }
-    }
-}
-
-/// Export a mesh to GLTF format (without material)
+/// Export a mesh to GLTF (JSON + external .bin) or GLB (single binary) format,
+/// chosen by the target file extension.
 pub fn export_gltf(mesh: &Mesh, path: &Path) -> Result<()> {
-    export_gltf_with_options(mesh, None, path, &GltfExportOptions::default())
-}
-
-/// Export a mesh with material to GLTF format
-pub fn export_gltf_with_material(mesh_mat: &MeshWithMaterial, path: &Path) -> Result<()> {
-    export_gltf_with_options(
-        &mesh_mat.mesh,
-        Some(&mesh_mat.material),
-        path,
-        &GltfExportOptions::default(),
-    )
-}
-
-/// Export a mesh with optional material and custom options
-pub fn export_gltf_with_options(
-    mesh: &Mesh,
-    material: Option<&Material>,
-    path: &Path,
-    options: &GltfExportOptions,
-) -> Result<()> {
     // An empty mesh would produce a POSITION accessor with min = [f32::MAX] and
     // max = [f32::MIN] (min > max) — invalid glTF. Fail with a clear message.
     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
@@ -86,148 +32,62 @@ pub fn export_gltf_with_options(
     }
 
     let is_glb = path.extension().is_some_and(|ext| ext == "glb");
-
-    // Rasterize material if present
-    let rasterized = if options.include_material {
-        material.map(|m| m.rasterize(options.texture_size))
-    } else {
-        None
-    };
-
-    // Build the GLTF structure
-    let gltf_data = build_gltf_data(mesh, material, rasterized.as_ref(), is_glb, options)?;
+    let mesh_buffer = build_mesh_buffer(mesh);
 
     if is_glb {
-        write_glb(path, &gltf_data)?;
+        let json = build_gltf_json(mesh, mesh_buffer.len(), None);
+        write_glb(path, &json, &mesh_buffer)
     } else {
-        write_gltf_separate(path, &gltf_data)?;
+        // The JSON references the binary payload by file name, so derive both
+        // from the target path (model.gltf -> model.bin).
+        let bin_path = path.with_extension("bin");
+        let bin_uri = bin_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                crate::Error::Export(format!("invalid export path: {}", path.display()))
+            })?
+            .to_string();
+        let json = build_gltf_json(mesh, mesh_buffer.len(), Some(&bin_uri));
+        std::fs::write(path, &json)?;
+        std::fs::write(&bin_path, &mesh_buffer)?;
+        Ok(())
     }
-
-    Ok(())
 }
 
-/// All data needed for GLTF export
-struct GltfData {
-    json: String,
-    mesh_buffer: Vec<u8>,
-    texture_buffers: Vec<Vec<u8>>,
-    #[allow(dead_code)]
-    external_bin_uri: Option<String>,
-}
-
-fn build_gltf_data(
-    mesh: &Mesh,
-    material: Option<&Material>,
-    rasterized: Option<&RasterizedMaterial>,
-    is_glb: bool,
-    _options: &GltfExportOptions,
-) -> Result<GltfData> {
-    // Calculate buffer sizes
+/// Interleave the mesh into the single glTF binary buffer layout:
+/// positions, then normals, then UVs, then indices.
+fn build_mesh_buffer(mesh: &Mesh) -> Vec<u8> {
     let positions_size = mesh.vertices.len() * 12;
     let normals_size = mesh.vertices.len() * 12;
     let uvs_size = mesh.vertices.len() * 8;
     let indices_size = mesh.indices.len() * 4;
 
-    // Calculate bounds
-    let mut min = [f32::MAX; 3];
-    let mut max = [f32::MIN; 3];
+    let mut buffer = Vec::with_capacity(positions_size + normals_size + uvs_size + indices_size);
     for v in &mesh.vertices {
-        for i in 0..3 {
-            min[i] = min[i].min(v.position[i]);
-            max[i] = max[i].max(v.position[i]);
-        }
-    }
-
-    // Build mesh buffer
-    let mut mesh_buffer =
-        Vec::with_capacity(positions_size + normals_size + uvs_size + indices_size);
-
-    for v in &mesh.vertices {
-        mesh_buffer.extend_from_slice(bytemuck::cast_slice(&v.position));
+        buffer.extend_from_slice(bytemuck::cast_slice(&v.position));
     }
     for v in &mesh.vertices {
-        mesh_buffer.extend_from_slice(bytemuck::cast_slice(&v.normal));
+        buffer.extend_from_slice(bytemuck::cast_slice(&v.normal));
     }
     for v in &mesh.vertices {
-        mesh_buffer.extend_from_slice(bytemuck::cast_slice(&v.uv));
+        buffer.extend_from_slice(bytemuck::cast_slice(&v.uv));
     }
-    mesh_buffer.extend_from_slice(bytemuck::cast_slice(&mesh.indices));
-
-    // Build texture buffers if we have a rasterized material
-    let mut texture_buffers = Vec::new();
-    let mut texture_info = Vec::new();
-
-    if let Some(rast) = rasterized {
-        let tex_bytes = rast.as_png_bytes();
-
-        // Albedo texture (always present)
-        texture_buffers.push(tex_bytes.albedo);
-        texture_info.push(("baseColorTexture", texture_buffers.len() - 1));
-
-        // Metallic-roughness texture
-        texture_buffers.push(tex_bytes.metallic_roughness);
-        texture_info.push(("metallicRoughnessTexture", texture_buffers.len() - 1));
-
-        // Normal map
-        if let Some(normal) = tex_bytes.normal {
-            texture_buffers.push(normal);
-            texture_info.push(("normalTexture", texture_buffers.len() - 1));
-        }
-
-        // Emissive
-        if let Some(emissive) = tex_bytes.emissive {
-            texture_buffers.push(emissive);
-            texture_info.push(("emissiveTexture", texture_buffers.len() - 1));
-        }
-    }
-
-    // Build JSON
-    let json = build_gltf_json_with_material(
-        mesh.vertices.len(),
-        mesh.indices.len(),
-        mesh_buffer.len(),
-        &min,
-        &max,
-        positions_size,
-        normals_size,
-        uvs_size,
-        material,
-        &texture_info,
-        &texture_buffers,
-        is_glb,
-    );
-
-    Ok(GltfData {
-        json,
-        mesh_buffer,
-        texture_buffers,
-        external_bin_uri: if is_glb {
-            None
-        } else {
-            Some("mesh.bin".to_string())
-        },
-    })
+    buffer.extend_from_slice(bytemuck::cast_slice(&mesh.indices));
+    buffer
 }
 
-fn write_glb(path: &Path, data: &GltfData) -> Result<()> {
+fn write_glb(path: &Path, json: &str, mesh_buffer: &[u8]) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
 
-    let json_bytes = data.json.as_bytes();
+    let json_bytes = json.as_bytes();
     let json_padding = (4 - (json_bytes.len() % 4)) % 4;
-
-    // Calculate total binary size (mesh buffer + all textures)
-    let mut total_bin_size = data.mesh_buffer.len();
-    for tex in &data.texture_buffers {
-        // Add padding between buffers
-        let padding = (4 - (total_bin_size % 4)) % 4;
-        total_bin_size += padding + tex.len();
-    }
-    let bin_padding = (4 - (total_bin_size % 4)) % 4;
+    let bin_padding = (4 - (mesh_buffer.len() % 4)) % 4;
 
     let total_size = 12  // GLB header
         + 8 + json_bytes.len() + json_padding  // JSON chunk
-        + 8 + total_bin_size + bin_padding; // BIN chunk
+        + 8 + mesh_buffer.len() + bin_padding; // BIN chunk
 
     let mut file = File::create(path)?;
 
@@ -243,87 +103,44 @@ fn write_glb(path: &Path, data: &GltfData) -> Result<()> {
     file.write_all(&vec![0x20u8; json_padding])?;
 
     // BIN chunk
-    file.write_all(&((total_bin_size + bin_padding) as u32).to_le_bytes())?;
+    file.write_all(&((mesh_buffer.len() + bin_padding) as u32).to_le_bytes())?;
     file.write_all(&0x004E_4942_u32.to_le_bytes())?; // "BIN\0"
-    file.write_all(&data.mesh_buffer)?;
-
-    // Write texture data with padding
-    let mut current_offset = data.mesh_buffer.len();
-    for tex in &data.texture_buffers {
-        let padding = (4 - (current_offset % 4)) % 4;
-        file.write_all(&vec![0u8; padding])?;
-        file.write_all(tex)?;
-        current_offset += padding + tex.len();
-    }
-
+    file.write_all(mesh_buffer)?;
     file.write_all(&vec![0u8; bin_padding])?;
 
     Ok(())
 }
 
-fn write_gltf_separate(path: &Path, data: &GltfData) -> Result<()> {
-    // Write JSON file
-    std::fs::write(path, &data.json)?;
-
-    // Write binary file
-    let bin_path = path.with_extension("bin");
-    std::fs::write(&bin_path, &data.mesh_buffer)?;
-
-    // Write texture files
-    let parent = path.parent().unwrap_or(Path::new("."));
-    for (i, tex) in data.texture_buffers.iter().enumerate() {
-        let tex_path = parent.join(format!("texture_{}.png", i));
-        std::fs::write(&tex_path, tex)?;
-    }
-
-    Ok(())
-}
-
-#[allow(clippy::needless_raw_string_hashes)] // Raw strings are more readable for JSON templates
-fn build_gltf_json_with_material(
-    vertex_count: usize,
-    index_count: usize,
-    mesh_buffer_size: usize,
-    min: &[f32; 3],
-    max: &[f32; 3],
-    positions_size: usize,
-    normals_size: usize,
-    uvs_size: usize,
-    material: Option<&Material>,
-    texture_info: &[(&str, usize)],
-    texture_buffers: &[Vec<u8>],
-    is_glb: bool,
-) -> String {
+/// Build the glTF JSON document. `bin_uri` is `None` for GLB (the buffer is
+/// the embedded binary chunk) and the external `.bin` file name otherwise.
+#[allow(clippy::too_many_lines)] // The JSON template reads best as one linear builder
+fn build_gltf_json(mesh: &Mesh, buffer_size: usize, bin_uri: Option<&str>) -> String {
     use std::fmt::Write;
 
-    let mut json = String::new();
+    let vertex_count = mesh.vertices.len();
+    let index_count = mesh.indices.len();
+
+    let positions_size = vertex_count * 12;
+    let normals_size = vertex_count * 12;
+    let uvs_size = vertex_count * 8;
+    let indices_size = index_count * 4;
 
     let positions_offset = 0;
     let normals_offset = positions_size;
     let uvs_offset = normals_offset + normals_size;
     let indices_offset = uvs_offset + uvs_size;
-    let indices_size = index_count * 4;
 
-    // Calculate texture buffer offsets. GLB embeds texture bytes in the single
-    // binary chunk; external glTF writes textures as standalone PNG files.
-    let mut texture_offsets = Vec::new();
-    let mut current_offset = mesh_buffer_size;
-    if is_glb {
-        for tex in texture_buffers {
-            let padding = (4 - (current_offset % 4)) % 4;
-            current_offset += padding;
-            texture_offsets.push(current_offset);
-            current_offset += tex.len();
+    let mut min = [f32::MAX; 3];
+    let mut max = [f32::MIN; 3];
+    for v in &mesh.vertices {
+        for i in 0..3 {
+            min[i] = min[i].min(v.position[i]);
+            max[i] = max[i].max(v.position[i]);
         }
     }
 
-    let total_buffer_size = if is_glb {
-        current_offset
-    } else {
-        mesh_buffer_size
-    };
+    let mut json = String::new();
 
-    // Start JSON
     writeln_str!(json, "{{");
     writeln_str!(
         json,
@@ -334,18 +151,13 @@ fn build_gltf_json_with_material(
     writeln_str!(json, r#"  "nodes": [{{ "mesh": 0 }}],"#);
 
     // Meshes
-    let material_idx = if material.is_some() {
-        r#", "material": 0"#
-    } else {
-        ""
-    };
     writeln_str!(json, r#"  "meshes": [{{"#);
     writeln_str!(json, r#"    "primitives": [{{"#);
     writeln_str!(
         json,
         r#"      "attributes": {{ "POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2 }},"#
     );
-    writeln_str!(json, r#"      "indices": 3{}"#, material_idx);
+    writeln_str!(json, r#"      "indices": 3"#);
     writeln_str!(json, r#"    }}]"#);
     writeln_str!(json, r#"  }}],"#);
 
@@ -399,156 +211,27 @@ fn build_gltf_json_with_material(
         uvs_offset,
         uvs_size
     );
-    write_str!(
+    writeln_str!(
         json,
         r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }}"#,
         indices_offset,
         indices_size
     );
-
-    // Add buffer views for embedded GLB textures only.
-    if is_glb {
-        for (offset, tex) in texture_offsets.iter().zip(texture_buffers.iter()) {
-            writeln_str!(json, ",");
-            write_str!(
-                json,
-                r#"    {{ "buffer": 0, "byteOffset": {}, "byteLength": {} }}"#,
-                offset,
-                tex.len()
-            );
-        }
-    }
-    writeln_str!(json);
     writeln_str!(json, r#"  ],"#);
 
-    // Materials
-    if let Some(mat) = material {
-        writeln_str!(json, r#"  "materials": [{{"#);
-        writeln_str!(json, r#"    "pbrMetallicRoughness": {{"#);
-
-        // Base color
-        let base_color = mat.base_color_factor();
-        write_str!(
-            json,
-            r#"      "baseColorFactor": [{}, {}, {}, {}]"#,
-            base_color[0],
-            base_color[1],
-            base_color[2],
-            base_color[3]
-        );
-
-        // Base color texture
-        if texture_info
-            .iter()
-            .any(|(name, _)| *name == "baseColorTexture")
-        {
-            writeln_str!(json, ",");
-            write_str!(json, r#"      "baseColorTexture": {{ "index": 0 }}"#);
-        }
-
-        // Metallic-roughness texture
-        if texture_info
-            .iter()
-            .any(|(name, _)| *name == "metallicRoughnessTexture")
-        {
-            writeln_str!(json, ",");
-            write_str!(
-                json,
-                r#"      "metallicRoughnessTexture": {{ "index": 1 }}"#
-            );
-        }
-
-        writeln_str!(json, ",");
-        writeln_str!(
-            json,
-            r#"      "metallicFactor": {},"#,
-            mat.metallic_factor()
-        );
-        writeln_str!(
-            json,
-            r#"      "roughnessFactor": {}"#,
-            mat.roughness_factor()
-        );
-        writeln_str!(json, r#"    }}"#);
-
-        // Normal texture
-        if texture_info
-            .iter()
-            .any(|(name, _)| *name == "normalTexture")
-        {
-            let idx = texture_info
-                .iter()
-                .position(|(name, _)| *name == "normalTexture")
-                .expect("normalTexture should exist after any() check");
-            writeln_str!(json, r#"    ,"normalTexture": {{ "index": {} }}"#, idx);
-        }
-
-        // Emissive
-        if texture_info
-            .iter()
-            .any(|(name, _)| *name == "emissiveTexture")
-        {
-            let idx = texture_info
-                .iter()
-                .position(|(name, _)| *name == "emissiveTexture")
-                .expect("emissiveTexture should exist after any() check");
-            writeln_str!(json, r#"    ,"emissiveTexture": {{ "index": {} }}"#, idx);
-            writeln_str!(json, r#"    ,"emissiveFactor": [1.0, 1.0, 1.0]"#);
-        }
-
-        writeln_str!(json, r#"  }}],"#);
-    }
-
-    // Textures and images
-    if !texture_buffers.is_empty() {
-        writeln_str!(json, r#"  "textures": ["#);
-        for i in 0..texture_buffers.len() {
-            if i > 0 {
-                writeln_str!(json, ",");
-            }
-            write_str!(json, r#"    {{ "source": {}, "sampler": 0 }}"#, i);
-        }
-        writeln_str!(json);
-        writeln_str!(json, r#"  ],"#);
-
-        writeln_str!(json, r#"  "samplers": [{{"#);
-        writeln_str!(json, r#"    "magFilter": 9729,"#); // LINEAR
-        writeln_str!(json, r#"    "minFilter": 9987,"#); // LINEAR_MIPMAP_LINEAR
-        writeln_str!(json, r#"    "wrapS": 10497,"#); // REPEAT
-        writeln_str!(json, r#"    "wrapT": 10497"#); // REPEAT
-        writeln_str!(json, r#"  }}],"#);
-
-        writeln_str!(json, r#"  "images": ["#);
-        for i in 0..texture_buffers.len() {
-            if i > 0 {
-                writeln_str!(json, ",");
-            }
-            if is_glb {
-                write_str!(
-                    json,
-                    r#"    {{ "bufferView": {}, "mimeType": "image/png" }}"#,
-                    4 + i
-                );
-            } else {
-                write_str!(json, r#"    {{ "uri": "texture_{}.png" }}"#, i);
-            }
-        }
-        writeln_str!(json);
-        writeln_str!(json, r#"  ],"#);
-    }
-
     // Buffer
-    if is_glb {
+    if let Some(uri) = bin_uri {
         writeln_str!(
             json,
-            r#"  "buffers": [{{ "byteLength": {} }}]"#,
-            total_buffer_size
+            r#"  "buffers": [{{ "uri": "{}", "byteLength": {} }}]"#,
+            uri,
+            buffer_size
         );
     } else {
         writeln_str!(
             json,
-            r#"  "buffers": [{{ "uri": "mesh.bin", "byteLength": {} }}]"#,
-            mesh_buffer_size
+            r#"  "buffers": [{{ "byteLength": {} }}]"#,
+            buffer_size
         );
     }
 
@@ -585,62 +268,22 @@ mod tests {
     }
 
     #[test]
-    fn test_export_with_material() {
+    fn test_export_gltf_bin_uri_matches_written_file() {
         let mesh = create_test_mesh();
-        let material = Material::pbr()
-            .albedo_color(0.8, 0.2, 0.2)
-            .roughness(0.5)
-            .metallic(0.0);
-
-        let mesh_mat = MeshWithMaterial::new(mesh, material);
-        let temp_path = std::env::temp_dir().join("test_material.glb");
-        let result = export_gltf_with_material(&mesh_mat, &temp_path);
-        assert!(result.is_ok());
-        assert!(temp_path.exists());
-        std::fs::remove_file(&temp_path).ok();
-    }
-
-    #[test]
-    fn test_export_gltf_with_material_uses_external_texture_uris() {
-        let mesh = create_test_mesh();
-        let material = Material::pbr()
-            .albedo_color(0.8, 0.2, 0.2)
-            .roughness(0.5)
-            .metallic(0.0);
-        let mesh_mat = MeshWithMaterial::new(mesh, material);
-
-        let temp_dir =
-            std::env::temp_dir().join(format!("soyuz_gltf_material_test_{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!("soyuz_gltf_test_{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
-        let temp_path = temp_dir.join("material.gltf");
+        let temp_path = temp_dir.join("model.gltf");
 
-        let result = export_gltf_with_material(&mesh_mat, &temp_path);
-        assert!(result.is_ok());
-        assert!(temp_path.exists());
+        export_gltf(&mesh, &temp_path).expect("export should succeed");
 
         let json = std::fs::read_to_string(&temp_path).expect("gltf JSON should be readable");
         let root: serde_json::Value = serde_json::from_str(&json).expect("gltf JSON should parse");
-        let buffer_views = root["bufferViews"]
-            .as_array()
-            .expect("gltf should contain bufferViews");
         assert_eq!(
-            buffer_views.len(),
-            4,
-            "external glTF should only define mesh bufferViews"
+            root["buffers"][0]["uri"].as_str(),
+            Some("model.bin"),
+            "buffer uri must reference the .bin file actually written"
         );
-
-        let images = root["images"]
-            .as_array()
-            .expect("gltf should contain images");
-        assert!(!images.is_empty(), "material export should create textures");
-        for (i, image) in images.iter().enumerate() {
-            assert!(image.get("bufferView").is_none());
-            assert_eq!(
-                image.get("uri").and_then(serde_json::Value::as_str),
-                Some(format!("texture_{}.png", i).as_str())
-            );
-            assert!(temp_dir.join(format!("texture_{}.png", i)).exists());
-        }
+        assert!(temp_dir.join("model.bin").exists());
 
         gltf::Gltf::open(&temp_path).expect("gltf crate should parse exported JSON");
         std::fs::remove_dir_all(&temp_dir).ok();

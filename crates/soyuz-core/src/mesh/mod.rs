@@ -526,13 +526,22 @@ const EDGE_CORNERS: [(usize, usize); 12] = [
 #[allow(clippy::expect_used)]
 mod winding_tests {
     use super::*;
-    use crate::sdf::sphere;
+
+    /// Exact unit-sphere SDF; the mesher only needs `distance`, and the test
+    /// config supplies explicit bounds.
+    struct TestSphere;
+
+    impl Sdf for TestSphere {
+        fn distance(&self, p: Vec3) -> f32 {
+            p.length() - 1.0
+        }
+    }
 
     fn sphere_mesh() -> Mesh {
         let cfg = MeshConfig::default()
             .with_resolution(24)
             .with_bounds(Aabb::cube(1.2));
-        generate_mesh(&sphere(1.0), cfg).expect("mesh")
+        generate_mesh(&TestSphere, cfg).expect("mesh")
     }
 
     /// Triangles must wind counter-clockwise / outward: for a sphere centered at

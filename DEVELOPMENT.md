@@ -45,11 +45,18 @@ optimized, and bundled. See `app/src/assets.rs`. Reference stylesheets via
 
 ## CI parity
 
-`.github/workflows/ci.yml` builds with `cargo build --release` and runs
-`cargo run -p xtask -- studio-smoke --mode fast` (which invokes `dx check` /
-`dx build`). It also runs `xtask docs check` / `theme check` to keep generated
-artifacts (API manifest, cookbook, theme) and the no-raw-UI-colors rule
-enforced. Run those locally before pushing:
+`.github/workflows/ci.yml` runs `cargo fmt --check`, `cargo clippy` with
+`-D warnings`, `xtask docs check --soyuz-only` / `theme check --soyuz-only`
+(soyuz-side generated artifacts + docs snippet tests), `cargo test`,
+`cargo build --release`, and `cargo run -p xtask -- studio-smoke --mode fast`
+(which invokes `dx check` / `dx build`); a separate job builds `soyuz-wasm`
+with wasm-pack. The website-integrated variant of the artifact checks
+additionally validates the website's generated files, so it needs
+soyuz-website checked out as a sibling — which soyuz CI doesn't have (the
+repo is private). That variant runs in the website repo's deploy workflow
+(via `npm run check`, which invokes xtask with `--website`). Run everything
+locally before pushing (without `--soyuz-only`, the checks cover the website
+sibling too):
 
 ```bash
 cargo fmt --all

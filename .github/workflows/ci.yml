@@ -35,11 +35,18 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      # NOTE: the generated-artifact (docs/theme) check is a cross-repo check — it
-      # verifies the website's generated-theme.css / docs.generated.ts against soyuz
-      # — so it needs soyuz-website checked out as a sibling. soyuz-website is
-      # private and this job's GITHUB_TOKEN can't clone it, so that check runs in
-      # the soyuz-website CI (which clones public soyuz) rather than here.
+      # The soyuz-side generated artifacts (SOYUZ_API.json, api_generated.rs,
+      # docs_generated.rs, SOYUZ_COOKBOOK.md, theme.css, theme_generated.rs) are
+      # validated here with --soyuz-only. The website-integrated variant of the
+      # same check (website's generated-theme.css / docs.generated.ts) needs the
+      # private soyuz-website checked out as a sibling, which this job's
+      # GITHUB_TOKEN can't clone — it runs in the soyuz-website deploy CI
+      # (which clones public soyuz) instead.
+      - name: Generated docs artifacts check
+        run: cargo run -p xtask -- docs check --soyuz-only
+
+      - name: Generated theme artifacts check
+        run: cargo run -p xtask -- theme check --soyuz-only
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings

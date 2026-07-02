@@ -13,7 +13,7 @@ mod icons;
 mod tree;
 
 use icons::{chevron, collapse_all_icon, file_icon, new_file_icon, new_folder_icon, refresh_icon};
-use tree::{TreeNode, load_directory};
+use tree::{TreeNode, load_directory, splice_dir_children};
 
 use crate::components::ConfirmDialog;
 use crate::state::{AppStateStoreExt, AppStore};
@@ -292,23 +292,30 @@ async fn reload_tree_preserving_expanded(
     mut nodes: Signal<Vec<TreeNode>>,
     expanded: Signal<HashSet<PathBuf>>,
 ) {
-    let Ok(mut all_nodes) = load_directory(&dir, 0).await else {
-        return;
+    let mut all_nodes = match load_directory(&dir, 0).await {
+        Ok(all_nodes) => all_nodes,
+        Err(e) => {
+            error!("Failed to read directory {}: {e}", dir.display());
+            return;
+        }
     };
 
     let mut expanded_paths: Vec<_> = expanded.peek().iter().cloned().collect();
     expanded_paths.sort_by_key(|p| p.components().count());
     for exp_path in expanded_paths {
-        if let Some(parent_idx) = all_nodes
+        // Skip folders that no longer exist (as a directory) in the fresh tree.
+        let Some(parent_idx) = all_nodes
             .iter()
             .position(|n| n.path == exp_path && n.is_dir)
-        {
-            let parent_depth = all_nodes[parent_idx].depth;
-            if let Ok(children) = load_directory(&exp_path, parent_depth + 1).await {
-                for (i, child) in children.into_iter().enumerate() {
-                    all_nodes.insert(parent_idx + 1 + i, child);
-                }
+        else {
+            continue;
+        };
+        let parent_depth = all_nodes[parent_idx].depth;
+        match load_directory(&exp_path, parent_depth + 1).await {
+            Ok(children) => {
+                splice_dir_children(&mut all_nodes, &exp_path, children);
             }
+            Err(e) => error!("Failed to read directory {}: {e}", exp_path.display()),
         }
     }
     nodes.set(all_nodes);
@@ -567,12 +574,15 @@ pub fn AssetBrowser() -> Element {
     // folders reloads the tree (the old once-only effect never did).
     let _root_resource = use_resource(move || async move {
         let workspace = state.workspace().read().clone();
-        if let Some(dir) = workspace
-            && let Ok(entries) = load_directory(&dir, 0).await
-        {
-            nodes.set(entries);
-            // Clear expanded state when root changes
-            expanded.write().clear();
+        if let Some(dir) = workspace {
+            match load_directory(&dir, 0).await {
+                Ok(entries) => {
+                    nodes.set(entries);
+                    // Clear expanded state when root changes
+                    expanded.write().clear();
+                }
+                Err(e) => error!("Failed to read directory {}: {e}", dir.display()),
+            }
         }
     });
 
@@ -633,21 +643,8 @@ pub fn AssetBrowser() -> Element {
         let is_expanded = expanded.peek().contains(&path);
 
         if is_expanded {
-            // Collapse: remove all children (nodes with greater depth that come after this node)
-            let mut nodes_write = nodes.write();
-            if let Some(idx) = nodes_write.iter().position(|n| n.path == path) {
-                let mut remove_count = 0;
-                for i in (idx + 1)..nodes_write.len() {
-                    if nodes_write[i].depth > depth {
-                        remove_count += 1;
-                    } else {
-                        break;
-                    }
-                }
-                for _ in 0..remove_count {
-                    nodes_write.remove(idx + 1);
-                }
-            }
+            // Collapse: splice out all descendant rows
+            splice_dir_children(&mut nodes.write(), &path, Vec::new());
             expanded.write().remove(&path);
         } else {
             // Expand: load and insert children
@@ -658,15 +655,12 @@ pub fn AssetBrowser() -> Element {
             loading.write().insert(path.clone());
 
             spawn(async move {
-                if let Ok(children) = load_directory(&path_clone, child_depth).await {
-                    // Insert children after the parent node
-                    let mut nodes_write = nodes.write();
-                    if let Some(idx) = nodes_write.iter().position(|n| n.path == path_clone) {
-                        for (i, child) in children.into_iter().enumerate() {
-                            nodes_write.insert(idx + 1 + i, child);
-                        }
+                match load_directory(&path_clone, child_depth).await {
+                    Ok(children) => {
+                        splice_dir_children(&mut nodes.write(), &path_clone, children);
+                        expanded.write().insert(path_clone.clone());
                     }
-                    expanded.write().insert(path_clone.clone());
+                    Err(e) => error!("Failed to read directory {}: {e}", path_clone.display()),
                 }
                 loading.write().remove(&path_clone);
             });
@@ -676,8 +670,9 @@ pub fn AssetBrowser() -> Element {
     // Open a file in the editor
     let open_file = move |path: PathBuf| {
         spawn(async move {
-            if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                state.write().open_file(path, content);
+            match tokio::fs::read_to_string(&path).await {
+                Ok(content) => state.write().open_file(path, content),
+                Err(e) => error!("Failed to open {}: {e}", path.display()),
             }
         });
     };
@@ -689,9 +684,12 @@ pub fn AssetBrowser() -> Element {
             return;
         };
         spawn(async move {
-            if let Ok(entries) = load_directory(&dir, 0).await {
-                nodes.set(entries);
-                expanded.write().clear();
+            match load_directory(&dir, 0).await {
+                Ok(entries) => {
+                    nodes.set(entries);
+                    expanded.write().clear();
+                }
+                Err(e) => error!("Failed to read directory {}: {e}", dir.display()),
             }
         });
     };
@@ -1043,30 +1041,21 @@ pub fn AssetBrowser() -> Element {
                                                         let parent_for_refresh = path.clone();
                                                         let ct = *creating.peek();
                                                         spawn(async move {
-                                                            if create_fs_entry(ct, &target_path).await
-                                                                && let Ok(new_children) =
-                                                                    load_directory(&parent_for_refresh, depth + 1).await
-                                                            {
-                                                                // Replace just this folder's children in place.
-                                                                let mut nodes_write = nodes.write();
-                                                                if let Some(parent_idx) = nodes_write
-                                                                    .iter()
-                                                                    .position(|n| n.path == parent_for_refresh)
-                                                                {
-                                                                    let mut remove_count = 0;
-                                                                    for i in (parent_idx + 1)..nodes_write.len() {
-                                                                        if nodes_write[i].depth > depth {
-                                                                            remove_count += 1;
-                                                                        } else {
-                                                                            break;
-                                                                        }
+                                                            if create_fs_entry(ct, &target_path).await {
+                                                                // Refresh just this folder's listing in place
+                                                                // (no full-tree reload, expanded set untouched).
+                                                                match load_directory(&parent_for_refresh, depth + 1).await {
+                                                                    Ok(new_children) => {
+                                                                        splice_dir_children(
+                                                                            &mut nodes.write(),
+                                                                            &parent_for_refresh,
+                                                                            new_children,
+                                                                        );
                                                                     }
-                                                                    for _ in 0..remove_count {
-                                                                        nodes_write.remove(parent_idx + 1);
-                                                                    }
-                                                                    for (i, child) in new_children.into_iter().enumerate() {
-                                                                        nodes_write.insert(parent_idx + 1 + i, child);
-                                                                    }
+                                                                    Err(e) => error!(
+                                                                        "Failed to read directory {}: {e}",
+                                                                        parent_for_refresh.display()
+                                                                    ),
                                                                 }
                                                             }
                                                             creating.set(None);
@@ -1098,12 +1087,17 @@ pub fn AssetBrowser() -> Element {
                                                 let parent_for_refresh = ws.clone();
                                                 let ct = *creating.peek();
                                                 spawn(async move {
-                                                    if create_fs_entry(ct, &target_path).await
-                                                        && let Ok(new_entries) =
-                                                            load_directory(&parent_for_refresh, 0).await
-                                                    {
-                                                        nodes.set(new_entries);
-                                                        expanded.write().clear();
+                                                    if create_fs_entry(ct, &target_path).await {
+                                                        match load_directory(&parent_for_refresh, 0).await {
+                                                            Ok(new_entries) => {
+                                                                nodes.set(new_entries);
+                                                                expanded.write().clear();
+                                                            }
+                                                            Err(e) => error!(
+                                                                "Failed to read directory {}: {e}",
+                                                                parent_for_refresh.display()
+                                                            ),
+                                                        }
                                                     }
                                                     creating.set(None);
                                                     creating_parent.set(None);

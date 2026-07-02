@@ -26,6 +26,7 @@ default = ["file-watcher"]
 file-watcher = ["dep:notify", "dep:notify-debouncer-mini"]
 
 [dev-dependencies]
+proptest = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

@@ -36,6 +36,9 @@ enum ThemeMode {
 struct ThemeOptions {
     mode: ThemeMode,
     website: Option<PathBuf>,
+    /// Only handle the soyuz-side artifacts; used by soyuz CI, where the
+    /// (private) website checkout is not available.
+    soyuz_only: bool,
 }
 
 impl ThemeOptions {
@@ -50,6 +53,7 @@ impl ThemeOptions {
         };
 
         let mut website = None;
+        let mut soyuz_only = false;
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--website" => {
@@ -58,11 +62,19 @@ impl ThemeOptions {
                     };
                     website = Some(PathBuf::from(value));
                 }
+                "--soyuz-only" => soyuz_only = true,
                 _ => bail!("unknown theme argument: {arg}"),
             }
         }
+        if soyuz_only && website.is_some() {
+            bail!("--soyuz-only and --website are mutually exclusive");
+        }
 
-        Ok(Self { mode, website })
+        Ok(Self {
+            mode,
+            website,
+            soyuz_only,
+        })
     }
 }
 
@@ -137,9 +149,13 @@ impl ThemeTokens {
 
 fn run_theme(options: ThemeOptions) -> Result<()> {
     let root = workspace_root()?;
-    let website = resolve_website_path(&root, options.website)?;
+    let website = if options.soyuz_only {
+        None
+    } else {
+        Some(resolve_website_path(&root, options.website)?)
+    };
     let tokens = ThemeTokens::read(&root)?;
-    let artifacts = theme_artifacts(&root, &website, &tokens)?;
+    let artifacts = theme_artifacts(&root, website.as_deref(), &tokens)?;
 
     match options.mode {
         ThemeMode::Generate => {
@@ -161,7 +177,7 @@ fn run_theme(options: ThemeOptions) -> Result<()> {
                 }
                 bail!("theme artifacts are stale; run cargo run -p xtask -- theme generate");
             }
-            check_raw_ui_colors(&root, &website)?;
+            check_raw_ui_colors(&root, website.as_deref())?;
         }
     }
 
@@ -193,10 +209,10 @@ fn resolve_website_path(root: &Path, path: Option<PathBuf>) -> Result<PathBuf> {
 
 fn theme_artifacts(
     root: &Path,
-    website: &Path,
+    website: Option<&Path>,
     tokens: &ThemeTokens,
 ) -> Result<Vec<ThemeArtifact>> {
-    Ok(vec![
+    let mut artifacts = vec![
         ThemeArtifact {
             path: root.join("app/assets/theme.css"),
             contents: generate_app_theme_css(tokens)?,
@@ -205,15 +221,18 @@ fn theme_artifacts(
             path: root.join("crates/soyuz-render/src/theme_generated.rs"),
             contents: generate_render_theme_rs(tokens)?,
         },
-        ThemeArtifact {
+    ];
+    if let Some(website) = website {
+        artifacts.push(ThemeArtifact {
             path: website.join("src/styles/generated-theme.css"),
             contents: generate_website_theme_css(tokens)?,
-        },
-        ThemeArtifact {
+        });
+        artifacts.push(ThemeArtifact {
             path: website.join("src/lib/theme.generated.ts"),
             contents: generate_website_theme_ts(tokens)?,
-        },
-    ])
+        });
+    }
+    Ok(artifacts)
 }
 
 fn write_artifact(artifact: &ThemeArtifact) -> Result<()> {
@@ -235,6 +254,9 @@ enum DocsMode {
 struct DocsOptions {
     mode: DocsMode,
     website: Option<PathBuf>,
+    /// Only handle the soyuz-side artifacts; used by soyuz CI, where the
+    /// (private) website checkout is not available.
+    soyuz_only: bool,
 }
 
 impl DocsOptions {
@@ -249,6 +271,7 @@ impl DocsOptions {
         };
 
         let mut website = None;
+        let mut soyuz_only = false;
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--website" => {
@@ -257,11 +280,19 @@ impl DocsOptions {
                     };
                     website = Some(PathBuf::from(value));
                 }
+                "--soyuz-only" => soyuz_only = true,
                 _ => bail!("unknown docs argument: {arg}"),
             }
         }
+        if soyuz_only && website.is_some() {
+            bail!("--soyuz-only and --website are mutually exclusive");
+        }
 
-        Ok(Self { mode, website })
+        Ok(Self {
+            mode,
+            website,
+            soyuz_only,
+        })
     }
 }
 
@@ -351,13 +382,17 @@ struct ApiFunctionJson<'a> {
 
 fn run_docs(options: DocsOptions) -> Result<()> {
     let root = workspace_root()?;
-    let website = resolve_website_path(&root, options.website)?;
+    let website = if options.soyuz_only {
+        None
+    } else {
+        Some(resolve_website_path(&root, options.website)?)
+    };
     let docs = read_docs_manifest(&root)?;
     let api = read_api_spec(&root)?;
     validate_docs_manifest(&root, &docs, &api)?;
     validate_runtime_mappings(&api)?;
 
-    let artifacts = docs_artifacts(&root, &website, &docs, &api)?;
+    let artifacts = docs_artifacts(&root, website.as_deref(), &docs, &api)?;
     match options.mode {
         DocsMode::Generate => {
             for artifact in artifacts {
@@ -505,11 +540,11 @@ fn validate_runtime_mappings(api: &ApiSpec) -> Result<()> {
 
 fn docs_artifacts(
     root: &Path,
-    website: &Path,
+    website: Option<&Path>,
     docs: &DocsManifest,
     api: &ApiSpec,
 ) -> Result<Vec<ThemeArtifact>> {
-    Ok(vec![
+    let mut artifacts = vec![
         ThemeArtifact {
             path: root.join("SOYUZ_API.json"),
             contents: generate_api_manifest_json(api)?,
@@ -526,11 +561,14 @@ fn docs_artifacts(
             path: root.join("SOYUZ_COOKBOOK.md"),
             contents: generate_cookbook_markdown(root, docs)?,
         },
-        ThemeArtifact {
+    ];
+    if let Some(website) = website {
+        artifacts.push(ThemeArtifact {
             path: website.join("src/lib/docs.generated.ts"),
             contents: generate_website_docs_ts(docs),
-        },
-    ])
+        });
+    }
+    Ok(artifacts)
 }
 
 fn generate_api_manifest_json(api: &ApiSpec) -> Result<String> {
@@ -1389,6 +1427,7 @@ fn generate_website_theme_ts(tokens: &ThemeTokens) -> Result<String> {
 
 fn generate_render_theme_rs(tokens: &ThemeTokens) -> Result<String> {
     let clear = hex_to_rgb(tokens.str(&["renderer", "clearColor"])?)?;
+    let canvas_bg_pixel = hex_to_x11_pixel(tokens.str(&["preview", "canvasBg"])?)?;
 
     Ok(format!(
         concat!(
@@ -1403,6 +1442,11 @@ fn generate_render_theme_rs(tokens: &ThemeTokens) -> Result<String> {
             "    b: {clear_b},\n",
             "    a: 1.0,\n",
             "}};\n",
+            "\n",
+            "/// The preview pane background (`preview.canvasBg`) as an X11 pixel\n",
+            "/// value (0x00RRGGBB). The embedded preview child sets it as its window\n",
+            "/// background so pre-paint exposures match the studio's pane color.\n",
+            "pub const PREVIEW_CANVAS_BG_X11: u32 = {canvas_bg_pixel};\n",
             "\n",
             "#[must_use]\n",
             "pub fn default_environment() -> Environment {{\n",
@@ -1429,6 +1473,7 @@ fn generate_render_theme_rs(tokens: &ThemeTokens) -> Result<String> {
         clear_r = fmt_float(clear[0]),
         clear_g = fmt_float(clear[1]),
         clear_b = fmt_float(clear[2]),
+        canvas_bg_pixel = format!("{canvas_bg_pixel:#010X}"),
         sun_direction = fmt_array(tokens.vec3(&["renderer", "sunDirection"])?),
         sun_color = fmt_array(tokens.vec3(&["renderer", "sunColor"])?),
         sun_intensity = fmt_float(tokens.num(&["renderer", "sunIntensity"])?),
@@ -1446,6 +1491,17 @@ fn generate_render_theme_rs(tokens: &ThemeTokens) -> Result<String> {
         shadows_enabled = tokens.bool(&["renderer", "shadowsEnabled"])?,
         shadow_softness = fmt_float(tokens.num(&["renderer", "shadowSoftness"])?),
     ))
+}
+
+/// Parse `#rrggbb` into an X11 pixel value (`0x00RRGGBB`).
+fn hex_to_x11_pixel(hex: &str) -> Result<u32> {
+    let stripped = hex
+        .strip_prefix('#')
+        .with_context(|| format!("expected hex color, got {hex}"))?;
+    if stripped.len() != 6 {
+        bail!("expected 6-digit hex color, got {hex}");
+    }
+    u32::from_str_radix(stripped, 16).with_context(|| format!("parse hex color {hex}"))
 }
 
 fn hex_to_rgb(hex: &str) -> Result<[f64; 3]> {
@@ -1485,18 +1541,22 @@ fn fmt_float(value: f64) -> String {
     value
 }
 
-fn check_raw_ui_colors(root: &Path, website: &Path) -> Result<()> {
-    let mut violations = Vec::new();
-    for (path, prefix) in [
+fn check_raw_ui_colors(root: &Path, website: Option<&Path>) -> Result<()> {
+    let mut roots = vec![
         (root.join("app/src"), "app/src/"),
         (root.join("app/assets"), "app/assets/"),
         (
             root.join("crates/soyuz-render/src"),
             "crates/soyuz-render/src/",
         ),
-        (website.join("src"), "soyuz-website/src/"),
-        (website.join("static"), "soyuz-website/static/"),
-    ] {
+    ];
+    if let Some(website) = website {
+        roots.push((website.join("src"), "soyuz-website/src/"));
+        roots.push((website.join("static"), "soyuz-website/static/"));
+    }
+
+    let mut violations = Vec::new();
+    for (path, prefix) in roots {
         collect_raw_color_violations(&path, &path, prefix, &mut violations)?;
     }
 
@@ -1867,7 +1927,7 @@ fn print_usage() {
         .next()
         .unwrap_or_else(|| OsString::from("xtask"));
     eprintln!(
-        "Usage:\n  {} theme generate [--website PATH]\n  {} theme check [--website PATH]\n  {} docs generate [--website PATH]\n  {} docs check [--website PATH]\n  {} studio-smoke --mode fast [--studio-bin PATH]\n  {} studio-smoke --mode graphics [--studio-bin PATH]",
+        "Usage:\n  {} theme generate [--website PATH | --soyuz-only]\n  {} theme check [--website PATH | --soyuz-only]\n  {} docs generate [--website PATH | --soyuz-only]\n  {} docs check [--website PATH | --soyuz-only]\n  {} studio-smoke --mode fast [--studio-bin PATH]\n  {} studio-smoke --mode graphics [--studio-bin PATH]",
         Path::new(&program).display(),
         Path::new(&program).display(),
         Path::new(&program).display(),

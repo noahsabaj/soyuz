@@ -135,7 +135,6 @@ pub fn ExportPanel() -> Element {
             resolution: export_resolution,
             optimize: export_optimize,
             last_export_dir: Some(path.clone()),
-            close_after_export: false,
         };
         // F57: export the CURRENT editor code, read live from app state at click
         // time, not the snapshot captured when the panel mounted.

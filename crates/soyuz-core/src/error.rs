@@ -24,10 +24,6 @@ pub enum Error {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    /// Image encoding/decoding error
-    #[error("Image error: {0}")]
-    Image(#[from] image::ImageError),
-
     /// GLTF error
     #[error("GLTF error: {0}")]
     Gltf(String),

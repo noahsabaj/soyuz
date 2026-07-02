@@ -252,16 +252,6 @@ fn setting_control(
                 },
             }
         },
-        "export_close_after" => rsx! {
-            SwitchControl {
-                id,
-                value: state.settings().export_close_after().cloned(),
-                on_change: move |v: bool| {
-                    state.settings().export_close_after().set(v);
-                    schedule_save(state);
-                },
-            }
-        },
         "restore_session" => rsx! {
             SwitchControl {
                 id,

@@ -3,18 +3,11 @@ name = "soyuz-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Core library for procedural asset generation"
+description = "Mesh generation and export for procedural assets"
 
 [dependencies]
 # Math
 glam = { workspace = true }
-soyuz-math = { path = "../soyuz-math" }
-
-# Noise generation
-noise = { workspace = true }
-
-# Image export
-image = { workspace = true }
 
 # 3D export
 gltf = { workspace = true }
@@ -32,8 +25,6 @@ rayon = { workspace = true }
 bytemuck = { workspace = true }
 
 [dev-dependencies]
-approx = { workspace = true }
-proptest = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

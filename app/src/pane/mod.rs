@@ -15,6 +15,8 @@ use crate::state::{
     AppStateStoreExt, AppStore, EditorPane, EditorTab, PaneId, SplitDirection, TabId,
 };
 use dioxus::prelude::*;
+use std::collections::HashSet;
+use std::sync::OnceLock;
 
 /// State for tab drag-and-drop operations (shared via context)
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -916,61 +918,60 @@ fn LineNumbers(code: String) -> Element {
     }
 }
 
+/// Minimal view of the generated Soyuz API manifest - the highlighter only
+/// needs function names (aliases are ordinary entries, so they come along
+/// automatically). Unknown fields are ignored by serde.
+#[derive(serde::Deserialize)]
+struct ApiManifest {
+    categories: Vec<ApiCategory>,
+}
+
+#[derive(serde::Deserialize)]
+struct ApiCategory {
+    functions: Vec<ApiFunction>,
+}
+
+#[derive(serde::Deserialize)]
+struct ApiFunction {
+    name: String,
+}
+
+/// Every Soyuz API function name (including aliases), built once from the
+/// generated manifest embedded in soyuz-script. Deriving the set from the same
+/// data that drives the docs and MCP discovery means the highlighter can never
+/// drift from the real API.
+fn soyuz_api_names() -> &'static HashSet<String> {
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        match serde_json::from_str::<ApiManifest>(soyuz_script::api_generated::API_MANIFEST_JSON) {
+            Ok(manifest) => manifest
+                .categories
+                .into_iter()
+                .flat_map(|category| category.functions)
+                .map(|function| function.name)
+                .collect(),
+            Err(error) => {
+                // Unreachable for a well-formed build (the manifest is embedded
+                // at compile time); degrade to no builtin highlighting.
+                tracing::error!("Failed to parse embedded Soyuz API manifest: {error}");
+                HashSet::new()
+            }
+        }
+    })
+}
+
 /// Simple Rhai syntax highlighting
 fn highlight_rhai(code: &str) -> String {
     let mut result = String::with_capacity(code.len() * 2);
 
+    // Rhai language keywords only; Soyuz API names come from the generated
+    // manifest via `soyuz_api_names`.
     let keywords = [
         "let", "const", "fn", "if", "else", "while", "for", "in", "loop", "break", "continue",
         "return", "true", "false", "null",
     ];
 
-    let builtins = [
-        "sphere",
-        "cube",
-        "box3",
-        "cylinder",
-        "capsule",
-        "torus",
-        "cone",
-        "plane",
-        "ellipsoid",
-        "octahedron",
-        "hex_prism",
-        "tri_prism",
-        "rounded_box",
-        "mandelbulb",
-        "menger",
-        "union",
-        "subtract",
-        "intersect",
-        "smooth_union",
-        "smooth_subtract",
-        "smooth_intersect",
-        "translate",
-        "translate_x",
-        "translate_y",
-        "translate_z",
-        "rotate",
-        "rotate_x",
-        "rotate_y",
-        "rotate_z",
-        "scale",
-        "scale_xyz",
-        "mirror",
-        "twist",
-        "bend",
-        "taper",
-        "hollow",
-        "shell",
-        "onion",
-        "round",
-        "elongate",
-        "repeat",
-        "repeat_limited",
-        "repeat_polar",
-        "ground_plane",
-    ];
+    let builtins = soyuz_api_names();
 
     for line in code.lines() {
         let chars: Vec<char> = line.chars().collect();
@@ -1039,7 +1040,7 @@ fn highlight_rhai(code: &str) -> String {
                         "<span class=\"hl-keyword\">{}</span>",
                         html_escape(&word)
                     ));
-                } else if builtins.contains(&word.as_str()) {
+                } else if builtins.contains(word.as_str()) {
                     result.push_str(&format!(
                         "<span class=\"hl-builtin\">{}</span>",
                         html_escape(&word)
@@ -1064,4 +1065,26 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn soyuz_api_names_are_derived_from_the_generated_manifest() {
+        let names = soyuz_api_names();
+        // `hollow` is declared in the manifest as an alias of `shell`.
+        for name in ["sphere", "smooth_union", "hollow"] {
+            assert!(names.contains(name), "manifest should provide `{name}`");
+        }
+    }
+
+    #[test]
+    fn highlight_rhai_marks_manifest_names_as_builtins() {
+        let html = highlight_rhai("let s = sphere(1.0).hollow(0.1);");
+        assert!(html.contains(r#"<span class="hl-keyword">let</span>"#));
+        assert!(html.contains(r#"<span class="hl-builtin">sphere</span>"#));
+        assert!(html.contains(r#"<span class="hl-builtin">hollow</span>"#));
+    }
 }

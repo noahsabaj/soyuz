@@ -91,10 +91,10 @@ pub enum RevolveProfile {
 /// Uses `Arc` for child nodes to enable efficient cloning (O(1) reference count increment
 /// instead of O(n) deep clone) and thread-safe sharing of SDF trees.
 ///
-/// Marked `#[non_exhaustive]` to allow adding new SDF primitives and operations
-/// in future versions without breaking downstream code.
+/// Deliberately NOT `#[non_exhaustive]`: every consumer (CPU evaluator, WGSL
+/// generator, validation) must match exhaustively so that adding a variant is
+/// a compile error everywhere at once, never a silent fallback.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub enum SdfOp {
     // Primitives
     Sphere {
@@ -337,8 +337,23 @@ impl SdfOp {
                 | SdfOp::RepeatPolar { inner, .. } => {
                     stack.push((inner, depth + 1));
                 }
-                // Primitives and 2D-to-3D ops have no children.
-                _ => {}
+                // Primitives and 2D-to-3D profile ops have no child SDFs.
+                SdfOp::Sphere { .. }
+                | SdfOp::Box { .. }
+                | SdfOp::RoundedBox { .. }
+                | SdfOp::Cylinder { .. }
+                | SdfOp::Capsule { .. }
+                | SdfOp::Torus { .. }
+                | SdfOp::Cone { .. }
+                | SdfOp::Plane { .. }
+                | SdfOp::Ellipsoid { .. }
+                | SdfOp::Octahedron { .. }
+                | SdfOp::HexPrism { .. }
+                | SdfOp::TriPrism { .. }
+                | SdfOp::Pyramid { .. }
+                | SdfOp::Link { .. }
+                | SdfOp::Extrude { .. }
+                | SdfOp::Revolve { .. } => {}
             }
         }
         Ok(())
@@ -427,7 +442,17 @@ impl SdfOp {
             | SdfOp::SmoothIntersect { a, b, k } => {
                 a.validate()?;
                 b.validate()?;
-                check_float(*k, "smooth operation k")
+                check_float(*k, "smooth operation k")?;
+                if *k == 0.0 {
+                    // Both the CPU evaluator and the generated WGSL divide by
+                    // `k`, which goes NaN wherever the two surfaces are
+                    // equidistant.
+                    return Err(InvalidFloatError {
+                        context: "smooth operation k must be non-zero".to_string(),
+                        value: 0.0,
+                    });
+                }
+                Ok(())
             }
 
             // Modifiers
@@ -551,9 +576,30 @@ impl SdfOp {
                 check_floats(spacing, "repeat_limited spacing")?;
                 check_floats(count, "repeat_limited count")
             }
-            // Handle any future variants added to the non-exhaustive enum
-            #[allow(unreachable_patterns)]
-            _ => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn smooth_union(k: f32) -> SdfOp {
+        SdfOp::SmoothUnion {
+            a: Arc::new(SdfOp::Sphere { radius: 0.5 }),
+            b: Arc::new(SdfOp::Sphere { radius: 0.5 }),
+            k,
+        }
+    }
+
+    #[test]
+    fn validate_rejects_zero_smooth_k() {
+        assert!(smooth_union(0.0).validate().is_err());
+        assert!(smooth_union(-0.0).validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_nonzero_smooth_k() {
+        assert!(smooth_union(0.15).validate().is_ok());
     }
 }

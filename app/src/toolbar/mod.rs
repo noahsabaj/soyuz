@@ -46,7 +46,7 @@ impl TopMenu {
             Self::View => "View",
             Self::Go => "Go",
             Self::Preview => "Preview",
-            Self::Terminal => "Terminal",
+            Self::Terminal => "Output",
             Self::Help => "Help",
         }
     }
@@ -305,8 +305,8 @@ fn menu_dropdown(menu: TopMenu, has_workspace: bool) -> Element {
             MenuAction { index: 2, label: "Stop Preview", shortcut: "Shift+F5", command_id: "preview.stop" }
         },
         TopMenu::Terminal => rsx! {
-            MenuAction { index: 0, label: "Toggle Terminal", shortcut: "Ctrl+`", command_id: "terminal.toggle" }
-            MenuAction { index: 1, label: "Clear Terminal", command_id: "terminal.clear" }
+            MenuAction { index: 0, label: "Toggle Output", shortcut: "Ctrl+`", command_id: "terminal.toggle" }
+            MenuAction { index: 1, label: "Clear Output", command_id: "terminal.clear" }
         },
         TopMenu::Help => rsx! {
             MenuAction { index: 0, label: "Open Cookbook", command_id: "help.cookbook" }

@@ -136,3 +136,112 @@ impl UndoHistory {
         self.last_edit_time = None; // Reset grouping timer
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// Record an edit as the start of a new group, regardless of wall clock:
+    /// `finish_undo_redo` resets the grouping timer.
+    fn record_new_group(history: &mut UndoHistory, old_content: &str, limit: usize) {
+        history.finish_undo_redo();
+        history.record_edit(old_content, 0, limit);
+    }
+
+    #[test]
+    fn line_col_to_offset_maps_lines_and_clamps() {
+        let text = "let a = 1;\nlet b = 2;\n";
+        assert_eq!(line_col_to_offset(text, 1, 1), 0);
+        assert_eq!(line_col_to_offset(text, 2, 1), 11);
+        assert_eq!(line_col_to_offset(text, 2, 5), 15);
+        // Column past the end of the text clamps to the text length.
+        assert_eq!(line_col_to_offset(text, 2, 999), text.len());
+        // Line past the end of the text clamps to the text length.
+        assert_eq!(line_col_to_offset(text, 99, 1), text.len());
+    }
+
+    #[test]
+    fn rapid_edits_group_into_one_undo_step() {
+        let mut history = UndoHistory::default();
+        history.record_edit("v1", 0, 100);
+        // Immediately after: well inside the grouping window.
+        history.record_edit("v2", 1, 100);
+        history.record_edit("v3", 2, 100);
+        assert_eq!(history.undo_stack.len(), 1);
+        assert_eq!(history.undo_stack[0].content, "v1");
+    }
+
+    #[test]
+    fn edits_past_the_grouping_window_start_a_new_step() {
+        let mut history = UndoHistory::default();
+        history.record_edit("v1", 0, 100);
+        // The window is EDIT_GROUP_MS of real time; sleep just past it.
+        std::thread::sleep(std::time::Duration::from_millis(EDIT_GROUP_MS as u64 + 100));
+        history.record_edit("v2", 1, 100);
+        assert_eq!(history.undo_stack.len(), 2);
+        assert_eq!(history.undo_stack[1].content, "v2");
+    }
+
+    #[test]
+    fn history_trims_oldest_beyond_limit() {
+        let mut history = UndoHistory::default();
+        for content in ["v1", "v2", "v3", "v4", "v5"] {
+            record_new_group(&mut history, content, 3);
+        }
+        let contents: Vec<_> = history
+            .undo_stack
+            .iter()
+            .map(|s| s.content.as_str())
+            .collect();
+        assert_eq!(contents, ["v3", "v4", "v5"]);
+
+        // Undo lands on the newest retained snapshot.
+        let restored = history.undo("v6", 0).expect("undo should pop");
+        assert_eq!(restored.content, "v5");
+    }
+
+    #[test]
+    fn zero_limit_is_guarded_to_keep_one_step() {
+        let mut history = UndoHistory::default();
+        record_new_group(&mut history, "v1", 0);
+        record_new_group(&mut history, "v2", 0);
+        assert_eq!(history.undo_stack.len(), 1);
+        assert_eq!(history.undo_stack[0].content, "v2");
+    }
+
+    #[test]
+    fn undo_redo_transfer_round_trips_content_and_cursor() {
+        let mut history = UndoHistory::default();
+        history.record_edit("v1", 3, 100);
+
+        // Undo: current state moves to the redo stack.
+        let restored = history.undo("v2", 7).expect("undo should pop");
+        assert_eq!((restored.content.as_str(), restored.cursor_pos), ("v1", 3));
+        assert_eq!(history.redo_stack.len(), 1);
+        history.finish_undo_redo();
+
+        // Redo: round-trips back, restoring content and cursor.
+        let redone = history.redo("v1", 3).expect("redo should pop");
+        assert_eq!((redone.content.as_str(), redone.cursor_pos), ("v2", 7));
+        assert_eq!(history.undo_stack.len(), 1);
+        history.finish_undo_redo();
+    }
+
+    #[test]
+    fn new_edit_clears_redo_and_undo_ignores_in_flight_recording() {
+        let mut history = UndoHistory::default();
+        history.record_edit("v1", 0, 100);
+        let _ = history.undo("v2", 0).expect("undo should pop");
+
+        // While an undo is being applied, recording is suppressed.
+        history.record_edit("applying-undo", 0, 100);
+        assert!(history.undo_stack.is_empty());
+        history.finish_undo_redo();
+
+        // A fresh edit clears the redo stack.
+        assert_eq!(history.redo_stack.len(), 1);
+        history.record_edit("v1", 0, 100);
+        assert!(history.redo_stack.is_empty());
+    }
+}

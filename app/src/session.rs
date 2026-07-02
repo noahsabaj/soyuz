@@ -74,13 +74,6 @@ pub struct Session {
     /// Last used export directory
     #[serde(default)]
     pub last_export_dir: Option<PathBuf>,
-    /// Whether to close export window after exporting
-    #[serde(default = "default_close_after_export")]
-    pub close_after_export: bool,
-}
-
-fn default_close_after_export() -> bool {
-    true
 }
 
 fn default_focused_pane() -> u64 {
@@ -155,18 +148,9 @@ impl Session {
     ///
     /// Serialization happens on the caller's task (cheap) and every filesystem
     /// operation goes through `tokio::fs`, so the desktop UI thread is never
-    /// stalled on synchronous IO the way the periodic `save()` loop currently is.
-    ///
-    /// NOTE FOR LEAD: the session-autosave `use_future` in `main.rs` (~line 410)
-    /// currently (a) calls the blocking `save()`, (b) hardcodes a 30s interval, and
-    /// (c) saves unconditionally with no dirty check. It should instead:
-    ///   * `session_data.save_async().await` (this method);
-    ///   * gate on a dirty check, e.g. `if state.peek().has_unsaved_changes()`;
-    ///   * read the cadence from the now-consumed setting via
-    ///     `state.settings().auto_save().cloned().interval_secs()`
-    ///     (see `AutoSave::interval_secs` in settings.rs), skipping the save when
-    ///     it returns `None` (auto-save disabled).
-    #[allow(dead_code)] // Wired up by main.rs (other-owned); see NOTE FOR LEAD above.
+    /// stalled on synchronous IO. The session-autosave `use_future` in `main.rs`
+    /// calls this on the interval configured by the auto-save setting, gated on
+    /// a dirty check.
     pub async fn save_async(&self) -> anyhow::Result<()> {
         let (path, tmp_path, content) = self.prepare_save()?;
 
@@ -247,7 +231,6 @@ pub fn state_to_session(state: &AppState) -> Session {
         active_tab_idx: 0,
         workspace: state.workspace.clone(),
         last_export_dir: state.export_settings.last_export_dir.clone(),
-        close_after_export: state.export_settings.close_after_export,
     }
 }
 
@@ -389,7 +372,6 @@ pub fn restore_session(state: &mut AppState, session: Session) {
 
     // Restore export settings
     state.export_settings.last_export_dir = session.last_export_dir.filter(|p| p.exists());
-    state.export_settings.close_after_export = session.close_after_export;
     state.last_source_tab_id = state
         .active_tab()
         .filter(|tab| tab.is_persistable())
@@ -401,4 +383,312 @@ pub fn restore_session(state: &mut AppState, session: Session) {
                 .find(|tab| tab.is_persistable())
                 .map(|tab| tab.id)
         });
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn temp_file(name: &str, content: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("soyuz_session_test_{}_{name}", std::process::id()));
+        std::fs::write(&path, content).expect("test file should be writable");
+        path
+    }
+
+    fn tab(path: Option<PathBuf>, content: Option<&str>, is_dirty: bool) -> TabSession {
+        TabSession {
+            path,
+            content: content.map(String::from),
+            is_dirty,
+            history: None,
+        }
+    }
+
+    fn group(id: u64, tabs: Vec<TabSession>, active_tab_idx: usize) -> PaneSession {
+        PaneSession::TabGroup {
+            id,
+            tabs,
+            active_tab_idx,
+        }
+    }
+
+    fn session_with_layout(layout: PaneSession) -> Session {
+        Session {
+            pane_layout: Some(layout),
+            focused_pane_id: 1,
+            ..Session::default()
+        }
+    }
+
+    fn source_tab(id: u64, path: Option<PathBuf>, content: &str, is_dirty: bool) -> EditorTab {
+        EditorTab::with_history(
+            id,
+            path,
+            content.to_string(),
+            is_dirty,
+            UndoHistory::default(),
+        )
+    }
+
+    #[test]
+    fn restore_skips_unreadable_tabs_and_keeps_the_active_tab() {
+        // F55: a file-backed tab whose file is gone must be skipped (not
+        // restored with placeholder content), and the active index must follow
+        // the surviving tabs.
+        let readable = temp_file("f55_a.rhai", "sphere(0.5)");
+        let missing = std::env::temp_dir().join("soyuz_session_test_missing_f55.rhai");
+        let session = session_with_layout(group(
+            1,
+            vec![
+                tab(Some(readable.clone()), None, false),
+                tab(Some(missing), None, false),
+                tab(None, Some("cube(1.0)"), false),
+            ],
+            2,
+        ));
+
+        let mut state = AppState::new();
+        restore_session(&mut state, session);
+
+        let EditorPane::TabGroup {
+            tabs,
+            active_tab_idx,
+            ..
+        } = &state.editor_pane
+        else {
+            panic!("expected a tab group");
+        };
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].content, "sphere(0.5)");
+        assert_eq!(tabs[1].content, "cube(1.0)");
+        // The previously-active tab (index 2) survives as index 1.
+        assert_eq!(*active_tab_idx, 1);
+        assert_eq!(state.next_tab_id, 3);
+        std::fs::remove_file(readable).ok();
+    }
+
+    #[test]
+    fn restore_with_every_tab_unreadable_yields_an_empty_group() {
+        let missing_a = std::env::temp_dir().join("soyuz_session_test_missing_a.rhai");
+        let missing_b = std::env::temp_dir().join("soyuz_session_test_missing_b.rhai");
+        let session = session_with_layout(group(
+            1,
+            vec![
+                tab(Some(missing_a), None, false),
+                tab(Some(missing_b), None, false),
+            ],
+            1,
+        ));
+
+        let mut state = AppState::new();
+        restore_session(&mut state, session);
+
+        let EditorPane::TabGroup {
+            tabs,
+            active_tab_idx,
+            ..
+        } = &state.editor_pane
+        else {
+            panic!("expected a tab group");
+        };
+        assert!(tabs.is_empty());
+        assert_eq!(*active_tab_idx, 0);
+        assert_eq!(state.next_tab_id, 1);
+    }
+
+    #[test]
+    fn legacy_flat_tabs_migrate_into_a_pane_tree() {
+        let session = Session {
+            pane_layout: None,
+            focused_pane_id: 1,
+            tabs: vec![tab(None, Some("a"), false), tab(None, Some("b"), true)],
+            active_tab_idx: 1,
+            ..Session::default()
+        };
+
+        let mut state = AppState::new();
+        restore_session(&mut state, session);
+
+        let EditorPane::TabGroup {
+            id,
+            tabs,
+            active_tab_idx,
+        } = &state.editor_pane
+        else {
+            panic!("expected a tab group");
+        };
+        assert_eq!(*id, 1);
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].content, "a");
+        assert_eq!(tabs[1].content, "b");
+        assert!(tabs[1].is_dirty);
+        assert_eq!(*active_tab_idx, 1);
+        assert_eq!(state.next_tab_id, 3);
+        assert_eq!(state.next_pane_id, 2);
+    }
+
+    #[test]
+    fn pane_tree_round_trips_through_serialized_session() {
+        let mut state = AppState::new();
+        state.editor_pane = EditorPane::Split {
+            direction: SplitDirection::Vertical,
+            first: Box::new(EditorPane::TabGroup {
+                id: 1,
+                tabs: vec![source_tab(1, None, "first pane", false)],
+                active_tab_idx: 0,
+            }),
+            second: Box::new(EditorPane::TabGroup {
+                id: 2,
+                tabs: vec![source_tab(2, None, "second pane", true)],
+                active_tab_idx: 0,
+            }),
+            ratio: 0.6,
+        };
+        state.focused_pane_id = 2;
+
+        // Full round trip through the on-disk representation.
+        let json = serde_json::to_string(&state_to_session(&state)).expect("serialize");
+        let session: Session = serde_json::from_str(&json).expect("deserialize");
+
+        let mut restored = AppState::new();
+        restore_session(&mut restored, session);
+
+        let EditorPane::Split {
+            direction,
+            first,
+            second,
+            ratio,
+        } = &restored.editor_pane
+        else {
+            panic!("expected a split");
+        };
+        assert!(matches!(direction, SplitDirection::Vertical));
+        assert!((ratio - 0.6).abs() < f32::EPSILON);
+        let EditorPane::TabGroup {
+            id: first_id,
+            tabs: first_tabs,
+            ..
+        } = first.as_ref()
+        else {
+            panic!("expected a tab group");
+        };
+        let EditorPane::TabGroup {
+            id: second_id,
+            tabs: second_tabs,
+            ..
+        } = second.as_ref()
+        else {
+            panic!("expected a tab group");
+        };
+        assert_eq!((*first_id, *second_id), (1, 2));
+        assert_eq!(first_tabs[0].content, "first pane");
+        assert_eq!(second_tabs[0].content, "second pane");
+        assert!(second_tabs[0].is_dirty);
+        assert_eq!(restored.focused_pane_id, 2);
+        assert_eq!(restored.next_pane_id, 3);
+        assert_eq!(restored.next_tab_id, 3);
+    }
+
+    #[test]
+    fn tool_tabs_are_not_persisted() {
+        let mut state = AppState::new();
+        state.editor_pane = EditorPane::TabGroup {
+            id: 1,
+            tabs: vec![source_tab(1, None, "source", false)],
+            active_tab_idx: 0,
+        };
+        state.focused_pane_id = 1;
+        state.open_preview_tab();
+
+        let session = state_to_session(&state);
+        let Some(PaneSession::TabGroup {
+            tabs,
+            active_tab_idx,
+            ..
+        }) = session.pane_layout
+        else {
+            panic!("expected a tab group");
+        };
+        // Only the source tab persists; the preview tool tab is filtered out
+        // and the active index is remapped onto the surviving tabs.
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0].content.as_deref(), Some("source"));
+        assert_eq!(active_tab_idx, 0);
+    }
+
+    #[test]
+    fn only_dirty_or_untitled_tabs_persist_content() {
+        let file = temp_file("content_policy.rhai", "on disk");
+        let mut state = AppState::new();
+        state.editor_pane = EditorPane::TabGroup {
+            id: 1,
+            tabs: vec![
+                source_tab(1, Some(file.clone()), "on disk", false),
+                source_tab(2, Some(file.clone()), "edited", true),
+                source_tab(3, None, "untitled", false),
+            ],
+            active_tab_idx: 0,
+        };
+
+        let session = state_to_session(&state);
+        let Some(PaneSession::TabGroup { tabs, .. }) = session.pane_layout else {
+            panic!("expected a tab group");
+        };
+        // Clean file-backed tabs reload from disk; dirty and untitled tabs
+        // must carry their content.
+        assert_eq!(tabs[0].content, None);
+        assert_eq!(tabs[1].content.as_deref(), Some("edited"));
+        assert_eq!(tabs[2].content.as_deref(), Some("untitled"));
+        std::fs::remove_file(file).ok();
+    }
+
+    #[test]
+    fn restore_filters_missing_workspace_and_export_dir() {
+        let existing_dir =
+            std::env::temp_dir().join(format!("soyuz_session_test_dir_{}", std::process::id()));
+        std::fs::create_dir_all(&existing_dir).expect("test dir should be creatable");
+        let missing_dir = std::env::temp_dir().join("soyuz_session_test_never_exists_dir");
+
+        let mut session = session_with_layout(group(1, vec![tab(None, Some("x"), false)], 0));
+        session.workspace = Some(existing_dir.clone());
+        session.last_export_dir = Some(existing_dir.clone());
+        let mut state = AppState::new();
+        state.settings.remember_workspace = true;
+        restore_session(&mut state, session);
+        assert_eq!(state.workspace.as_deref(), Some(existing_dir.as_path()));
+        assert_eq!(
+            state.export_settings.last_export_dir.as_deref(),
+            Some(existing_dir.as_path())
+        );
+
+        let mut session = session_with_layout(group(1, vec![tab(None, Some("x"), false)], 0));
+        session.workspace = Some(missing_dir.clone());
+        session.last_export_dir = Some(missing_dir);
+        let mut state = AppState::new();
+        state.settings.remember_workspace = true;
+        restore_session(&mut state, session);
+        assert!(state.workspace.is_none());
+        assert!(state.export_settings.last_export_dir.is_none());
+
+        std::fs::remove_dir_all(existing_dir).ok();
+    }
+
+    #[test]
+    fn session_json_with_fields_from_older_versions_still_loads() {
+        // Sessions written by v0.7.x carried `close_after_export`; the field is
+        // gone but old files must still deserialize.
+        let json = r#"{
+            "pane_layout": null,
+            "focused_pane_id": 1,
+            "tabs": [],
+            "active_tab_idx": 0,
+            "workspace": null,
+            "last_export_dir": null,
+            "close_after_export": true
+        }"#;
+        let session: Session = serde_json::from_str(json).expect("old session JSON should load");
+        assert!(session.pane_layout.is_none());
+    }
 }

@@ -344,4 +344,14 @@ mod tests {
         let result = engine.eval_sdf("sphere(");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_smooth_union_zero_k_still_renders() {
+        // The API clamps k = 0 to a small minimum instead of letting
+        // finalize_sdf's non-zero-k validation reject the script.
+        let engine = ScriptEngine::new();
+        let result =
+            engine.eval_to_sdf_op("sphere(0.5).smooth_union(sphere(0.5).translate_x(0.6), 0.0)");
+        assert!(result.is_ok());
+    }
 }

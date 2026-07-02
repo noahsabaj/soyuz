@@ -15,9 +15,14 @@
 //! `box3(1.0, 1.0, 1.0)` etc. — `cylinder(1, 2)` raises a "function not found"
 //! error. As a convenience, `sphere(..)` and `cube(..)` also accept integers.
 
-use rhai::{Engine, Module};
+use rhai::Engine;
 use soyuz_sdf::{ExtrudeProfile, RevolveProfile, SdfOp};
 use std::sync::Arc;
+
+/// Smooth boolean blends divide by `k`, so `k = 0` goes NaN exactly where both
+/// surfaces are equidistant (the blend seam). Clamp script-provided `k` to this
+/// minimum so a zero (or negative) `k` degrades to an effectively hard boolean.
+const MIN_SMOOTH_K: f32 = 1e-4;
 
 /// SDF node representation for Rhai
 ///
@@ -77,7 +82,7 @@ impl RhaiSdf {
         RhaiSdf::new(SdfOp::SmoothUnion {
             a: Arc::clone(&self.op),
             b: other.op,
-            k: k as f32,
+            k: (k as f32).max(MIN_SMOOTH_K),
         })
     }
 
@@ -85,7 +90,7 @@ impl RhaiSdf {
         RhaiSdf::new(SdfOp::SmoothSubtract {
             a: Arc::clone(&self.op),
             b: other.op,
-            k: k as f32,
+            k: (k as f32).max(MIN_SMOOTH_K),
         })
     }
 
@@ -93,7 +98,7 @@ impl RhaiSdf {
         RhaiSdf::new(SdfOp::SmoothIntersect {
             a: Arc::clone(&self.op),
             b: other.op,
-            k: k as f32,
+            k: (k as f32).max(MIN_SMOOTH_K),
         })
     }
 
@@ -483,11 +488,4 @@ pub fn rad_to_deg(rad: f64) -> f64 {
 /// Register all SDF functions with a Rhai engine
 pub fn register_sdf_api(engine: &mut Engine) {
     crate::api_generated::register_sdf_api_generated(engine);
-}
-
-/// Create a module with all SDF functions (for imports)
-/// Note: This module is for advanced use cases. Most users should use register_sdf_api instead.
-pub fn create_sdf_module() -> Module {
-    // Return empty module - functions are registered directly via register_sdf_api
-    Module::new()
 }

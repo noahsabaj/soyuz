@@ -18,8 +18,6 @@ pub struct ExportSettings {
     pub optimize: bool,
     /// Last used export directory (remembered across sessions)
     pub last_export_dir: Option<PathBuf>,
-    /// Whether to close the export window after exporting
-    pub close_after_export: bool,
 }
 
 impl Default for ExportSettings {
@@ -29,7 +27,6 @@ impl Default for ExportSettings {
             resolution: 128,
             optimize: false,
             last_export_dir: None,
-            close_after_export: true,
         }
     }
 }
