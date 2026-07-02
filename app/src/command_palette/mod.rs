@@ -7,7 +7,7 @@
 #![allow(clippy::needless_borrows_for_generic_args)]
 
 use crate::services::AppServices;
-use crate::state::AppStore;
+use crate::state::{AppStore, TerminalLevel};
 use dioxus::prelude::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -18,9 +18,7 @@ use strsim::jaro_winkler;
 pub enum PaletteMode {
     #[default]
     Unified, // Search files + commands together (default)
-    GoToLine,   // : prefix - go to line number
-    TextSearch, // % or # prefix - search text in files
-    Symbols,    // @ prefix - search symbols in current file
+    GoToLine, // : prefix - go to line number
 }
 
 /// A command that can be executed from the palette
@@ -225,18 +223,18 @@ pub fn get_all_commands() -> Vec<Command> {
             shortcut: None,
             category: "Window",
         },
-        // Terminal
+        // Output panel (command ids keep the legacy `terminal.` prefix)
         Command {
             id: "terminal.toggle",
-            label: "Toggle Terminal",
+            label: "Toggle Output",
             shortcut: Some("Ctrl+`"),
-            category: "Terminal",
+            category: "Output",
         },
         Command {
             id: "terminal.clear",
-            label: "Clear Terminal",
+            label: "Clear Output",
             shortcut: None,
-            category: "Terminal",
+            category: "Output",
         },
         // Help
         Command {
@@ -451,6 +449,23 @@ pub fn CommandPalette() -> Element {
     let services = use_context::<AppServices>();
     let mut palette = use_context::<Signal<PaletteState>>();
 
+    // Hide the natively-embedded preview while the palette is open: the
+    // preview is a native X11 child window, which always covers the webview's
+    // DOM (and thus this overlay) inside its rectangle.
+    let services_for_overlay = services.clone();
+    use_effect(move || {
+        let visible = palette.read().visible;
+        services_for_overlay.set_overlay_open(visible);
+        if !visible {
+            // Closing unmounts the palette's focused input, dropping DOM focus
+            // to <body> where the app-container keydown handler can't hear
+            // shortcuts; hand focus back so they keep working without a click.
+            let _ = document::eval(
+                "var app = document.querySelector('.app-container'); if (app) { app.focus(); }",
+            );
+        }
+    });
+
     let visible = palette.read().visible;
 
     if !visible {
@@ -552,8 +567,6 @@ pub fn CommandPalette() -> Element {
     let placeholder = match effective_mode {
         PaletteMode::Unified => "Search files and commands...",
         PaletteMode::GoToLine => "Enter line number...",
-        PaletteMode::TextSearch => "Search text in files...",
-        PaletteMode::Symbols => "Search symbols in current file...",
     };
 
     rsx! {
@@ -595,12 +608,6 @@ pub fn CommandPalette() -> Element {
                     PaletteMode::GoToLine => rsx! {
                         GoToLineHint { query: search_query.to_string() }
                     },
-                    PaletteMode::TextSearch => rsx! {
-                        TextSearchResults { query: search_query.to_string() }
-                    },
-                    PaletteMode::Symbols => rsx! {
-                        div { class: "hint", "Symbol search coming soon..." }
-                    },
                 }
             }
         }
@@ -611,12 +618,6 @@ pub fn CommandPalette() -> Element {
 fn parse_query(query: &str) -> (PaletteMode, &str) {
     if let Some(rest) = query.strip_prefix(':') {
         (PaletteMode::GoToLine, rest.trim())
-    } else if let Some(rest) = query.strip_prefix('%') {
-        (PaletteMode::TextSearch, rest.trim())
-    } else if let Some(rest) = query.strip_prefix('#') {
-        (PaletteMode::TextSearch, rest.trim())
-    } else if let Some(rest) = query.strip_prefix('@') {
-        (PaletteMode::Symbols, rest.trim())
     } else {
         (PaletteMode::Unified, query.trim())
     }
@@ -626,7 +627,7 @@ fn parse_query(query: &str) -> (PaletteMode, &str) {
 fn get_result_count(palette: &PaletteState) -> usize {
     match palette.mode {
         PaletteMode::Unified => palette.unified_results.len(),
-        _ => 0,
+        PaletteMode::GoToLine => 0,
     }
 }
 
@@ -644,8 +645,12 @@ fn execute_selected(
                     SearchResult::File(file) => {
                         let path = file.path.clone();
                         spawn(async move {
-                            if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                                state.write().open_file(path, content);
+                            match tokio::fs::read_to_string(&path).await {
+                                Ok(content) => state.write().open_file(path, content),
+                                Err(error) => services.terminal_log(
+                                    TerminalLevel::Error,
+                                    format!("Failed to open {}: {error}", path.display()),
+                                ),
                             }
                         });
                     }
@@ -675,7 +680,6 @@ fn execute_selected(
                 });
             }
         }
-        _ => {}
     }
 }
 
@@ -703,6 +707,7 @@ fn UnifiedResults(selected_index: usize) -> Element {
                         let path = file.path.clone();
                         let name = file.name.clone();
                         let relative = file.relative_path.clone();
+                        let services = services.clone();
 
                         rsx! {
                             div {
@@ -710,9 +715,14 @@ fn UnifiedResults(selected_index: usize) -> Element {
                                 class: "{class}",
                                 onclick: move |_| {
                                     let p = path.clone();
+                                    let services = services.clone();
                                     spawn(async move {
-                                        if let Ok(content) = tokio::fs::read_to_string(&p).await {
-                                            state.write().open_file(p, content);
+                                        match tokio::fs::read_to_string(&p).await {
+                                            Ok(content) => state.write().open_file(p, content),
+                                            Err(error) => services.terminal_log(
+                                                TerminalLevel::Error,
+                                                format!("Failed to open {}: {error}", p.display()),
+                                            ),
                                         }
                                     });
                                     palette.write().visible = false;
@@ -773,20 +783,6 @@ fn GoToLineHint(query: String) -> Element {
                 "Type a line number..."
             } else {
                 "Invalid line number"
-            }
-        }
-    }
-}
-
-/// Text search results (placeholder)
-#[component]
-fn TextSearchResults(query: String) -> Element {
-    rsx! {
-        div { class: "hint",
-            if query.is_empty() {
-                "Type to search text in files..."
-            } else {
-                "Searching for \"{query}\"..."
             }
         }
     }

@@ -10,7 +10,7 @@ use crate::state::PaneId;
 use dioxus::prelude::document;
 use tracing::debug;
 
-/// DOM rectangle in viewport coordinates.
+/// DOM rectangle in viewport coordinates, in physical (device) pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct DomRect {
     pub x: i32,
@@ -19,7 +19,13 @@ pub struct DomRect {
     pub height: u32,
 }
 
-/// Get an element's bounding rectangle.
+/// Get an element's bounding rectangle in physical (device) pixels.
+///
+/// `getBoundingClientRect` reports CSS pixels; multiplying by
+/// `devicePixelRatio` converts to the device coordinate space that X11 child
+/// window embedding positions in. On fractional-DPI displays (e.g. Xft.dpi
+/// 153 = ~160%) the two differ, and mixing them up embeds the preview at the
+/// wrong place and size.
 pub async fn get_element_rect(element_id: &str) -> Option<DomRect> {
     let element_id = serde_json::to_string(element_id).ok()?;
     let js = format!(
@@ -28,11 +34,12 @@ pub async fn get_element_rect(element_id: &str) -> Option<DomRect> {
             var el = document.getElementById({element_id});
             if (!el) return null;
             var rect = el.getBoundingClientRect();
+            var dpr = window.devicePixelRatio || 1;
             return {{
-                x: Math.round(rect.left),
-                y: Math.round(rect.top),
-                width: Math.max(1, Math.round(rect.width)),
-                height: Math.max(1, Math.round(rect.height))
+                x: Math.round(rect.left * dpr),
+                y: Math.round(rect.top * dpr),
+                width: Math.max(1, Math.round(rect.width * dpr)),
+                height: Math.max(1, Math.round(rect.height * dpr))
             }};
         }})();
         "#

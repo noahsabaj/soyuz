@@ -189,8 +189,8 @@ fn ActivityBar() -> Element {
             }
             components::ActivityButton {
                 active: terminal_visible,
-                label: "Terminal",
-                title: "Terminal",
+                label: "Output",
+                title: "Output",
                 on_click: move |()| { state.terminal_visible().toggle(); },
                 svg {
                     class: "activity-icon",
@@ -485,6 +485,36 @@ pub(crate) fn save_window_geometry(width: u32, height: u32, x: i32, y: i32, maxi
     }
 }
 
+/// Document-level capture listener for the command-palette hotkey
+/// (Ctrl/Cmd+P and Ctrl/Cmd+Shift+P). Capture phase on `document` fires no
+/// matter which element is focused — including `<body>` after a focused
+/// element unmounts — and `stopPropagation` keeps the container-level
+/// shortcut handler from ever double-handling the chord.
+///
+/// Re-installable: each run tears down the previous listener and binds a
+/// fresh one to the current eval channel, then confirms with a "ready"
+/// message. The installer eval can be swallowed or deferred while the
+/// webview is still starting up, so the Rust side retries until it sees the
+/// confirmation.
+const PALETTE_HOTKEY_JS: &str = r#"
+    (function() {
+        if (window.__soyuzPaletteHotkeyTeardown) { window.__soyuzPaletteHotkeyTeardown(); }
+        var handler = function(e) {
+            var key = (e.key || '').toLowerCase();
+            if ((e.ctrlKey || e.metaKey) && key === 'p') {
+                e.preventDefault();
+                e.stopPropagation();
+                dioxus.send("toggle");
+            }
+        };
+        document.addEventListener('keydown', handler, true);
+        window.__soyuzPaletteHotkeyTeardown = function() {
+            document.removeEventListener('keydown', handler, true);
+        };
+        dioxus.send("ready");
+    })();
+"#;
+
 #[component]
 fn App() -> Element {
     // Non-reactive runtime services: process handles, preview IPC state, log buffer.
@@ -523,7 +553,7 @@ fn App() -> Element {
     let pending_close = use_context_provider(|| Signal::new(None::<pane::PendingCloseTab>));
 
     let mut state = use_context::<state::AppStore>();
-    let palette = use_context::<Signal<command_palette::PaletteState>>();
+    let mut palette = use_context::<Signal<command_palette::PaletteState>>();
     let services = use_context::<AppServices>();
 
     // One-shot, non-blocking "check for updates". Runs once on startup; on a
@@ -562,6 +592,51 @@ fn App() -> Element {
                 tracing::warn!("Failed to save session: {}", e);
             }
         }
+    });
+
+    // The command-palette hotkey listens on `document` in the capture phase,
+    // unlike every other shortcut (which lives on the `.app-container` keydown
+    // handler below). That handler only hears keys while DOM focus sits inside
+    // the container — when the focused element unmounts (the editor on a tab
+    // switch, the palette's own input on Escape) focus falls back to <body>
+    // and the container handler goes deaf until the next click. The palette
+    // is the escape hatch users reach for exactly then, so its hotkey must
+    // never go deaf; it also toggles, closing an already-open palette.
+    use_effect(move || {
+        spawn(async move {
+            loop {
+                let mut eval = document::eval(PALETTE_HOTKEY_JS);
+                let confirmed = matches!(
+                    tokio::time::timeout(
+                        tokio::time::Duration::from_secs(1),
+                        eval.recv::<String>(),
+                    )
+                    .await,
+                    Ok(Ok(message)) if message == "ready"
+                );
+                if !confirmed {
+                    // Swallowed or deferred by the starting webview; retry.
+                    tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+                    continue;
+                }
+                eprintln!(
+                    "[soyuz-studio @{}] palette hotkey listener installed",
+                    services::debug_timestamp()
+                );
+                while eval.recv::<String>().await.is_ok() {
+                    if palette.peek().visible {
+                        let mut p = palette.write();
+                        p.visible = false;
+                        p.query.clear();
+                        p.selected_index = 0;
+                    } else {
+                        app_commands::open_unified_palette(palette, state, "");
+                    }
+                }
+                // The channel died (webview reloaded?): reinstall.
+                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+            }
+        });
     });
 
     // Global keyboard shortcuts. These work regardless of focus; the editor textarea
@@ -614,12 +689,10 @@ fn App() -> Element {
             return;
         }
 
-        // Ctrl (+Shift) + character shortcuts.
-        if is_char("p") {
-            // Ctrl+P or Ctrl+Shift+P - open unified search.
-            e.prevent_default();
-            app_commands::open_unified_palette(palette, state, "");
-        } else if is_char("g") && !shift {
+        // Ctrl (+Shift) + character shortcuts. Ctrl(+Shift)+P is deliberately
+        // absent: the palette toggle is handled by the document-level capture
+        // listener installed above, which works from any focus state.
+        if is_char("g") && !shift {
             // Ctrl+G - go to line.
             e.prevent_default();
             app_commands::open_go_to_line_palette(palette);
@@ -776,12 +849,12 @@ fn App() -> Element {
                         }
                     }
 
-                    // Terminal panel (bottom-docked, collapsible), isolated so a
-                    // panic in the terminal cannot tear down the editor.
+                    // Output panel (bottom-docked, collapsible), isolated so a
+                    // panic in the panel cannot tear down the editor.
                     ErrorBoundary {
                         handle_error: |error| rsx! {
                             PanelError {
-                                panel_name: "Terminal".to_string(),
+                                panel_name: "Output".to_string(),
                                 error_msg: format!("{error:?}")
                             }
                         },

@@ -1,8 +1,9 @@
 //! Preview management - docked preview tab plus pop-out fallback.
 
 use crate::js_interop::{self, DomRect};
-use crate::services::AppServices;
+use crate::services::{AppServices, debug_timestamp};
 use crate::state::{AppStore, TerminalLevel};
+use dioxus::core::spawn_forever;
 use dioxus::desktop::wry::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use dioxus::prelude::*;
 use soyuz_engine::Engine;
@@ -53,6 +54,7 @@ enum PreviewPlacement {
     PopOut,
 }
 
+#[allow(clippy::too_many_lines)] // One linear spawn sequence with diagnostics
 fn spawn_preview_with_code(
     mut state: AppStore,
     services: AppServices,
@@ -64,6 +66,14 @@ fn spawn_preview_with_code(
     // will see the generation has moved on and stop mutating shared state, so it
     // can no longer flip `is_previewing` off under this newer preview.
     let generation = services.bump_preview_generation();
+    eprintln!(
+        "[soyuz-studio @{}] preview spawn requested ({}, generation {generation})",
+        debug_timestamp(),
+        match placement {
+            PreviewPlacement::Docked => "docked",
+            PreviewPlacement::PopOut => "pop-out",
+        }
+    );
     services.terminal_log(TerminalLevel::Info, "Starting preview...");
 
     let temp_path = preview_temp_path();
@@ -94,7 +104,18 @@ fn spawn_preview_with_code(
         None
     };
 
-    spawn(async move {
+    // spawn() ties the task to the *calling component's* scope — and this is
+    // called from e.g. the editor's Ctrl+Enter handler, where opening the
+    // Preview tab immediately unmounts the editor and silently cancels its
+    // tasks before the preview ever spawns. The task also owns the child
+    // process bookkeeping for the preview's whole lifetime, so it must not
+    // die with whichever component happened to start it.
+    spawn_forever(async move {
+        eprintln!(
+            "[soyuz-studio @{}] preview spawn task started (generation {generation}, parent {:?})",
+            debug_timestamp(),
+            parent_handle
+        );
         let rect = if matches!(placement, PreviewPlacement::Docked) {
             wait_for_preview_host_rect().await
         } else {
@@ -147,8 +168,18 @@ fn spawn_preview_with_code(
                     }
                 };
 
-                services.terminal_log(TerminalLevel::Info, "Preview docked");
+                services.terminal_log(
+                    TerminalLevel::Info,
+                    format!(
+                        "Preview docked at {}x{}+{}+{} (physical px)",
+                        rect.width, rect.height, rect.x, rect.y
+                    ),
+                );
+                services.record_embedded_dock_pos(rect.x, rect.y);
+                services.record_embedded_parent(parent);
                 services.set_preview_process(child);
+                services.set_preview_docked(true);
+                discover_embedded_preview_xid(services.clone(), parent, generation);
 
                 let process_handle_wait = services.preview_process();
                 wait_for_process_exit(state, services, process_handle_wait, generation).await;
@@ -160,12 +191,178 @@ fn spawn_preview_with_code(
     });
 }
 
+/// Re-dock the running embedded preview at the current host rect (pane splits,
+/// window resizes, and panel toggles all move it). Reuses the already-written
+/// preview script so the rendered content is unchanged; validation, dirty and
+/// error state are deliberately untouched — this repositions, it doesn't re-run.
+fn reposition_docked_preview(mut state: AppStore, services: AppServices) {
+    if !services.preview_is_docked() || !state.read().is_previewing {
+        return;
+    }
+    let Some(parent) = preview_parent_handle() else {
+        return;
+    };
+
+    // stop_preview_process removes the temp script as part of its cleanup, so
+    // capture the script first and restore it for the respawn.
+    let temp_path = preview_temp_path();
+    let Ok(script) = std::fs::read_to_string(&temp_path) else {
+        return;
+    };
+    eprintln!(
+        "[soyuz-studio @{}] repositioning docked preview (host rect changed)",
+        debug_timestamp()
+    );
+    services.stop_preview_process();
+    let generation = services.bump_preview_generation();
+    if let Err(e) = std::fs::write(&temp_path, script) {
+        let error_msg = format!("Failed to restore preview script: {e}");
+        services.terminal_log(TerminalLevel::Error, &error_msg);
+        let mut s = state.write();
+        s.error_message = Some(error_msg);
+        s.is_previewing = false;
+        return;
+    }
+
+    // spawn_forever: this task kills the old child and spawns the new one; a
+    // scope-tied task cancelled between those two steps would leave the
+    // preview dead (see the matching comment in `spawn_preview_with_code`).
+    spawn_forever(async move {
+        let rect = wait_for_preview_host_rect().await;
+        let Some(rect) = rect.filter(|r| r.width >= 1 && r.height >= 1) else {
+            report_docked_preview_unavailable(
+                state,
+                &services,
+                "Docked preview host disappeared while repositioning. Click Refresh to restart the preview.",
+            );
+            return;
+        };
+
+        match spawn_embedded_preview_process(&temp_path, parent, rect) {
+            Ok(child) => {
+                services.record_embedded_dock_pos(rect.x, rect.y);
+                services.record_embedded_parent(parent);
+                services.set_preview_process(child);
+                services.set_preview_docked(true);
+                discover_embedded_preview_xid(services.clone(), parent, generation);
+
+                let process_handle_wait = services.preview_process();
+                wait_for_process_exit(state, services, process_handle_wait, generation).await;
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to reposition docked preview: {e}");
+                services.terminal_log(TerminalLevel::Error, &error_msg);
+                tracing::error!("{error_msg}");
+                let mut s = state.write();
+                s.error_message = Some(error_msg);
+                s.is_previewing = false;
+            }
+        }
+    });
+}
+
+/// Discover the X11 window id of a freshly-spawned embedded preview child.
+///
+/// The child creates its window a few hundred milliseconds after spawn, as a
+/// child of the studio's X11 window carrying winit's `_XEMBED` property. Poll
+/// the studio window's children for it off the UI thread, then hand the id to
+/// [`AppServices`] so the studio can raise it (settling WebKitGTK's subwindow
+/// shuffle) and keep it below DOM overlays like the command palette.
+#[cfg(target_os = "linux")]
+fn discover_embedded_preview_xid(services: AppServices, parent: u32, generation: u64) {
+    std::thread::spawn(move || {
+        use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
+
+        let Ok((conn, _)) = x11rb::connect(None) else {
+            return;
+        };
+        let Ok(cookie) = conn.intern_atom(false, b"_XEMBED") else {
+            return;
+        };
+        let Ok(reply) = cookie.reply() else {
+            return;
+        };
+        let xembed = reply.atom;
+
+        for _ in 0..30 {
+            if services.preview_generation() != generation {
+                return;
+            }
+            let found = conn
+                .query_tree(parent)
+                .ok()
+                .and_then(|cookie| cookie.reply().ok())
+                .and_then(|tree| {
+                    // Children are returned bottom-to-top; prefer the topmost.
+                    tree.children.iter().rev().copied().find(|&child| {
+                        conn.get_property(false, child, xembed, AtomEnum::ANY, 0, 2)
+                            .ok()
+                            .and_then(|cookie| cookie.reply().ok())
+                            .is_some_and(|prop| prop.value_len > 0)
+                    })
+                });
+            if let Some(xid) = found {
+                services.record_embedded_preview_xid(xid);
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        // Without the xid the studio can't park the preview under overlays or
+        // heal its position/focus; say so instead of failing silently.
+        eprintln!(
+            "[soyuz-studio @{}] embedded preview xid discovery FAILED after 3s (parent {parent:#x}, generation {generation})",
+            crate::services::debug_timestamp()
+        );
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn discover_embedded_preview_xid(_services: AppServices, _parent: u32, _generation: u64) {}
+
 async fn wait_for_preview_host_rect() -> Option<DomRect> {
-    for _ in 0..PREVIEW_HOST_RETRY_ATTEMPTS {
-        if let Some(rect) = js_interop::get_element_rect(PREVIEW_HOST_ID).await
+    let mut probe_timeouts = 0usize;
+    for attempt in 1..=PREVIEW_HOST_RETRY_ATTEMPTS {
+        // A document::eval issued in the same tick the Preview tab mounts can
+        // hang forever (the webview is still applying the DOM update), which
+        // used to wedge the whole spawn task on the first Ctrl+Enter. Bound
+        // each probe and retry: by the next attempt the webview has settled.
+        let rect = match tokio::time::timeout(
+            tokio::time::Duration::from_millis(200),
+            js_interop::get_element_rect(PREVIEW_HOST_ID),
+        )
+        .await
+        {
+            Ok(rect) => {
+                if rect.is_none() {
+                    eprintln!(
+                        "[soyuz-studio @{}] host rect probe {attempt}: host element not in DOM yet",
+                        debug_timestamp()
+                    );
+                }
+                rect
+            }
+            Err(_elapsed) => {
+                probe_timeouts += 1;
+                eprintln!(
+                    "[soyuz-studio @{}] host rect probe {attempt}: eval timed out (webview busy)",
+                    debug_timestamp()
+                );
+                None
+            }
+        };
+
+        if let Some(rect) = rect
             && rect.width > 0
             && rect.height > 0
         {
+            eprintln!(
+                "[soyuz-studio @{}] preview host rect {}x{}+{}+{} (attempt {attempt}, {probe_timeouts} probe timeouts)",
+                debug_timestamp(),
+                rect.width,
+                rect.height,
+                rect.x,
+                rect.y
+            );
             return Some(rect);
         }
 
@@ -175,6 +372,10 @@ async fn wait_for_preview_host_rect() -> Option<DomRect> {
         .await;
     }
 
+    eprintln!(
+        "[soyuz-studio @{}] preview host rect NOT found after {PREVIEW_HOST_RETRY_ATTEMPTS} attempts ({probe_timeouts} probe timeouts)",
+        debug_timestamp()
+    );
     None
 }
 
@@ -202,6 +403,7 @@ async fn run_popout_preview(
         Ok(child) => {
             services.terminal_log(TerminalLevel::Info, "Preview window opened");
             services.set_preview_process(child);
+            services.set_preview_docked(false);
 
             let process_handle_wait = services.preview_process();
             wait_for_process_exit(state, services, process_handle_wait, generation).await;
@@ -223,6 +425,7 @@ async fn wait_for_process_exit(
     process_handle: std::sync::Arc<parking_lot::Mutex<Option<Child>>>,
     generation: u64,
 ) {
+    let mut tick: u32 = 0;
     loop {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
@@ -232,12 +435,27 @@ async fn wait_for_process_exit(
             return;
         }
 
+        // Every tick, reclaim keyboard focus if preview interaction broke it
+        // (shortcut deadness is user-visible immediately, so heal fast).
+        // Twice a second, heal any divergence between the embedded child's
+        // actual position and the intended one (docked, or parked offscreen
+        // while an overlay is open).
+        services.reassert_embedded_focus();
+        tick = tick.wrapping_add(1);
+        if tick.is_multiple_of(5) {
+            services.reassert_embedded_visibility();
+        }
+
         let mut guard = process_handle.lock();
         if let Some(ref mut process) = *guard {
             match process.try_wait() {
                 Ok(Some(status)) => {
                     *guard = None;
                     drop(guard);
+                    eprintln!(
+                        "[soyuz-studio @{}] preview child exited: {status} (generation {generation})",
+                        debug_timestamp()
+                    );
                     if status.success() {
                         services.terminal_log(TerminalLevel::Info, "Preview closed");
                     } else {
@@ -338,6 +556,38 @@ fn preview_parent_handle() -> Option<u32> {
     }
 }
 
+/// Debounced ResizeObserver on the preview host div. Pushes an event through
+/// `dioxus.send` after the host rect settles so the embedded preview child can
+/// be re-docked at the new geometry. The initial observe callback is skipped —
+/// mounting the panel must not respawn a healthy preview.
+const PREVIEW_RESIZE_OBSERVER_JS: &str = r#"
+    (function attach(tries) {
+        const host = document.getElementById('soyuz-preview-host');
+        if (!host) {
+            // The eval can run before the freshly-mounted Preview tab reaches
+            // the real DOM; retry briefly instead of silently not observing.
+            if (tries > 0) { setTimeout(() => attach(tries - 1), 50); }
+            return;
+        }
+        if (window.__soyuzPreviewResize) { window.__soyuzPreviewResize.teardown(); }
+        let timer = null;
+        let first = true;
+        const observer = new ResizeObserver(() => {
+            if (first) { first = false; return; }
+            if (timer) { clearTimeout(timer); }
+            timer = setTimeout(() => { dioxus.send({}); }, 250);
+        });
+        observer.observe(host);
+        window.__soyuzPreviewResize = {
+            teardown: () => {
+                observer.disconnect();
+                if (timer) { clearTimeout(timer); }
+                delete window.__soyuzPreviewResize;
+            },
+        };
+    })(20);
+"#;
+
 /// Docked preview tab body.
 #[component]
 pub fn PreviewPanel() -> Element {
@@ -346,6 +596,47 @@ pub fn PreviewPanel() -> Element {
     let is_previewing = state.read().is_previewing;
     let is_dirty = state.read().preview_dirty;
     let error = state.read().error_message.clone();
+
+    // Keep the embedded preview child following the host rect: pane splits,
+    // window resizes, and panel toggles all change it. The F53 generation
+    // counter makes the respawn race-safe.
+    let mut resize_eval = use_signal(|| None);
+    use_effect({
+        let services = services.clone();
+        move || {
+            let eval = document::eval(PREVIEW_RESIZE_OBSERVER_JS);
+            // Keep a handle so use_drop can drop it (releasing the recv channel).
+            resize_eval.set(Some(eval));
+
+            let services = services.clone();
+            spawn(async move {
+                let mut eval = eval;
+                while eval.recv::<serde_json::Value>().await.is_ok() {
+                    reposition_docked_preview(state, services.clone());
+                }
+            });
+        }
+    });
+    use_drop({
+        let services = services.clone();
+        move || {
+            // An embedded child has no life without its host pane: when the
+            // Preview tab is closed or another tab takes its place, stop the
+            // docked preview instead of leaving it floating over the editor.
+            // Pop-out previews are unaffected.
+            if services.preview_is_docked() {
+                services.terminal_log(
+                    TerminalLevel::Info,
+                    "Preview stopped: the Preview tab was closed or hidden.",
+                );
+                stop_preview(state, &services);
+            }
+            let _ = document::eval(
+                "if (window.__soyuzPreviewResize) { window.__soyuzPreviewResize.teardown(); }",
+            );
+            resize_eval.set(None);
+        }
+    });
 
     rsx! {
         div { class: "preview-panel",

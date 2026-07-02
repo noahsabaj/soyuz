@@ -60,6 +60,12 @@ ureq = "3"
 semver = "1"
 webbrowser = "1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Discovering and restacking the embedded X11 preview child (keeps DOM
+# overlays like the command palette above the native preview window).
+# Already in the dependency tree via winit's X11 backend.
+x11rb = "0.13"
+
 [features]
 default = ["desktop"]
 desktop = ["dioxus/desktop"]

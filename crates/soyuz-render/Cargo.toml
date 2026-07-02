@@ -7,7 +7,6 @@ description = "WGPU-based raymarching renderer for Soyuz"
 
 [dependencies]
 soyuz-core = { path = "../soyuz-core" }
-soyuz-math = { path = "../soyuz-math" }
 soyuz-sdf = { path = "../soyuz-sdf" }
 
 # GPU
@@ -34,6 +33,12 @@ anyhow = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Sets the embedded child's X11 background pixel so any exposure before the
+# first frame shows the studio's preview pane color instead of server-default
+# white. Already in the dependency tree via winit's X11 backend.
+x11rb = "0.13"
 
 [lints]
 workspace = true

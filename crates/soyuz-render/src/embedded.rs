@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalPosition, LogicalSize, PhysicalSize},
+    dpi::{PhysicalPosition, PhysicalSize},
     event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
@@ -104,10 +104,10 @@ impl Drop for WindowedSurface {
 pub struct EmbeddedConfig {
     /// Parent window X11 handle (0 means standalone window)
     pub parent_handle: u32,
-    /// Initial position relative to parent
+    /// Initial position relative to parent, in physical (device) pixels
     pub x: i32,
     pub y: i32,
-    /// Initial size
+    /// Initial size, in physical (device) pixels
     pub width: u32,
     pub height: u32,
     /// Window title (only shown when popped out)
@@ -170,17 +170,52 @@ struct EmbeddedPreviewApp {
     fps_overlay: Option<FpsOverlay>,
     controller: CameraController,
     start_time: Instant,
-    instance: wgpu::Instance,
+    /// Created in `resumed` together with the surface: the backend set is
+    /// chosen there (Vulkan first, GL fallback), and a surface is only valid
+    /// with adapters from its own instance.
+    instance: Option<wgpu::Instance>,
     is_embedded: bool,
+    /// One-shot flag so the first successful present leaves a breadcrumb on
+    /// stderr; diagnosing "embedded preview stays blank" needs to know whether
+    /// any frame was ever presented.
+    first_frame_logged: bool,
+}
+
+/// Wall-clock UTC `HH:MM:SS.mmm` for breadcrumbs. Matches the studio's
+/// tracing timestamps (UTC) so logs from multiple preview processes and the
+/// studio itself can be correlated on one timeline.
+fn wallclock() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    format!(
+        "{:02}:{:02}:{:02}.{:03}Z",
+        (secs / 3600) % 24,
+        (secs / 60) % 60,
+        secs % 60,
+        now.subsec_millis()
+    )
+}
+
+/// Stderr breadcrumb for the embedded child's startup sequence. The child
+/// inherits the studio's stderr, so these land in the launching terminal/log
+/// and make presentation stalls diagnosable in the field. PID and wall-clock
+/// disambiguate interleaved output when several children overlap.
+macro_rules! preview_log {
+    ($self:expr, $($arg:tt)*) => {
+        eprintln!(
+            "[soyuz-preview pid {} @{} +{:>4}ms] {}",
+            std::process::id(),
+            wallclock(),
+            $self.start_time.elapsed().as_millis(),
+            format_args!($($arg)*)
+        )
+    };
 }
 
 impl EmbeddedPreviewApp {
     fn new(config: EmbeddedConfig, sdf: Option<SdfOp>) -> Self {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-
         let is_embedded = config.parent_handle != 0;
 
         Self {
@@ -194,9 +229,58 @@ impl EmbeddedPreviewApp {
             fps_overlay: None,
             controller: CameraController::new(),
             start_time: Instant::now(),
-            instance,
+            instance: None,
             is_embedded,
+            first_frame_logged: false,
         }
+    }
+
+    /// Create an instance limited to `backends`, a surface on it, and a
+    /// matching adapter. Split per-backend because a surface only pairs with
+    /// adapters from its own instance: the Vulkan-first attempt must not
+    /// touch GL at all — EGL/GLVND initialization inside `request_adapter`
+    /// is the classic multi-second stall on a cold driver stack (first GPU
+    /// client after boot), and it is pure waste on any box with Vulkan.
+    fn init_gpu(
+        &self,
+        window: &Arc<Window>,
+        backends: wgpu::Backends,
+    ) -> Option<(wgpu::Instance, WindowedSurface, wgpu::Adapter)> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
+
+        let windowed_surface = match WindowedSurface::new(&instance, window.clone()) {
+            Ok(ws) => ws,
+            Err(e) => {
+                preview_log!(self, "surface creation FAILED ({backends:?}): {e}");
+                return None;
+            }
+        };
+        preview_log!(self, "surface created ({backends:?})");
+
+        preview_log!(self, "requesting adapter ({backends:?})...");
+        let adapter =
+            match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(windowed_surface.surface()),
+                force_fallback_adapter: false,
+            })) {
+                Ok(adapter) => adapter,
+                Err(e) => {
+                    preview_log!(self, "no adapter for {backends:?}: {e}");
+                    return None;
+                }
+            };
+        preview_log!(
+            self,
+            "adapter: {} ({:?})",
+            adapter.get_info().name,
+            adapter.get_info().backend
+        );
+
+        Some((instance, windowed_surface, adapter))
     }
 
     fn resize(&mut self, new_size: PhysicalSize<u32>) {
@@ -228,13 +312,17 @@ impl EmbeddedPreviewApp {
         let surface = ws.surface();
         let output = match surface.get_current_texture() {
             Ok(output) => output,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            Err(e @ (wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => {
+                if !self.first_frame_logged {
+                    preview_log!(self, "surface {e:?} before first frame; reconfiguring");
+                }
                 if let (Some(device), Some(config)) = (&self.device, &self.surface_config) {
                     surface.configure(device, config);
                 }
                 return;
             }
             Err(e) => {
+                preview_log!(self, "surface error: {e:?}");
                 tracing::error!("Surface error: {:?}", e);
                 return;
             }
@@ -273,21 +361,45 @@ impl EmbeddedPreviewApp {
         }
 
         output.present();
+        if !self.first_frame_logged {
+            self.first_frame_logged = true;
+            preview_log!(self, "first frame presented");
+            // Embedded windows were created hidden; map only now that real
+            // content exists, so a slow GPU bring-up never parks an unpainted
+            // window over the studio. Ask for another redraw immediately: X11
+            // discards presents to unmapped windows, so the first post-map
+            // frame is what actually reaches the screen.
+            if self.is_embedded {
+                ws.window().set_visible(true);
+                ws.window().request_redraw();
+                preview_log!(self, "embedded window mapped");
+            }
+        }
     }
 }
 
 impl ApplicationHandler for EmbeddedPreviewApp {
+    #[allow(clippy::too_many_lines)] // One linear window/GPU init sequence with breadcrumbs
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.windowed_surface.is_some() {
             return;
         }
 
-        // Build window attributes
+        // Build window attributes. The rect arrives in physical pixels
+        // (captured as CSS px x devicePixelRatio on the studio side), so apply
+        // it as Physical* — letting winit re-scale a Logical rect would double
+        // the display scale on fractional-DPI setups.
+        //
+        // Embedded windows start hidden and are mapped only after the first
+        // frame is presented: GPU bring-up can stall for seconds on a cold
+        // driver, and an already-mapped-but-never-painted X11 window sits as
+        // a white hole over the studio UI for that whole time.
         let mut window_attrs = Window::default_attributes()
             .with_title(&self.config.title)
-            .with_inner_size(LogicalSize::new(self.config.width, self.config.height))
-            .with_position(LogicalPosition::new(self.config.x, self.config.y))
-            .with_decorations(self.config.decorated);
+            .with_inner_size(PhysicalSize::new(self.config.width, self.config.height))
+            .with_position(PhysicalPosition::new(self.config.x, self.config.y))
+            .with_decorations(self.config.decorated)
+            .with_visible(!self.is_embedded);
 
         // If we have a parent window handle, embed as child (X11 only)
         #[cfg(target_os = "linux")]
@@ -298,66 +410,82 @@ impl ApplicationHandler for EmbeddedPreviewApp {
         let window = match event_loop.create_window(window_attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
+                preview_log!(self, "window creation FAILED: {e}");
                 tracing::error!("Failed to create window: {}", e);
                 event_loop.exit();
                 return;
             }
         };
+        preview_log!(
+            self,
+            "window created (embedded: {}, inner: {:?}, scale: {})",
+            self.is_embedded,
+            window.inner_size(),
+            window.scale_factor()
+        );
 
-        // Create windowed surface (safely manages window/surface lifetime)
-        let windowed_surface = match WindowedSurface::new(&self.instance, window) {
-            Ok(ws) => ws,
-            Err(e) => {
-                tracing::error!("Failed to create surface: {}", e);
-                event_loop.exit();
-                return;
-            }
-        };
+        // Any exposure between mapping and the next present shows the X11
+        // window background; match the studio's preview pane color so that
+        // moment is invisible instead of server-default white.
+        #[cfg(target_os = "linux")]
+        if self.is_embedded {
+            set_x11_background_pixel(&window, crate::theme_generated::PREVIEW_CANVAS_BG_X11);
+        }
+
+        // Initialize WGPU: Vulkan (PRIMARY) first, GL only as a fallback.
+        let (instance, windowed_surface, adapter) =
+            match self.init_gpu(&window, wgpu::Backends::PRIMARY).or_else(|| {
+                preview_log!(self, "no PRIMARY (Vulkan) adapter; trying GL fallback");
+                self.init_gpu(&window, wgpu::Backends::GL)
+            }) {
+                Some(parts) => parts,
+                None => {
+                    preview_log!(self, "WGPU init FAILED (no adapter on any backend)");
+                    tracing::error!("Failed to initialize WGPU");
+                    event_loop.exit();
+                    return;
+                }
+            };
 
         let surface = windowed_surface.surface();
 
-        // Initialize WGPU
-        let (device, queue, format) = match pollster::block_on(async {
-            let adapter = self
-                .instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    compatible_surface: Some(surface),
-                    force_fallback_adapter: false,
-                })
-                .await
-                .ok()?;
+        preview_log!(self, "requesting device...");
+        let (device, queue) =
+            match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                label: Some("Soyuz Embedded Device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })) {
+                Ok((device, queue)) => (Arc::new(device), Arc::new(queue)),
+                Err(e) => {
+                    preview_log!(self, "device request FAILED: {e}");
+                    tracing::error!("Failed to get WGPU device: {e}");
+                    event_loop.exit();
+                    return;
+                }
+            };
 
-            let (device, queue) = adapter
-                .request_device(&wgpu::DeviceDescriptor {
-                    label: Some("Soyuz Embedded Device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: Default::default(),
-                    trace: wgpu::Trace::Off,
-                })
-                .await
-                .ok()?;
-
-            let caps = surface.get_capabilities(&adapter);
-            // Prefer sRGB; fall back to the first format. Don't index `formats`
-            // eagerly — it can be empty (returns None here -> handled below).
-            let format = caps
-                .formats
-                .iter()
-                .copied()
-                .find(wgpu::TextureFormat::is_srgb)
-                .or_else(|| caps.formats.first().copied())?;
-
-            Some((Arc::new(device), Arc::new(queue), format))
-        }) {
-            Some(r) => r,
+        let caps = surface.get_capabilities(&adapter);
+        // Prefer sRGB; fall back to the first format. Don't index `formats`
+        // eagerly — it can be empty.
+        let format = match caps
+            .formats
+            .iter()
+            .copied()
+            .find(wgpu::TextureFormat::is_srgb)
+            .or_else(|| caps.formats.first().copied())
+        {
+            Some(format) => format,
             None => {
-                tracing::error!("Failed to initialize WGPU");
+                preview_log!(self, "WGPU init FAILED (surface reports no formats)");
+                tracing::error!("Failed to initialize WGPU: no surface formats");
                 event_loop.exit();
                 return;
             }
         };
+        preview_log!(self, "device ready, format {format:?}");
 
         let size = windowed_surface.window().inner_size();
         let surface_config = wgpu::SurfaceConfiguration {
@@ -386,6 +514,7 @@ impl ApplicationHandler for EmbeddedPreviewApp {
         self.controller.camera.aspect = size.width as f32 / size.height.max(1) as f32;
 
         // Store everything
+        self.instance = Some(instance);
         self.windowed_surface = Some(windowed_surface);
         self.surface_config = Some(surface_config);
         self.device = Some(device);
@@ -393,6 +522,7 @@ impl ApplicationHandler for EmbeddedPreviewApp {
         self.raymarcher = Some(raymarcher);
         self.fps_overlay = Some(fps_overlay);
 
+        preview_log!(self, "renderer ready ({}x{})", size.width, size.height);
         tracing::info!("Preview window ready (embedded: {})", self.is_embedded);
     }
 
@@ -417,6 +547,13 @@ impl ApplicationHandler for EmbeddedPreviewApp {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.controller.handle_mouse_button(state, button);
+            }
+            WindowEvent::Focused(true) if self.is_embedded => {
+                // Diagnostics only: a docked child should never receive X11
+                // keyboard focus. The studio heals focus from its side; the
+                // child deliberately does not touch focus (an unexpected
+                // SetInputFocus from here confuses the WM's focus tracking).
+                preview_log!(self, "focus gained (unexpected for a docked child)");
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.controller.handle_mouse_motion(position);
@@ -453,9 +590,51 @@ impl ApplicationHandler for EmbeddedPreviewApp {
     }
 }
 
+/// Set the X11 window background pixel, shown whenever the server exposes the
+/// window before the renderer's next present (initial map, resizes). Without
+/// it those moments flash server-default white over the studio UI.
+#[cfg(target_os = "linux")]
+fn set_x11_background_pixel(window: &Window, color: u32) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{ChangeWindowAttributesAux, ConnectionExt};
+
+    let xid = window.window_handle().ok().and_then(|h| match h.as_raw() {
+        RawWindowHandle::Xlib(h) => u32::try_from(h.window).ok(),
+        RawWindowHandle::Xcb(h) => Some(h.window.get()),
+        _ => None,
+    });
+    let Some(xid) = xid else {
+        return;
+    };
+    let Ok((conn, _)) = x11rb::connect(None) else {
+        return;
+    };
+    let _ = conn.change_window_attributes(
+        xid,
+        &ChangeWindowAttributesAux::new().background_pixel(color),
+    );
+    let _ = conn.flush();
+}
+
 /// Run the embedded preview (call this from main thread)
 pub fn run_embedded_preview(config: EmbeddedConfig, sdf: Option<SdfOp>) -> anyhow::Result<()> {
+    // X11 embedding requires an X11 event loop, but winit's backend
+    // auto-selection prefers Wayland whenever WAYLAND_DISPLAY is set — even
+    // when the studio window we must embed into is X11 (e.g. GDK_BACKEND=x11
+    // under XWayland). On Wayland the embed parent and position are silently
+    // ignored and the "docked" preview becomes a floating top-level window,
+    // so force the X11 backend whenever a parent handle was supplied.
+    #[cfg(target_os = "linux")]
+    let event_loop = if config.parent_handle != 0 {
+        use winit::platform::x11::EventLoopBuilderExtX11;
+        EventLoop::builder().with_x11().build()?
+    } else {
+        EventLoop::new()?
+    };
+    #[cfg(not(target_os = "linux"))]
     let event_loop = EventLoop::new()?;
+
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = EmbeddedPreviewApp::new(config, sdf);
