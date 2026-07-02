@@ -15,7 +15,9 @@ The desktop workbench for writing and previewing Soyuz assets.
 
 Preview opens inside Soyuz Studio by default. Use Refresh to rerun the current script in the tab, Stop to end the preview process, and Pop Out only when you explicitly want a separate native preview window.
 
-Docked native preview is Linux/X11-first. When docking is unavailable, Soyuz keeps the Preview tab open and reports the reason instead of silently opening a window.
+Docked native preview is Linux/X11-first. When docking is unavailable (for example a Wayland session without an X11 handle), Soyuz explains why in the Output panel and opens a pop-out preview window instead.
+
+While the command palette is open, the docked preview is temporarily hidden so the palette stays on top; it returns the moment the palette closes.
 
 ## Keyboard Shortcuts
 
@@ -26,5 +28,5 @@ Docked native preview is Linux/X11-first. When docking is unavailable, Soyuz kee
 | `Ctrl+O` | Open file |
 | `Ctrl+N` | New tab |
 | `Ctrl+W` | Close tab |
-| `Ctrl+P` | Open command palette |
+| `Ctrl+P` / `Ctrl+Shift+P` | Toggle command palette |
 | `Ctrl+\`` | Toggle terminal |

@@ -5515,7 +5515,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-app"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -5544,7 +5544,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-core"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5557,7 +5557,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-engine"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "soyuz-core",
@@ -5580,7 +5580,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-mcp"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5605,7 +5605,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-render"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5625,7 +5625,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-script"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "notify",
@@ -5644,7 +5644,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-sdf"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "bytemuck",
  "naga",
@@ -5653,7 +5653,7 @@ dependencies = [
 
 [[package]]
 name = "soyuz-wasm"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.3.4",
@@ -7778,7 +7778,7 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 
 [[package]]
 name = "xtask"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "serde",
