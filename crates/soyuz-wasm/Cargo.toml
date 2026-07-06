@@ -19,7 +19,7 @@ wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 
 # Required for WASM: enable js backend for getrandom used by rhai's ahash
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
 # On wasm, rhai pulls `instant`, whose `now()` is only defined when the
 # `wasm-bindgen` backend is enabled (otherwise the wasm link fails with
