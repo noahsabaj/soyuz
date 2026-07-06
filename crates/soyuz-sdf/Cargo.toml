@@ -13,7 +13,7 @@ bytemuck = { workspace = true }
 
 [dev-dependencies]
 # Validate generated WGSL parses & type-checks without needing a GPU.
-naga = { version = "25", features = ["wgsl-in"] }
+naga = { version = "28", features = ["wgsl-in"] }
 
 [lints]
 workspace = true
