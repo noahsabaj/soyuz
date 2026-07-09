@@ -68,7 +68,7 @@ serde_json = "1.0"
 # Utilities
 rayon = "1.10"
 parking_lot = "0.12"
-notify = "7.0"
+notify = "8.2"
 notify-debouncer-mini = "0.5"
 tracing = "0.1"
 tracing-subscriber = "0.3"
