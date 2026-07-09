@@ -30,7 +30,7 @@ categories = ["game-development", "graphics", "rendering"]
 
 [workspace.dependencies]
 # Math
-glam = "0.29"
+glam = "0.33"
 
 # Image handling
 image = "0.25"
